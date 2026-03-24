@@ -3953,17 +3953,23 @@ function SGR_Logic.BrimstoneProtocol(isInitial, character)
                 local safePos = Vector3.new(targetXZ.X, hrpPos.Y, targetXZ.Y) -- Y축은 본래 높이 유지
                 
                 -- 모든 파트로부터 X,Z 기준 75스터드 (30 * 2.5) 이상인지 체크
-                local parts = boss:GetDescendants()
                 local tooClose = false
-                for _, p in ipairs(parts) do
-                    if p:IsA("BasePart") then
-                        local pPos = p.Position
-                        local horizontalDist = (Vector2.new(safePos.X, safePos.Z) - Vector2.new(pPos.X, pPos.Z)).Magnitude
-                        if horizontalDist < 75 then
-                            tooClose = true
-                            break
+                local function checkProximity(container)
+                    if not container then return end
+                    for _, p in ipairs(container:GetDescendants()) do
+                        if p:IsA("BasePart") then
+                            local pPos = p.Position
+                            local horizontalDist = (Vector2.new(safePos.X, safePos.Z) - Vector2.new(pPos.X, pPos.Z)).Magnitude
+                            if horizontalDist < 75 then
+                                tooClose = true
+                                return true
+                            end
                         end
                     end
+                end
+                
+                if not checkProximity(boss) then
+                    checkProximity(workspace:FindFirstChild("EpicEffect2"))
                 end
                 
                 if tooClose then
