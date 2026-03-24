@@ -3890,7 +3890,7 @@ function SGR_Logic.BrimstoneProtocol(isInitial, character)
     local bossHasAppeared = false -- [FIX] 보스가 한 번이라도 나타난 후에만 부재 감지 작동
     
     while Settings.SGR.autoBrimstoneEnabled do
-        local dt = task.wait(0.05) -- 약 20 FPS (성능 고려)
+        task.wait(0.05) -- 약 20 FPS (성능 고려)
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         local hum = char and char:FindFirstChild("Humanoid")
@@ -3899,6 +3899,29 @@ function SGR_Logic.BrimstoneProtocol(isInitial, character)
         local entities = workspace:FindFirstChild("Entities")
         local boss = entities and entities:FindFirstChild("Brimstone Orb")
         local head = boss and boss:FindFirstChild("Head")
+
+        -- [Global Height Guard] 어떠한 상황에서도 브림스톤보다 낮게 있으면 위로 텔레포트
+        if head and hrp and hrp.Position.Y < (head.Position.Y + 15) then
+            hrp.CFrame = CFrame.new(hrp.Position.X, head.Position.Y + 15, hrp.Position.Z)
+            hrp.AssemblyLinearVelocity = Vector3.zero
+        end
+
+        -- 근접 감지 함수 정의
+        local tooClose = false
+        local function checkProximity(container, targetPos)
+            if not container then return end
+            for _, p in ipairs(container:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    local pPos = p.Position
+                    local horizontalDist = (Vector2.new(targetPos.X, targetPos.Z) - Vector2.new(pPos.X, pPos.Z)).Magnitude
+                    if horizontalDist < 75 then
+                        tooClose = true
+                        return true
+                    end
+                end
+            end
+            return false
+        end
 
         -- 보스 부재 감지 (한 번이라도 보스를 본 후, 5초 이상 사라지면 리셋)
         if not boss then
@@ -3928,10 +3951,11 @@ function SGR_Logic.BrimstoneProtocol(isInitial, character)
                     zKeyHeld = true
                 end
 
-                -- 100ms 예측 텔레포트 (머리 위 5스터드)
+                -- 100ms 예측 텔레포트 (머리 위 15스터드 유지)
                 local velocity = head.AssemblyLinearVelocity or Vector3.zero
-                local targetPos = head.Position + (velocity * 0.1) + Vector3.new(0, 5, 0)
+                local targetPos = head.Position + (velocity * 0.1) + Vector3.new(0, 15, 0)
                 hrp.CFrame = CFrame.new(targetPos, head.Position)
+                hrp.AssemblyLinearVelocity = Vector3.zero
             else
                 -- [회피/카이팅 페이즈]
                 if zKeyHeld then
@@ -3955,31 +3979,23 @@ function SGR_Logic.BrimstoneProtocol(isInitial, character)
                 local safePos = Vector3.new(targetXZ.X, safeY, targetXZ.Y)
                 
                 -- 모든 파트로부터 X,Z 기준 75스터드 (30 * 2.5) 이상인지 체크
-                local tooClose = false
-                local function checkProximity(container)
-                    if not container then return end
-                    for _, p in ipairs(container:GetDescendants()) do
-                        if p:IsA("BasePart") then
-                            local pPos = p.Position
-                            local horizontalDist = (Vector2.new(safePos.X, safePos.Z) - Vector2.new(pPos.X, pPos.Z)).Magnitude
-                            if horizontalDist < 75 then
-                                tooClose = true
-                                return true
-                            end
-                        end
+                if not checkProximity(boss, safePos) then
+                    checkProximity(workspace:FindFirstChild("EpicEffect2"), safePos)
+                end
+                
+                -- [Reactive Kiting] 너무 가깝거나 너무 낮을 때만 텔레포트 (그 외엔 제자리 고정)
+                if tooClose or (hrpPos.Y < headPos.Y + 15) then
+                    if tooClose then
+                        -- 너무 가까우면 보스로부터 더 멀어지기
+                        safePos = safePos + (direction * 20)
                     end
+                    hrp.CFrame = CFrame.new(safePos, head.Position)
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                else
+                    -- 가만히 있기 (브림스톤한테 텔레포트 하지 않음)
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    -- 텔레포트하지 않음 (CFrame 업데이트 생략)
                 end
-                
-                if not checkProximity(boss) then
-                    checkProximity(workspace:FindFirstChild("EpicEffect2"))
-                end
-                
-                if tooClose then
-                    -- 너무 가까우면 보스로부터 더 멀어지기
-                    safePos = safePos + (direction * 20)
-                end
-                
-                hrp.CFrame = CFrame.new(safePos, head.Position)
             end
         end
     end
