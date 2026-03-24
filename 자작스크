@@ -3578,15 +3578,28 @@ function SGR_Logic.WaveStandard()
     end
 end
 
+local isWaveSequenceRunning = false
 local function performAutoWaveSequence()
-    if not Settings.SGR.autoWaveEnabled then return end
+    if isWaveSequenceRunning or not Settings.SGR.autoWaveEnabled then return end
+    isWaveSequenceRunning = true
+    
+    local function endSequence()
+        isWaveSequenceRunning = false
+    end
+    
+    local monitorThread
+    local function cleanupAndEnd()
+        if monitorThread then pcall(function() task.cancel(monitorThread) end) monitorThread = nil end
+        endSequence()
+    end
 
     if isRejoinSequencePending then
         isRejoinSequencePending = false
         if Settings.SGR.reconnectEnabled then
             task.spawn(function()
+                local _ = endSequence -- sequence is "active" in this spawned thread
             task.wait(25)
-            if not Settings.SGR.autoWaveEnabled then return end
+            if not Settings.SGR.autoWaveEnabled then cleanupAndEnd() return end
 
             local vim = game:GetService("VirtualInputManager")
             local guiService = game:GetService("GuiService")
@@ -3622,7 +3635,7 @@ local function performAutoWaveSequence()
                 vim:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 1)
                 
                 task.wait(10)
-                if not Settings.SGR.autoWaveEnabled then return end
+                if not Settings.SGR.autoWaveEnabled then cleanupAndEnd() return end
 
                 vim:SendKeyEvent(true, Enum.KeyCode.O, false, game)
                 task.wait(0.77) -- [MODIFIED] 1s -> 0.77s
@@ -3640,12 +3653,12 @@ local function performAutoWaveSequence()
                 task.spawn(performAutoWaveSequence)
             end
         end)
-            return -- 이 호출은 여기서 종료되고, 위 스폰된 루틴이 리셋을 담당함. 만약 리셋 실패 시 위 else문에서 재호출함.
+            return -- rejoin handles its own state
         end
     end
     
     -- [안전장치] 30초간 HP 변화 감지 및 강제 재설정(초기화)
-    task.spawn(function()
+    monitorThread = task.spawn(function()
         local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
         local hum = char:WaitForChild("Humanoid", 3)
         if not hum then return end
@@ -3683,7 +3696,7 @@ local function performAutoWaveSequence()
     end)
     
     task.wait(1)
-    if not Settings.SGR.autoWaveEnabled then return end
+    if not Settings.SGR.autoWaveEnabled then cleanupAndEnd() return end
     
     local vim = game:GetService("VirtualInputManager")
     
@@ -3708,7 +3721,7 @@ local function performAutoWaveSequence()
     vim:SendKeyEvent(false, Enum.KeyCode.T, false, game)
     
     task.wait(1)
-    if not Settings.SGR.autoWaveEnabled then return end
+    if not Settings.SGR.autoWaveEnabled then cleanupAndEnd() return end
     
     local char = LocalPlayer.Character
     local hum = char and char:FindFirstChild("Humanoid")
@@ -3722,7 +3735,7 @@ local function performAutoWaveSequence()
     end
     
     task.wait(3)
-    if not Settings.SGR.autoWaveEnabled then return end
+    if not Settings.SGR.autoWaveEnabled then cleanupAndEnd() return end
     
     local gui = LocalPlayer.PlayerGui:FindFirstChild("bossSpawningGui")
     if gui then
@@ -3739,7 +3752,7 @@ local function performAutoWaveSequence()
         end
         
         task.wait(1)
-        if not Settings.SGR.autoWaveEnabled then return end
+        if not Settings.SGR.autoWaveEnabled then cleanupAndEnd() return end
         
         local summonBtn = rootFrame and rootFrame:FindFirstChild("Summon")
         if summonBtn then
@@ -3751,7 +3764,7 @@ local function performAutoWaveSequence()
             vim:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 1)
             
             task.wait(1)
-            if not Settings.SGR.autoWaveEnabled then return end
+            if not Settings.SGR.autoWaveEnabled then cleanupAndEnd() return end
             
             -- SUMMON 클릭 성공 후 A키 5초 유지
             vim:SendKeyEvent(true, Enum.KeyCode.A, false, game)
@@ -3768,6 +3781,7 @@ local function performAutoWaveSequence()
             task.spawn(SGR_Logic.WaveStandard)
         end
     end
+    cleanupAndEnd()
 end
 
 
@@ -4023,6 +4037,8 @@ local autoWaveToggleObj = SGRTab.Toggle({
         Settings.SGR.autoWaveEnabled = value
         if value then
             task.spawn(performAutoWaveSequence)
+        else
+            isWaveSequenceRunning = false -- 토글 끌 때 플래그 초기화
         end
     end
 })
@@ -4058,7 +4074,8 @@ end)
 LocalPlayer.CharacterAdded:Connect(function(char)
     if Settings.SGR.autoWaveEnabled then
         task.wait(1)
-        task.spawn(SGR_Logic.WaveStandard)
+        isWaveSequenceRunning = false -- 리스폰 시 이전 시퀀스 플래그 강제 초기화
+        task.spawn(performAutoWaveSequence)
     end
     if Settings.SGR.autoBrimstoneEnabled then
         task.wait(1)
