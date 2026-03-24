@@ -283,6 +283,7 @@ ESP_FOLDER.Parent = game:GetService("CoreGui")
 -- 레그돌 상태 전역 변수 (추가됨)
 -- =============================
 local isRagdolled = false
+local isRejoinSequencePending = (getgenv and getgenv().IS_TELEPORT_LOAD) or false
 
 -- =============================
 -- 회전 제어 시스템 (레그돌 감지 추가)
@@ -3523,6 +3524,60 @@ local function SmoothMouseMoveToAbsolute(targetAbsolutePosition, duration)
     task.wait(duration)
 end
 
+local SGR_Logic = {
+    isBrimRunning = false
+}
+
+function SGR_Logic.WaveStandard()
+    if not Settings.SGR.autoWaveEnabled then return end
+    
+    -- 초기 지연 및 준비
+    task.wait(1)
+    if not Settings.SGR.autoWaveEnabled then return end
+    
+    local d_hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+    if d_hum then
+        -- 30초 이상 변화 없으면 리셋하는 루프 (별도 스폰)
+        task.spawn(function()
+            local lastPos = (LocalPlayer.Character and LocalPlayer.Character.PrimaryPart) and LocalPlayer.Character.PrimaryPart.Position or Vector3.zero
+            local timeWithoutChange = 0
+            while Settings.SGR.autoWaveEnabled do
+                task.wait(1)
+                local char = LocalPlayer.Character
+                if not char or not char.PrimaryPart then break end
+                local currentPos = char.PrimaryPart.Position
+                if (currentPos - lastPos).Magnitude < 1 then
+                    timeWithoutChange = timeWithoutChange + 1
+                else
+                    lastPos = currentPos
+                    timeWithoutChange = 0
+                end
+                
+                if timeWithoutChange >= 30 then
+                    local h = char:FindFirstChild("Humanoid")
+                    if h then h.Health = 0 end -- 30초 경과 시 스스로 재설정
+                    break
+                end
+            end
+        end)
+        
+        -- 죽을 때까지 0.1초마다 현재 마우스 위치에 오토마우스(클릭)
+        while Settings.SGR.autoWaveEnabled do
+            local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+            if not hum or hum.Health <= 0 then
+                break -- 죽었으면 루프 탈출
+            end
+            
+            local mouseLoc = game:GetService("UserInputService"):GetMouseLocation()
+            local vim = game:GetService("VirtualInputManager")
+            vim:SendMouseButtonEvent(mouseLoc.X, mouseLoc.Y, 0, true, game, 1)
+            task.wait(0.05)
+            vim:SendMouseButtonEvent(mouseLoc.X, mouseLoc.Y, 0, false, game, 1)
+            task.wait(0.05)
+        end
+    end
+end
+
 local function performAutoWaveSequence()
     if not Settings.SGR.autoWaveEnabled then return end
 
@@ -3708,62 +3763,16 @@ local function performAutoWaveSequence()
                 Settings.SGR.bossBindEnabled = true
                 pcall(function() bossBindToggleObj:SetState(true) end)
             end
-        end
-    end
-end
-
-local SGR_Logic = {
-    isBrimRunning = false
-}
-
-function SGR_Logic.WaveStandard()
-    if not Settings.SGR.autoWaveEnabled then return end
-    
-    -- 초기 지연 및 준비
-    task.wait(1)
-    if not Settings.SGR.autoWaveEnabled then return end
-    
-    local d_hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
-    if d_hum then
-        -- 30초 이상 변화 없으면 리셋하는 루프 (별도 스폰)
-        task.spawn(function()
-            local lastPos = (LocalPlayer.Character and LocalPlayer.Character.PrimaryPart) and LocalPlayer.Character.PrimaryPart.Position or Vector3.zero
-            local timeWithoutChange = 0
-            while Settings.SGR.autoWaveEnabled do
-                task.wait(1)
-                local char = LocalPlayer.Character
-                if not char or not char.PrimaryPart then break end
-                local currentPos = char.PrimaryPart.Position
-                if (currentPos - lastPos).Magnitude < 1 then
-                    timeWithoutChange = timeWithoutChange + 1
-                else
-                    lastPos = currentPos
-                    timeWithoutChange = 0
-                end
-                
-                if timeWithoutChange >= 30 then
-                    local h = char:FindFirstChild("Humanoid")
-                    if h then h.Health = 0 end -- 30초 경과 시 스스로 재설정
-                    break
-                end
-            end
-        end)
-        
-        -- 죽을 때까지 0.1초마다 현재 마우스 위치에 오토마우스(클릭)
-        while Settings.SGR.autoWaveEnabled do
-            local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
-            if not hum or hum.Health <= 0 then
-                break -- 죽었으면 루프 탈출
-            end
             
-            local mouseLoc = game:GetService("UserInputService"):GetMouseLocation()
-            vim:SendMouseButtonEvent(mouseLoc.X, mouseLoc.Y, 0, true, game, 1)
-            task.wait(0.05)
-            vim:SendMouseButtonEvent(mouseLoc.X, mouseLoc.Y, 0, false, game, 1)
-            task.wait(0.05)
+            -- [NEW] 소환 성공 후 전투 루프(클릭) 시작
+            task.spawn(SGR_Logic.WaveStandard)
         end
     end
 end
+
+
+
+
 
 function SGR_Logic.BrimstoneProtocol(isInitial, character)
     if SGR_Logic.isBrimRunning or not Settings.SGR.autoBrimstoneEnabled then return end
@@ -4013,7 +4022,7 @@ local autoWaveToggleObj = SGRTab.Toggle({
     Callback = function(value)
         Settings.SGR.autoWaveEnabled = value
         if value then
-            task.spawn(SGR_Logic.WaveStandard)
+            task.spawn(performAutoWaveSequence)
         end
     end
 })
@@ -4327,4 +4336,9 @@ EtcTab.Button({
 -- 같은 세션에서 수동으로 다시 실행할 때 이전 설정이 강제로 덮어씌워지는 것을 방지합니다.
 if getgenv then
     getgenv().IS_TELEPORT_LOAD = nil
+end
+
+-- [NEW] 스크립트 로드 시 오토 웨이브가 켜져 있으면 시퀀스 실행 (재접속 대응 포함)
+if Settings.SGR.autoWaveEnabled then
+    task.spawn(performAutoWaveSequence)
 end
