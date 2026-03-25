@@ -3531,8 +3531,7 @@ local SGR_Logic = {
 function SGR_Logic.WaveStandard()
     if not Settings.SGR.autoWaveEnabled then return end
     
-    -- 초기 지연 및 준비
-    task.wait(1)
+    -- [MODIFIED] 초기 지연 제거 (즉시 시작)
     if not Settings.SGR.autoWaveEnabled then return end
     
     local d_hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
