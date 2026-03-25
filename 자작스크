@@ -158,7 +158,8 @@ local Settings = {
         bossBindEnabled = false,
         bossBindDistance = 10,
         reconnectEnabled = true,
-        autoWaveEnabled = false
+        autoWaveEnabled = false,
+        isAlteredOrbActive = false
     },
     
     -- 플레이어 락
@@ -3739,8 +3740,47 @@ local function performAutoWaveSequence()
                         if conn then conn:Disconnect() end
                         return
                     end
-                    hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(360 / 7) * dt, 0)
+                    if not Settings.SGR.isAlteredOrbActive then
+                        hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(360 / 7) * dt, 0)
+                    end
                 end)
+            end)
+            
+            -- [NEW] Altered Orb 실시간 감지 및 텔레포트 (50ms 예측 적용)
+            task.spawn(function()
+                local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+                local hrp = char:WaitForChild("HumanoidRootPart", 5)
+                local hum = char:WaitForChild("Humanoid", 5)
+                if not hrp or not hum then return end
+                
+                local entities = workspace:FindFirstChild("Entities")
+                local lastOrbPos, lastOrbTime
+                
+                while Settings.SGR.autoWaveEnabled and hum.Health > 0 do
+                    local alteredOrb = entities and entities:FindFirstChild("Altered Orb")
+                    if alteredOrb then
+                        Settings.SGR.isAlteredOrbActive = true
+                        local currentOrbPos = alteredOrb:GetPivot().Position
+                        local currentTime = tick()
+                        
+                        if lastOrbPos and lastOrbTime and (currentTime - lastOrbTime) > 0 then
+                            local velocity = (currentOrbPos - lastOrbPos) / (currentTime - lastOrbTime)
+                            local predictedPos = currentOrbPos + (velocity * 0.05) -- 50ms 후 예측
+                            hrp.CFrame = CFrame.new(predictedPos + Vector3.new(0, 3, 0)) * (hrp.CFrame - hrp.CFrame.Position)
+                        else
+                            hrp.CFrame = CFrame.new(currentOrbPos + Vector3.new(0, 3, 0)) * (hrp.CFrame - hrp.CFrame.Position)
+                        end
+                        
+                        lastOrbPos = currentOrbPos
+                        lastOrbTime = currentTime
+                    else
+                        Settings.SGR.isAlteredOrbActive = false
+                        lastOrbPos = nil
+                        lastOrbTime = nil
+                    end
+                    task.wait()
+                end
+                Settings.SGR.isAlteredOrbActive = false
             end)
             
             -- 죽을 때까지 0.1초마다 현재 마우스 위치에 오토마우스(클릭)
@@ -3805,7 +3845,7 @@ end)
 -- Boss Bind Logic
 -- Boss Bind Logic (Smooth Update)
 Services.RunService.Heartbeat:Connect(function()
-    if Settings.SGR.bossBindEnabled then
+    if Settings.SGR.bossBindEnabled and not Settings.SGR.isAlteredOrbActive then
         local entities = workspace:FindFirstChild("Entities")
         if entities then
             for _, entity in ipairs(entities:GetChildren()) do
