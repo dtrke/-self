@@ -3589,7 +3589,7 @@ local function performAutoWaveSequence()
         end
     end
     
-    -- [안전장치] HP 변화 감지 및 Plorb/Chorber 실시간 감지 리셋
+    -- [안전장치] HP 변화 감지 및 Imposter 실시간 감지 리셋
     task.spawn(function()
         local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
         local hum = char:WaitForChild("Humanoid", 3)
@@ -3597,7 +3597,7 @@ local function performAutoWaveSequence()
         
         local connections = {}
         local function checkEntity(child)
-            if child.Name == "Plorb" or child.Name == "Chorber" then
+            if child.Name == "Imposter" then
                 hum.Health = 0
             end
         end
@@ -3620,7 +3620,7 @@ local function performAutoWaveSequence()
             end
             
             -- 보조 폴링 (Option 3)
-            if entities and (entities:FindFirstChild("Plorb") or entities:FindFirstChild("Chorber")) then
+            if entities and entities:FindFirstChild("Imposter") then
                 currentHum.Health = 0
                 break
             end
@@ -3746,7 +3746,7 @@ local function performAutoWaveSequence()
                 end)
             end)
             
-            -- [NEW] Altered Orb 실시간 감지 및 텔레포트 (50ms 예측 적용)
+            -- [NEW] Special Orb 실시간 감지 및 텔레포트 (50ms 예측 적용)
             task.spawn(function()
                 local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
                 local hrp = char:WaitForChild("HumanoidRootPart", 5)
@@ -3755,12 +3755,23 @@ local function performAutoWaveSequence()
                 
                 local entities = workspace:FindFirstChild("Entities")
                 local lastOrbPos, lastOrbTime
+                local specialOrbs = {"Altered Orb", "Plorb", "Chorber", "Orb", "Enlightened Orb", "Repressed Orb", "Synthesis Orb", "GunsForGuns Orb"}
                 
                 while Settings.SGR.autoWaveEnabled and hum.Health > 0 do
-                    local alteredOrb = entities and entities:FindFirstChild("Altered Orb")
-                    if alteredOrb then
+                    local targetOrb = nil
+                    if entities then
+                        for _, orbName in ipairs(specialOrbs) do
+                            local found = entities:FindFirstChild(orbName)
+                            if found then
+                                targetOrb = found
+                                break
+                            end
+                        end
+                    end
+
+                    if targetOrb then
                         Settings.SGR.isAlteredOrbActive = true
-                        local currentOrbPos = alteredOrb:GetPivot().Position
+                        local currentOrbPos = targetOrb:GetPivot().Position
                         local currentTime = tick()
                         
                         if lastOrbPos and lastOrbTime and (currentTime - lastOrbTime) > 0 then
