@@ -201,7 +201,7 @@ local Settings = {
 -- =============================
 -- [ 파일 자동 생성 및 텔레포트 재접속 시스템 ]
 -- =============================
-local myScriptUrl = "https://pastebin.com/raw/yN7FVWSP"
+local myScriptUrl = "https://raw.githubusercontent.com/dtrke/-self/refs/heads/main/%EC%9E%90%EC%9E%91%EC%8A%A4%ED%81%AC"
 
 -- 1. 처음 스크립트를 켰을 때, 익스플로잇 workspace 폴더에 '링크 파일' 자동 생성 (이미 있으면 생성 안함)
 local function UpdatePersistence()
