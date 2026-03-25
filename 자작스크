@@ -3528,22 +3528,22 @@ local function SmoothMouseMoveToAbsolute(targetAbsolutePosition, duration)
 end
 
 local SGR_Logic = {
-    isBrimRunning = false
+    isBrimRunning = false,
+    isWaveStandardRunning = false -- [NEW]
 }
 
 function SGR_Logic.WaveStandard()
-    if not Settings.SGR.autoWaveEnabled then return end
-    
-    -- [MODIFIED] 초기 지연 제거 (즉시 시작)
-    if not Settings.SGR.autoWaveEnabled then return end
+    if SGR_Logic.isWaveStandardRunning or not Settings.SGR.autoWaveEnabled then return end
+    SGR_Logic.isWaveStandardRunning = true
     
     local d_hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+
     if d_hum then
         -- 30초 이상 변화 없으면 리셋하는 루프 (별도 스폰)
         task.spawn(function()
             local lastPos = (LocalPlayer.Character and LocalPlayer.Character.PrimaryPart) and LocalPlayer.Character.PrimaryPart.Position or Vector3.zero
             local timeWithoutChange = 0
-            while Settings.SGR.autoWaveEnabled do
+            while Settings.SGR.autoWaveEnabled and SGR_Logic.isWaveStandardRunning do
                 task.wait(1)
                 local char = LocalPlayer.Character
                 if not char or not char.PrimaryPart then break end
@@ -3566,7 +3566,7 @@ function SGR_Logic.WaveStandard()
         -- [NEW] 7초에 1바퀴씩 회전하는 기능 (추가됨)
         task.spawn(function()
             local startTime = tick()
-            while Settings.SGR.autoWaveEnabled do
+            while Settings.SGR.autoWaveEnabled and SGR_Logic.isWaveStandardRunning do
                 local char = LocalPlayer.Character
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
                 local hum = char and char:FindFirstChild("Humanoid")
@@ -3585,7 +3585,7 @@ function SGR_Logic.WaveStandard()
         end)
         
         -- 죽을 때까지 0.1초마다 현재 마우스 위치에 오토마우스(클릭)
-        while Settings.SGR.autoWaveEnabled do
+        while Settings.SGR.autoWaveEnabled and SGR_Logic.isWaveStandardRunning do
             local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
             if not hum or hum.Health <= 0 then
                 break -- 죽었으면 루프 탈출
@@ -3599,6 +3599,7 @@ function SGR_Logic.WaveStandard()
             task.wait(0.05)
         end
     end
+    SGR_Logic.isWaveStandardRunning = false
 end
 
 local isWaveSequenceRunning = false
@@ -3620,7 +3621,7 @@ local function performAutoWaveSequence()
         isRejoinSequencePending = false
         if Settings.SGR.reconnectEnabled then
             task.spawn(function()
-                local _ = endSequence -- sequence is "active" in this spawned thread
+                -- [FIX] cleanupAndEnd()를 호출하여 상태를 정상적으로 초기화하도록 수정
             task.wait(25)
             if not Settings.SGR.autoWaveEnabled then cleanupAndEnd() return end
 
@@ -3670,10 +3671,10 @@ local function performAutoWaveSequence()
                 if hum then
                     hum.Health = 0
                 end
+                cleanupAndEnd() -- [FIX] 성공적으로 종료 시 호출
             else
-                -- 버튼을 못 찾은 경우 5초 뒤에 한 번 더 수행하거나, 그냥 일반 시퀀스로 넘어가게 할 수 있음
-                -- 여기서는 리셋 없이 그냥 일반 시퀀스가 돌아가도록 performAutoWaveSequence를 다시 호출함
-                task.spawn(performAutoWaveSequence)
+                -- 버튼을 못 찾은 경우 시퀀스 종료 (재귀 호출 제거하여 무한 루프 방지)
+                cleanupAndEnd()
             end
         end)
             return -- rejoin handles its own state
@@ -3768,7 +3769,7 @@ local function performAutoWaveSequence()
     local terminal = minigames and minigames:FindFirstChild("Terminal")
     local targetDest = terminal and terminal:FindFirstChild("SmallScreen")
     
-    if hum and targetDest then
+    if hum and targetDest and hum.Health > 0 then
         hum:MoveTo(targetDest.Position)
         hum.MoveToFinished:Wait()
     end
