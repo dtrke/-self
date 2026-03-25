@@ -159,7 +159,8 @@ local Settings = {
         bossBindDistance = 10,
         reconnectEnabled = true,
         autoWaveEnabled = false,
-        autoBrimstoneEnabled = false
+        autoBrimstoneEnabled = false,
+        autoClickEnabled = true
     },
     
     -- 플레이어 락
@@ -3492,6 +3493,7 @@ SGRTab.Toggle({
 })
 
 
+
 local function SmoothMouseMoveToAbsolute(targetAbsolutePosition, duration)
     local uis = game:GetService("UserInputService")
     local startPos = uis:GetMouseLocation()
@@ -3537,13 +3539,11 @@ function SGR_Logic.WaveStandard()
     
     local d_hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
     if d_hum then
-        local clickingActive = true
-        
         -- 30초 이상 변화 없으면 리셋하는 루프 (별도 스폰)
         task.spawn(function()
             local lastPos = (LocalPlayer.Character and LocalPlayer.Character.PrimaryPart) and LocalPlayer.Character.PrimaryPart.Position or Vector3.zero
             local timeWithoutChange = 0
-            while Settings.SGR.autoWaveEnabled and clickingActive do
+            while Settings.SGR.autoWaveEnabled do
                 task.wait(1)
                 local char = LocalPlayer.Character
                 if not char or not char.PrimaryPart then break end
@@ -3563,15 +3563,16 @@ function SGR_Logic.WaveStandard()
             end
         end)
         
-        -- [NEW] 7초에 1바퀴씩 회전하는 기능 (클릭 중일 때만 작동)
+        -- [NEW] 7초에 1바퀴씩 회전하는 기능 (추가됨)
         task.spawn(function()
             local startTime = tick()
-            while Settings.SGR.autoWaveEnabled and clickingActive do
+            while Settings.SGR.autoWaveEnabled do
                 local char = LocalPlayer.Character
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
                 local hum = char and char:FindFirstChild("Humanoid")
                 
-                if hrp and hum and hum.Health > 0 then
+                -- [MODIFIED] 오토마우스가 켜져있고 살아있을 때만 회전
+                if Settings.SGR.autoClickEnabled and hrp and hum and hum.Health > 0 then
                     local elapsed = tick() - startTime
                     -- 7초에 1바퀴 (360도)
                     local rotationAngle = (elapsed / 7) * 360
@@ -3597,7 +3598,6 @@ function SGR_Logic.WaveStandard()
             vim:SendMouseButtonEvent(mouseLoc.X, mouseLoc.Y, 0, false, game, 1)
             task.wait(0.05)
         end
-        clickingActive = false
     end
 end
 
@@ -3606,20 +3606,13 @@ local function performAutoWaveSequence()
     if isWaveSequenceRunning or not Settings.SGR.autoWaveEnabled then return end
     isWaveSequenceRunning = true
     
-    -- [NEW] 시작하자마자 즉시 재설정
-    local startChar = LocalPlayer.Character
-    local startHum = startChar and startChar:FindFirstChild("Humanoid")
-    if startHum then startHum.Health = 0 end
-    
     local function endSequence()
         isWaveSequenceRunning = false
     end
     
     local monitorThread
-    local entitiesEvent
     local function cleanupAndEnd()
         if monitorThread then pcall(function() task.cancel(monitorThread) end) monitorThread = nil end
-        if entitiesEvent then pcall(function() entitiesEvent:Disconnect() end) entitiesEvent = nil end
         endSequence()
     end
 
@@ -3687,23 +3680,7 @@ local function performAutoWaveSequence()
         end
     end
     
-    -- [NEW] Plorb 혹은 Chorber 감지 시 즉시 재설정 (실시간 이벤트 + 초기 체크)
-    local entities = workspace:FindFirstChild("Entities")
-    if entities then
-        local function check(child)
-            if child.Name == "Plorb" or child.Name == "Chorber" then
-                local char = LocalPlayer.Character
-                local hum = char and char:FindFirstChild("Humanoid")
-                if hum then hum.Health = 0 end
-            end
-        end
-        for _, child in ipairs(entities:GetChildren()) do
-            check(child)
-        end
-        entitiesEvent = entities.ChildAdded:Connect(check)
-    end
-    
-    -- [안전장치] 30초간 HP 변화 감지 및 강제 재설정(초기화)
+    -- [안전장치] 30초간 HP 변화 감지 및 강제 재설정(초기화) + 엔티티 감지
     monitorThread = task.spawn(function()
         local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
         local hum = char:WaitForChild("Humanoid", 3)
@@ -3711,6 +3688,29 @@ local function performAutoWaveSequence()
         
         local lastHP = hum.Health
         local timeWithoutChange = 0
+        local entityConn
+        
+        -- [NEW] 즉시 재설정을 위한 엔티티 감지 로직 (ChildAdded)
+        local function checkEntity(child)
+            if child.Name == "Plorb" or child.Name == "Chorber" then
+                local currentHum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+                if currentHum then currentHum.Health = 0 end
+                return true
+            end
+            return false
+        end
+
+        local entities = workspace:FindFirstChild("Entities")
+        if entities then
+            -- 기존에 이미 있는 경우 체크
+            for _, child in ipairs(entities:GetChildren()) do
+                if checkEntity(child) then break end
+            end
+            -- 새로 생기는 경우 실시간 감지
+            entityConn = entities.ChildAdded:Connect(function(child)
+                checkEntity(child)
+            end)
+        end
         
         while Settings.SGR.autoWaveEnabled do
             task.wait(1)
@@ -3719,15 +3719,6 @@ local function performAutoWaveSequence()
                 break -- 죽으면 루프 종료, 다음 생에 새로 시작
             end
             
-            -- [NEW] Plorb 또는 Chorber 감지 시 즉시 재설정
-            local entities = workspace:FindFirstChild("Entities")
-            if entities then
-                if entities:FindFirstChild("Plorb") or entities:FindFirstChild("Chorber") then
-                    currentHum.Health = 0
-                    break
-                end
-            end
-
             if math.abs(currentHum.Health - lastHP) >= 1 then
                 lastHP = currentHum.Health
                 timeWithoutChange = 0 -- HP 변화가 있으면 타이머 리셋
@@ -3739,6 +3730,8 @@ local function performAutoWaveSequence()
                 end
             end
         end
+        
+        if entityConn then entityConn:Disconnect() end
     end)
     
     task.wait(1)
@@ -4082,6 +4075,10 @@ local autoWaveToggleObj = SGRTab.Toggle({
     Callback = function(value)
         Settings.SGR.autoWaveEnabled = value
         if value then
+            -- [NEW] 토글 켤 때 딱 한 번만 재설정
+            local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+            if hum then hum.Health = 0 end
+            
             task.spawn(performAutoWaveSequence)
         else
             isWaveSequenceRunning = false -- 토글 끌 때 플래그 초기화
