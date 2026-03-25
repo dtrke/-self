@@ -3561,6 +3561,26 @@ function SGR_Logic.WaveStandard()
             end
         end)
         
+        -- [NEW] 7초에 1바퀴씩 회전하는 기능 (추가됨)
+        task.spawn(function()
+            local startTime = tick()
+            while Settings.SGR.autoWaveEnabled do
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                local hum = char and char:FindFirstChild("Humanoid")
+                
+                if hrp and hum and hum.Health > 0 then
+                    local elapsed = tick() - startTime
+                    -- 7초에 1바퀴 (360도)
+                    local rotationAngle = (elapsed / 7) * 360
+                    local currentCF = hrp.CFrame
+                    -- 위치는 유지하고 회전만 변경
+                    hrp.CFrame = CFrame.new(currentCF.Position) * CFrame.Angles(0, math.rad(rotationAngle % 360), 0)
+                end
+                task.wait()
+            end
+        end)
+        
         -- 죽을 때까지 0.1초마다 현재 마우스 위치에 오토마우스(클릭)
         while Settings.SGR.autoWaveEnabled do
             local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
