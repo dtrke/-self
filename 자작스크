@@ -3589,7 +3589,7 @@ local function performAutoWaveSequence()
         end
     end
     
-    -- [안전장치] HP 변화 감지 및 Imposter 실시간 감지 리셋
+    -- [안전장치] HP 변화 감지 및 Impostor 실시간 감지 리셋
     task.spawn(function()
         local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
         local hum = char:WaitForChild("Humanoid", 3)
@@ -3597,7 +3597,7 @@ local function performAutoWaveSequence()
         
         local connections = {}
         local function checkEntity(child)
-            if child.Name == "Imposter" then
+            if child.Name == "Impostor" then
                 hum.Health = 0
             end
         end
@@ -3620,7 +3620,7 @@ local function performAutoWaveSequence()
             end
             
             -- 보조 폴링 (Option 3)
-            if entities and entities:FindFirstChild("Imposter") then
+            if entities and entities:FindFirstChild("Impostor") then
                 currentHum.Health = 0
                 break
             end
@@ -3746,7 +3746,7 @@ local function performAutoWaveSequence()
                 end)
             end)
             
-            -- [NEW] Special Orb 실시간 감지 및 텔레포트 (50ms 예측 적용)
+            -- [NEW] Special Orb 실시간 감지 및 텔레포트 (예측 제거)
             task.spawn(function()
                 local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
                 local hrp = char:WaitForChild("HumanoidRootPart", 5)
@@ -3754,7 +3754,6 @@ local function performAutoWaveSequence()
                 if not hrp or not hum then return end
                 
                 local entities = workspace:FindFirstChild("Entities")
-                local lastOrbPos, lastOrbTime
                 local specialOrbs = {"Altered Orb", "Plorb", "Chorber", "Orb", "Enlightened Orb", "Repressed Orb", "Synthesis Orb", "GunsForGuns Orb"}
                 
                 while Settings.SGR.autoWaveEnabled and hum.Health > 0 do
@@ -3770,24 +3769,19 @@ local function performAutoWaveSequence()
                     end
 
                     if targetOrb then
+                        local t_hum = targetOrb:FindFirstChildOfClass("Humanoid")
+                        -- Humanoid가 사라지거나(Destroy) 체력이 0이 되면 즉시 추적 중단
+                        if not t_hum or t_hum.Health <= 0 then
+                            targetOrb = nil
+                        end
+                    end
+
+                    if targetOrb then
                         Settings.SGR.isAlteredOrbActive = true
                         local currentOrbPos = targetOrb:GetPivot().Position
-                        local currentTime = tick()
-                        
-                        if lastOrbPos and lastOrbTime and (currentTime - lastOrbTime) > 0 then
-                            local velocity = (currentOrbPos - lastOrbPos) / (currentTime - lastOrbTime)
-                            local predictedPos = currentOrbPos + (velocity * 0.05) -- 50ms 후 예측
-                            hrp.CFrame = CFrame.new(predictedPos + Vector3.new(0, 3, 0)) * (hrp.CFrame - hrp.CFrame.Position)
-                        else
-                            hrp.CFrame = CFrame.new(currentOrbPos + Vector3.new(0, 3, 0)) * (hrp.CFrame - hrp.CFrame.Position)
-                        end
-                        
-                        lastOrbPos = currentOrbPos
-                        lastOrbTime = currentTime
+                        hrp.CFrame = CFrame.new(currentOrbPos + Vector3.new(0, 3, 0)) * (hrp.CFrame - hrp.CFrame.Position)
                     else
                         Settings.SGR.isAlteredOrbActive = false
-                        lastOrbPos = nil
-                        lastOrbTime = nil
                     end
                     task.wait()
                 end
