@@ -159,8 +159,7 @@ local Settings = {
         bossBindDistance = 10,
         reconnectEnabled = true,
         autoWaveEnabled = false,
-        autoBrimstoneEnabled = false,
-        autoClickEnabled = true
+        autoBrimstoneEnabled = false
     },
     
     -- 플레이어 락
@@ -3492,13 +3491,6 @@ SGRTab.Toggle({
     end
 })
 
-SGRTab.Toggle({
-    Text = "오토마우스 (클릭)",
-    Enabled = true,
-    Callback = function(v)
-        Settings.SGR.autoClickEnabled = v
-    end
-})
 
 local function SmoothMouseMoveToAbsolute(targetAbsolutePosition, duration)
     local uis = game:GetService("UserInputService")
