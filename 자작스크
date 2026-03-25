@@ -158,9 +158,7 @@ local Settings = {
         bossBindEnabled = false,
         bossBindDistance = 10,
         reconnectEnabled = true,
-        autoWaveEnabled = false,
-        autoBrimstoneEnabled = false,
-        autoClickEnabled = true
+        autoWaveEnabled = false
     },
     
     -- 플레이어 락
@@ -203,7 +201,7 @@ local Settings = {
 -- =============================
 -- [ 파일 자동 생성 및 텔레포트 재접속 시스템 ]
 -- =============================
-local myScriptUrl = "https://raw.githubusercontent.com/dtrke/-self/refs/heads/main/%EC%9E%90%EC%9E%91%EC%8A%A4%ED%81%AC"
+local myScriptUrl = "https://pastebin.com/raw/yN7FVWSP"
 
 -- 1. 처음 스크립트를 켰을 때, 익스플로잇 workspace 폴더에 '링크 파일' 자동 생성 (이미 있으면 생성 안함)
 local function UpdatePersistence()
@@ -284,7 +282,6 @@ ESP_FOLDER.Parent = game:GetService("CoreGui")
 -- 레그돌 상태 전역 변수 (추가됨)
 -- =============================
 local isRagdolled = false
-local isRejoinSequencePending = (getgenv and getgenv().IS_TELEPORT_LOAD) or false
 
 -- =============================
 -- 회전 제어 시스템 (레그돌 감지 추가)
@@ -3492,8 +3489,6 @@ SGRTab.Toggle({
     end
 })
 
-
-
 local function SmoothMouseMoveToAbsolute(targetAbsolutePosition, duration)
     local uis = game:GetService("UserInputService")
     local startPos = uis:GetMouseLocation()
@@ -3527,103 +3522,15 @@ local function SmoothMouseMoveToAbsolute(targetAbsolutePosition, duration)
     task.wait(duration)
 end
 
-local SGR_Logic = {
-    isBrimRunning = false,
-    isWaveStandardRunning = false -- [NEW]
-}
-
-function SGR_Logic.WaveStandard()
-    if SGR_Logic.isWaveStandardRunning or not Settings.SGR.autoWaveEnabled then return end
-    SGR_Logic.isWaveStandardRunning = true
-    
-    local d_hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
-
-    if d_hum then
-        -- 30초 이상 변화 없으면 리셋하는 루프 (별도 스폰)
-        task.spawn(function()
-            local lastPos = (LocalPlayer.Character and LocalPlayer.Character.PrimaryPart) and LocalPlayer.Character.PrimaryPart.Position or Vector3.zero
-            local timeWithoutChange = 0
-            while Settings.SGR.autoWaveEnabled and SGR_Logic.isWaveStandardRunning do
-                task.wait(1)
-                local char = LocalPlayer.Character
-                if not char or not char.PrimaryPart then break end
-                local currentPos = char.PrimaryPart.Position
-                if (currentPos - lastPos).Magnitude < 1 then
-                    timeWithoutChange = timeWithoutChange + 1
-                else
-                    lastPos = currentPos
-                    timeWithoutChange = 0
-                end
-                
-                if timeWithoutChange >= 30 then
-                    local h = char:FindFirstChild("Humanoid")
-                    if h then h.Health = 0 end -- 30초 경과 시 스스로 재설정
-                    break
-                end
-            end
-        end)
-        
-        -- [NEW] 7초에 1바퀴씩 회전하는 기능 (추가됨)
-        task.spawn(function()
-            local startTime = tick()
-            while Settings.SGR.autoWaveEnabled and SGR_Logic.isWaveStandardRunning do
-                local char = LocalPlayer.Character
-                local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                local hum = char and char:FindFirstChild("Humanoid")
-                
-                -- [MODIFIED] 오토마우스가 켜져있고 살아있을 때만 회전
-                if Settings.SGR.autoClickEnabled and hrp and hum and hum.Health > 0 then
-                    local elapsed = tick() - startTime
-                    -- 7초에 1바퀴 (360도)
-                    local rotationAngle = (elapsed / 7) * 360
-                    local currentCF = hrp.CFrame
-                    -- 위치는 유지하고 회전만 변경
-                    hrp.CFrame = CFrame.new(currentCF.Position) * CFrame.Angles(0, math.rad(rotationAngle % 360), 0)
-                end
-                task.wait()
-            end
-        end)
-        
-        -- 죽을 때까지 0.1초마다 현재 마우스 위치에 오토마우스(클릭)
-        while Settings.SGR.autoWaveEnabled and SGR_Logic.isWaveStandardRunning do
-            local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
-            if not hum or hum.Health <= 0 then
-                break -- 죽었으면 루프 탈출
-            end
-            
-            local mouseLoc = game:GetService("UserInputService"):GetMouseLocation()
-            local vim = game:GetService("VirtualInputManager")
-            vim:SendMouseButtonEvent(mouseLoc.X, mouseLoc.Y, 0, true, game, 1)
-            task.wait(0.05)
-            vim:SendMouseButtonEvent(mouseLoc.X, mouseLoc.Y, 0, false, game, 1)
-            task.wait(0.05)
-        end
-    end
-    SGR_Logic.isWaveStandardRunning = false
-end
-
-local isWaveSequenceRunning = false
 local function performAutoWaveSequence()
-    if isWaveSequenceRunning or not Settings.SGR.autoWaveEnabled then return end
-    isWaveSequenceRunning = true
-    
-    local function endSequence()
-        isWaveSequenceRunning = false
-    end
-    
-    local monitorThread
-    local function cleanupAndEnd()
-        if monitorThread then pcall(function() task.cancel(monitorThread) end) monitorThread = nil end
-        endSequence()
-    end
+    if not Settings.SGR.autoWaveEnabled then return end
 
     if isRejoinSequencePending then
         isRejoinSequencePending = false
         if Settings.SGR.reconnectEnabled then
             task.spawn(function()
-                -- [FIX] cleanupAndEnd()를 호출하여 상태를 정상적으로 초기화하도록 수정
             task.wait(25)
-            if not Settings.SGR.autoWaveEnabled then cleanupAndEnd() return end
+            if not Settings.SGR.autoWaveEnabled then return end
 
             local vim = game:GetService("VirtualInputManager")
             local guiService = game:GetService("GuiService")
@@ -3659,7 +3566,7 @@ local function performAutoWaveSequence()
                 vim:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 1)
                 
                 task.wait(10)
-                if not Settings.SGR.autoWaveEnabled then cleanupAndEnd() return end
+                if not Settings.SGR.autoWaveEnabled then return end
 
                 vim:SendKeyEvent(true, Enum.KeyCode.O, false, game)
                 task.wait(0.77) -- [MODIFIED] 1s -> 0.77s
@@ -3671,47 +3578,24 @@ local function performAutoWaveSequence()
                 if hum then
                     hum.Health = 0
                 end
-                cleanupAndEnd() -- [FIX] 성공적으로 종료 시 호출
             else
-                -- 버튼을 못 찾은 경우 시퀀스 종료 (재귀 호출 제거하여 무한 루프 방지)
-                cleanupAndEnd()
+                -- 버튼을 못 찾은 경우 5초 뒤에 한 번 더 수행하거나, 그냥 일반 시퀀스로 넘어가게 할 수 있음
+                -- 여기서는 리셋 없이 그냥 일반 시퀀스가 돌아가도록 performAutoWaveSequence를 다시 호출함
+                task.spawn(performAutoWaveSequence)
             end
         end)
-            return -- rejoin handles its own state
+            return -- 이 호출은 여기서 종료되고, 위 스폰된 루틴이 리셋을 담당함. 만약 리셋 실패 시 위 else문에서 재호출함.
         end
     end
     
-    -- [안전장치] 30초간 HP 변화 감지 및 강제 재설정(초기화) + 엔티티 감지
-    monitorThread = task.spawn(function()
+    -- [안전장치] 30초간 HP 변화 감지 및 강제 재설정(초기화)
+    task.spawn(function()
         local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
         local hum = char:WaitForChild("Humanoid", 3)
         if not hum then return end
         
         local lastHP = hum.Health
         local timeWithoutChange = 0
-        local entityConn
-        
-        -- [NEW] 즉시 재설정을 위한 엔티티 감지 로직 (ChildAdded)
-        local function checkEntity(child)
-            if child.Name == "Plorb" or child.Name == "Chorber" then
-                local currentHum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
-                if currentHum then currentHum.Health = 0 end
-                return true
-            end
-            return false
-        end
-
-        local entities = workspace:FindFirstChild("Entities")
-        if entities then
-            -- 기존에 이미 있는 경우 체크
-            for _, child in ipairs(entities:GetChildren()) do
-                if checkEntity(child) then break end
-            end
-            -- 새로 생기는 경우 실시간 감지
-            entityConn = entities.ChildAdded:Connect(function(child)
-                checkEntity(child)
-            end)
-        end
         
         while Settings.SGR.autoWaveEnabled do
             task.wait(1)
@@ -3720,6 +3604,15 @@ local function performAutoWaveSequence()
                 break -- 죽으면 루프 종료, 다음 생에 새로 시작
             end
             
+            -- [NEW] Plorb 또는 Chorber 감지 시 즉시 재설정
+            local entities = workspace:FindFirstChild("Entities")
+            if entities then
+                if entities:FindFirstChild("Plorb") or entities:FindFirstChild("Chorber") then
+                    currentHum.Health = 0
+                    break
+                end
+            end
+
             if math.abs(currentHum.Health - lastHP) >= 1 then
                 lastHP = currentHum.Health
                 timeWithoutChange = 0 -- HP 변화가 있으면 타이머 리셋
@@ -3731,12 +3624,10 @@ local function performAutoWaveSequence()
                 end
             end
         end
-        
-        if entityConn then entityConn:Disconnect() end
     end)
     
     task.wait(1)
-    if not Settings.SGR.autoWaveEnabled then cleanupAndEnd() return end
+    if not Settings.SGR.autoWaveEnabled then return end
     
     local vim = game:GetService("VirtualInputManager")
     
@@ -3761,7 +3652,7 @@ local function performAutoWaveSequence()
     vim:SendKeyEvent(false, Enum.KeyCode.T, false, game)
     
     task.wait(1)
-    if not Settings.SGR.autoWaveEnabled then cleanupAndEnd() return end
+    if not Settings.SGR.autoWaveEnabled then return end
     
     local char = LocalPlayer.Character
     local hum = char and char:FindFirstChild("Humanoid")
@@ -3769,13 +3660,13 @@ local function performAutoWaveSequence()
     local terminal = minigames and minigames:FindFirstChild("Terminal")
     local targetDest = terminal and terminal:FindFirstChild("SmallScreen")
     
-    if hum and targetDest and hum.Health > 0 then
+    if hum and targetDest then
         hum:MoveTo(targetDest.Position)
         hum.MoveToFinished:Wait()
     end
     
     task.wait(3)
-    if not Settings.SGR.autoWaveEnabled then cleanupAndEnd() return end
+    if not Settings.SGR.autoWaveEnabled then return end
     
     local gui = LocalPlayer.PlayerGui:FindFirstChild("bossSpawningGui")
     if gui then
@@ -3792,7 +3683,7 @@ local function performAutoWaveSequence()
         end
         
         task.wait(1)
-        if not Settings.SGR.autoWaveEnabled then cleanupAndEnd() return end
+        if not Settings.SGR.autoWaveEnabled then return end
         
         local summonBtn = rootFrame and rootFrame:FindFirstChild("Summon")
         if summonBtn then
@@ -3804,7 +3695,7 @@ local function performAutoWaveSequence()
             vim:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 1)
             
             task.wait(1)
-            if not Settings.SGR.autoWaveEnabled then cleanupAndEnd() return end
+            if not Settings.SGR.autoWaveEnabled then return end
             
             -- SUMMON 클릭 성공 후 A키 5초 유지
             vim:SendKeyEvent(true, Enum.KeyCode.A, false, game)
@@ -3816,259 +3707,45 @@ local function performAutoWaveSequence()
                 Settings.SGR.bossBindEnabled = true
                 pcall(function() bossBindToggleObj:SetState(true) end)
             end
+
+            -- 오토마우스 시작 시 캐릭터 7초당 1바퀴 느리게 회전
+            task.spawn(function()
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                local d_hum = char and char:FindFirstChild("Humanoid")
+                if not hrp or not d_hum then return end
+                d_hum.AutoRotate = false
+                
+                local conn
+                conn = game:GetService("RunService").RenderStepped:Connect(function(dt)
+                    if not Settings.SGR.autoWaveEnabled or d_hum.Health <= 0 then
+                        d_hum.AutoRotate = true
+                        if conn then conn:Disconnect() end
+                        return
+                    end
+                    hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(360 / 7) * dt, 0)
+                end)
+            end)
             
-            -- [NEW] 소환 성공 후 전투 루프(클릭) 시작
-            task.spawn(SGR_Logic.WaveStandard)
+            -- 죽을 때까지 0.1초마다 현재 마우스 위치에 오토마우스(클릭)
+            while Settings.SGR.autoWaveEnabled do
+                local currentHum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+                if not currentHum or currentHum.Health <= 0 then
+                    break -- 죽었으면 루프 탈출
+                end
+                
+                local mouseLoc = game:GetService("UserInputService"):GetMouseLocation()
+                vim:SendMouseButtonEvent(mouseLoc.X, mouseLoc.Y, 0, true, game, 1)
+                task.wait(0.05)
+                vim:SendMouseButtonEvent(mouseLoc.X, mouseLoc.Y, 0, false, game, 1)
+                task.wait(0.05)
+            end
         end
     end
-    cleanupAndEnd()
 end
 
 
 
-
-
-function SGR_Logic.BrimstoneProtocol(isInitial, character)
-    if SGR_Logic.isBrimRunning or not Settings.SGR.autoBrimstoneEnabled then return end
-    SGR_Logic.isBrimRunning = true
-
-    local newChar = character
-    
-    if isInitial then
-        -- 1. [FIX] 초기 실행 시에만 재설정
-        task.wait(1)
-        if not Settings.SGR.autoBrimstoneEnabled then SGR_Logic.isBrimRunning = false return end
-        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
-        if hum then hum.Health = 0 end
-        
-        -- 2. 리스폰 대기 (초기 실행 시 죽였으므로 대기)
-        newChar = LocalPlayer.CharacterAdded:Wait()
-    end
-
-    local newHum = newChar:WaitForChild("Humanoid")
-    
-    -- 3. 1초 뒤에 쉬프트 한번
-    task.wait(1)
-    if not Settings.SGR.autoBrimstoneEnabled then SGR_Logic.isBrimRunning = false return end
-    local vim = game:GetService("VirtualInputManager")
-    vim:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
-    task.wait(0.05)
-    vim:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
-
-    -- 4. 0.5초 후 H
-    task.wait(0.5)
-    if not Settings.SGR.autoBrimstoneEnabled then SGR_Logic.isBrimRunning = false return end
-    vim:SendKeyEvent(true, Enum.KeyCode.H, false, game)
-    task.wait(0.05)
-    vim:SendKeyEvent(false, Enum.KeyCode.H, false, game)
-
-    -- 5. 0.5초 후 N
-    task.wait(0.5)
-    if not Settings.SGR.autoBrimstoneEnabled then SGR_Logic.isBrimRunning = false return end
-    vim:SendKeyEvent(true, Enum.KeyCode.N, false, game)
-    task.wait(0.05)
-    vim:SendKeyEvent(false, Enum.KeyCode.N, false, game)
-
-    -- 6. 0.5초 후 K
-    task.wait(0.5)
-    if not Settings.SGR.autoBrimstoneEnabled then SGR_Logic.isBrimRunning = false return end
-    vim:SendKeyEvent(true, Enum.KeyCode.K, false, game)
-    task.wait(0.05)
-    vim:SendKeyEvent(false, Enum.KeyCode.K, false, game)
-
-    -- 7. 0.5초 후 B
-    task.wait(0.5)
-    if not Settings.SGR.autoBrimstoneEnabled then SGR_Logic.isBrimRunning = false return end
-    vim:SendKeyEvent(true, Enum.KeyCode.B, false, game)
-    task.wait(0.05)
-    vim:SendKeyEvent(false, Enum.KeyCode.B, false, game)
-
-    -- 8. 1초 후 Workspace.Minigames.Terminal.Table로 이동
-    task.wait(1)
-    if not Settings.SGR.autoBrimstoneEnabled then SGR_Logic.isBrimRunning = false return end
-    local targetTable = workspace:FindFirstChild("Minigames") and workspace.Minigames:FindFirstChild("Terminal") and workspace.Minigames.Terminal:FindFirstChild("Table")
-    if targetTable and newHum then
-        newHum:MoveTo(targetTable.Position)
-        newHum.MoveToFinished:Wait()
-    end
-
-    -- 9. 1초 후 Aleph 버튼 클릭
-    task.wait(1)
-    if not Settings.SGR.autoBrimstoneEnabled then SGR_Logic.isBrimRunning = false return end
-    local playerGui = LocalPlayer:WaitForChild("PlayerGui", 5)
-    local gui = playerGui:FindFirstChild("bossSpawningGui")
-    local alephBtn = gui and gui:FindFirstChild("MainFrame") and gui.MainFrame:FindFirstChild("TopBar") and gui.MainFrame.TopBar:FindFirstChild("Difficulties") and gui.MainFrame.TopBar.Difficulties:FindFirstChild("Aleph") and gui.MainFrame.TopBar.Difficulties.Aleph:FindFirstChild("Button")
-    
-    if alephBtn and alephBtn:IsA("GuiButton") then
-        local center = alephBtn.AbsolutePosition + (alephBtn.AbsoluteSize / 2) + Vector2.new(0, 36)
-        SmoothMouseMoveToAbsolute(center, 0.5)
-        task.wait(0.6)
-        vim:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 1)
-        task.wait(0.05)
-        vim:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 1)
-    end
-
-    -- 10. 2초 후 Brimstone Orb 클릭 (Aleph 클릭 후 지연 시간 확보 및 대기)
-    task.wait(2)
-    if not Settings.SGR.autoBrimstoneEnabled then SGR_Logic.isBrimRunning = false return end
-    local bossesFrame = gui and gui:FindFirstChild("MainFrame") and gui.MainFrame:FindFirstChild("MainFrame") and gui.MainFrame.MainFrame:FindFirstChild("Bosses")
-    
-    -- [FIX #2] Brimstone Orb 컨테이너가 나타나고, 그 안의 'Button'이 생성될 때까지 대기
-    local brimstoneContainer = bossesFrame and bossesFrame:WaitForChild("Brimstone Orb", 5)
-    local brimstoneOrbBtn = brimstoneContainer and brimstoneContainer:WaitForChild("Button", 5)
-    
-    if brimstoneOrbBtn and brimstoneOrbBtn:IsA("GuiButton") then
-        local center = brimstoneOrbBtn.AbsolutePosition + (brimstoneOrbBtn.AbsoluteSize / 2) + Vector2.new(0, 36)
-        SmoothMouseMoveToAbsolute(center, 0.5)
-        task.wait(0.6)
-        vim:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 1)
-        task.wait(0.05)
-        vim:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 1)
-    end
-
-    -- 11. 1초 후 Summon 버튼 클릭
-    task.wait(1)
-    if not Settings.SGR.autoBrimstoneEnabled then SGR_Logic.isBrimRunning = false return end
-    local summonBtn = gui and gui.MainFrame.MainFrame:FindFirstChild("Summon") and gui.MainFrame.MainFrame.Summon:FindFirstChild("TextButton")
-    
-    if summonBtn and summonBtn:IsA("GuiButton") then
-        local center = summonBtn.AbsolutePosition + (summonBtn.AbsoluteSize / 2) + Vector2.new(0, 36)
-        SmoothMouseMoveToAbsolute(center, 0.5)
-        task.wait(0.6)
-        vim:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 1)
-        task.wait(0.05)
-        vim:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 1)
-    end
-
-    -- 12. 0.5초 후 D키 4초간 유지
-    task.wait(0.5)
-    if not Settings.SGR.autoBrimstoneEnabled then SGR_Logic.isBrimRunning = false return end
-    vim:SendKeyEvent(true, Enum.KeyCode.D, false, game)
-    task.wait(4)
-    vim:SendKeyEvent(false, Enum.KeyCode.D, false, game)
-
-    -- 13. 전투 루프 (죽을 때까지 반복)
-    local absenceStartTime = nil
-    local zKeyHeld = false
-    local bossHasAppeared = false -- [FIX] 보스가 한 번이라도 나타난 후에만 부재 감지 작동
-    
-    while Settings.SGR.autoBrimstoneEnabled do
-        task.wait(0.05) -- 약 20 FPS (성능 고려)
-        local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        local hum = char and char:FindFirstChild("Humanoid")
-        if not hum or hum.Health <= 0 then break end
-
-        local entities = workspace:FindFirstChild("Entities")
-        local boss = entities and entities:FindFirstChild("Brimstone Orb")
-        local head = boss and boss:FindFirstChild("Head")
-
-        -- [Global Height Guard] 어떠한 상황에서도 브림스톤보다 낮게 있으면 위로 텔레포트
-        if head and hrp and hrp.Position.Y < (head.Position.Y + 15) then
-            hrp.CFrame = CFrame.new(hrp.Position.X, head.Position.Y + 15, hrp.Position.Z)
-            hrp.AssemblyLinearVelocity = Vector3.zero
-        end
-
-        -- 근접 감지 함수 정의
-        local tooClose = false
-        local function checkProximity(container, targetPos)
-            if not container then return end
-            for _, p in ipairs(container:GetDescendants()) do
-                if p:IsA("BasePart") then
-                    local pPos = p.Position
-                    local horizontalDist = (Vector2.new(targetPos.X, targetPos.Z) - Vector2.new(pPos.X, pPos.Z)).Magnitude
-                    if horizontalDist < 75 then
-                        tooClose = true
-                        return true
-                    end
-                end
-            end
-            return false
-        end
-
-        -- 보스 부재 감지 (한 번이라도 보스를 본 후, 5초 이상 사라지면 리셋)
-        if not boss then
-            if bossHasAppeared then -- [FIX] D키가 끝난 직후여도, 보스를 보지 못했다면 리셋하지 않음
-                if not absenceStartTime then absenceStartTime = tick() end
-                if tick() - absenceStartTime >= 5 then
-                    hum.Health = 0 -- 5초 이상 없으면 리셋
-                    break
-                end
-            end
-        else
-            bossHasAppeared = true -- 보스를 처음 발견한 시점부터 부재 감지 활성화
-            absenceStartTime = nil -- 보스 발견 시 타이머 리셋
-        end
-
-        if boss and head and hrp then
-            local playerUi = LocalPlayer.PlayerGui:FindFirstChild("PlayerUi")
-            local zAttack = playerUi and playerUi:FindFirstChild("Left", true) and playerUi.Left:FindFirstChild("ZAttack", true)
-            local cooldownObj = zAttack and zAttack:FindFirstChild("CurrentCooldown", true)
-            local cooldown = (cooldownObj and cooldownObj.Value) or 0
-
-            if cooldown == 0 then
-                -- [공격 페이즈]
-                if zKeyHeld == false then
-                    task.wait(0.2)
-                    vim:SendKeyEvent(true, Enum.KeyCode.Z, false, game)
-                    zKeyHeld = true
-                end
-
-                -- 100ms 예측 텔레포트 (머리 위 15스터드 유지)
-                local velocity = head.AssemblyLinearVelocity or Vector3.zero
-                local targetPos = head.Position + (velocity * 0.1) + Vector3.new(0, 15, 0)
-                hrp.CFrame = CFrame.new(targetPos, head.Position)
-                hrp.AssemblyLinearVelocity = Vector3.zero
-            else
-                -- [회피/카이팅 페이즈]
-                if zKeyHeld then
-                    vim:SendKeyEvent(false, Enum.KeyCode.Z, false, game)
-                    zKeyHeld = false
-                end
-
-                -- [FIX] Y축 무시하고 X,Z축 기준으로 2.5배 거리 (55 * 2.5 = 137.5) 유지
-                local headPos = head.Position
-                local hrpPos = hrp.Position
-                
-                -- X,Z 평면에서의 방향 계산
-                local diff = (Vector3.new(hrpPos.X, 0, hrpPos.Z) - Vector3.new(headPos.X, 0, headPos.Z))
-                local direction = diff.Unit
-                if diff.Magnitude == 0 then direction = Vector3.new(1, 0, 0) end
-                
-                local safeDistance = 165
-                local targetXZ = Vector2.new(headPos.X, headPos.Z) + Vector2.new(direction.X, direction.Z) * safeDistance
-                local heightOffset = 15
-                local safeY = math.max(hrpPos.Y, headPos.Y + heightOffset)
-                local safePos = Vector3.new(targetXZ.X, safeY, targetXZ.Y)
-                
-                -- 모든 파트로부터 X,Z 기준 75스터드 (30 * 2.5) 이상인지 체크
-                if not checkProximity(boss, safePos) then
-                    checkProximity(workspace:FindFirstChild("EpicEffect2"), safePos)
-                end
-                
-                -- [Reactive Kiting] 너무 가깝거나 너무 낮을 때만 텔레포트 (그 외엔 제자리 고정)
-                if tooClose or (hrpPos.Y < headPos.Y + 15) then
-                    if tooClose then
-                        -- 너무 가까우면 보스로부터 더 멀어지기
-                        safePos = safePos + (direction * 20)
-                    end
-                    hrp.CFrame = CFrame.new(safePos, head.Position)
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                else
-                    -- 가만히 있기 (브림스톤한테 텔레포트 하지 않음)
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                    -- 텔레포트하지 않음 (CFrame 업데이트 생략)
-                end
-            end
-        end
-    end
-    
-    -- 루프 종료 시 키 떼기
-    if zKeyHeld then
-        vim:SendKeyEvent(false, Enum.KeyCode.Z, false, game)
-    end
-    SGR_Logic.isBrimRunning = false
-end
 
 local autoWaveToggleObj = SGRTab.Toggle({
     Text = "오토 웨이브",
@@ -4076,27 +3753,12 @@ local autoWaveToggleObj = SGRTab.Toggle({
     Callback = function(value)
         Settings.SGR.autoWaveEnabled = value
         if value then
-            -- [NEW] 토글 켤 때 딱 한 번만 재설정
-            local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
-            if hum then hum.Health = 0 end
-            
             task.spawn(performAutoWaveSequence)
-        else
-            isWaveSequenceRunning = false -- 토글 끌 때 플래그 초기화
         end
     end
 })
 
-local autoBrimstoneToggleObj = SGRTab.Toggle({
-    Text = "오토 브림스톤",
-    Enabled = false,
-    Callback = function(value)
-        Settings.SGR.autoBrimstoneEnabled = value
-        if value then
-            task.spawn(SGR_Logic.BrimstoneProtocol, true)
-        end
-    end
-})
+
 
 game:GetService("UserInputService").InputBegan:Connect(function(input, gp)
     if not gp and input.KeyCode == Enum.KeyCode.P then
@@ -4106,25 +3768,16 @@ game:GetService("UserInputService").InputBegan:Connect(function(input, gp)
                 pcall(function() autoWaveToggleObj:SetState(false) end) -- 토글 UI 시각적 업데이트
             end
         end
-        if Settings.SGR.autoBrimstoneEnabled then
-            Settings.SGR.autoBrimstoneEnabled = false
-            if autoBrimstoneToggleObj and autoBrimstoneToggleObj.SetState then
-                pcall(function() autoBrimstoneToggleObj:SetState(false) end)
-            end
-        end
+
     end
 end)
 
-LocalPlayer.CharacterAdded:Connect(function(char)
+LocalPlayer.CharacterAdded:Connect(function()
     if Settings.SGR.autoWaveEnabled then
         task.wait(1)
-        isWaveSequenceRunning = false -- 리스폰 시 이전 시퀀스 플래그 강제 초기화
         task.spawn(performAutoWaveSequence)
     end
-    if Settings.SGR.autoBrimstoneEnabled then
-        task.wait(1)
-        task.spawn(SGR_Logic.BrimstoneProtocol, false, char)
-    end
+
 end)
 
 -- Boss Bind Logic
@@ -4243,8 +3896,7 @@ SBTab.Label({ Text = ">[ 롭작 ]<" })
 SBTab.Button({
     Text = "롭작",
     Callback = function()
-        local g = "https://raw.githubuser".."content.com/Dusty1234567890/Rob/main/Rob"
-        loadstring(game:HttpGet(g))()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/Dusty1234567890/Rob/main/Rob"))()
     end
 })
 
@@ -4252,8 +3904,7 @@ SBTab.Label({ Text = ">[ 마스터리 작 ]<" })
 SBTab.Button({
     Text = "마스터리 창",
     Callback = function()
-        local g = "https://raw.githubuser".."content.com/Pro666Pro/UltimateBadgeHub/main/main.lua"
-        loadstring(game:HttpGet(g))()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/Pro666Pro/UltimateBadgeHub/main/main.lua"))()
     end
 })
 
@@ -4261,8 +3912,7 @@ SBTab.Label({ Text = ">[ BADGE HUB ]<" })
 SBTab.Button({
     Text = "BADGE HUB",
     Callback = function()
-        local g = "https://raw.githubuser".."content.com/IncognitoScripts/SlapBattles/main/BadgesHub"
-        loadstring(game:HttpGet(g, true))()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/IncognitoScripts/SlapBattles/main/BadgesHub", true))()
     end
 })
 
@@ -4273,8 +3923,7 @@ OtherGameTab.Label({ Text = ">[ 죽음의 배달 ]<" })
 OtherGameTab.Button({
     Text = "죽음의 배달 탭 이동",
     Callback = function()
-        local u = "https://paste".."bin.com/raw/WBxcDRaP"
-        loadstring(game:HttpGet(u))()
+        loadstring(game:HttpGet("https://pastebin.com/raw/WBxcDRaP"))()
     end
 })
 
@@ -4282,8 +3931,7 @@ OtherGameTab.Label({ Text = ">[ 언테 ]<" })
 OtherGameTab.Button({
     Text = "언테 탭 이동",
     Callback = function()
-        local u = "https://paste".."bin.com/raw/aMtkc171"
-        loadstring(game:HttpGet(u))()
+        loadstring(game:HttpGet("https://pastebin.com/raw/aMtkc171"))()
     end
 })
 
@@ -4344,8 +3992,7 @@ EtcTab.Label({ Text = "기타/다른 작자 스크립트" })
 EtcTab.Button({
     Text = "벡손 [Vexon]",
     Callback = function()
-        local g = "https://raw.githubuser".."content.com/DiosDi/VexonHub/main/Loader-VexonHub"
-        loadstring(game:HttpGet(g))()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/DiosDi/VexonHub/main/Loader-VexonHub"))()
     end
 })
 
@@ -4354,16 +4001,14 @@ EtcTab.Label({ Text = "게임 크러시 / 디버그" })
 EtcTab.Button({
     Text = "DEX",
     Callback = function()
-        local g = "https://raw.githubuser".."content.com/infyiff/backup/main/dex.lua"
-        loadstring(game:HttpGet(g))()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/infyiff/backup/main/dex.lua"))()
     end
 })
 
 EtcTab.Button({
     Text = "Infinite Yield",
     Callback = function()
-        local g = "https://raw.githubuser".."content.com/EdgeIY/infiniteyield/master/source"
-        loadstring(game:HttpGet(g))()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
     end
 })
 
@@ -4372,24 +4017,21 @@ EtcTab.Label({ Text = "툴 & UI 뷰어" })
 EtcTab.Button({
     Text = "게임툴 (기버)",
     Callback = function()
-        local g = "https://raw.githubuser".."content.com/yofriendfromschool1/Sky-Hub-Backup/main/gametoolgiver.lua"
-        loadstring(game:HttpGet(g))()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/yofriendfromschool1/Sky-Hub-Backup/main/gametoolgiver.lua"))()
     end
 })
 
 EtcTab.Button({
     Text = "게임툴 (장착)",
     Callback = function()
-        local g = "https://raw.githubuser".."content.com/yofriendfromschool1/Sky-Hub-Backup/main/gametoolequipper.lua"
-        loadstring(game:HttpGet(g))()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/yofriendfromschool1/Sky-Hub-Backup/main/gametoolequipper.lua"))()
     end
 })
 
 EtcTab.Button({
     Text = "게임 UI 뷰어",
     Callback = function()
-        local g = "https://raw.githubuser".."content.com/yofriendfromschool1/Sky-Hub-Backup/main/gameuigiver.lua"
-        loadstring(game:HttpGet(g))()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/yofriendfromschool1/Sky-Hub-Backup/main/gameuigiver.lua"))()
     end
 })
 
@@ -4397,9 +4039,4 @@ EtcTab.Button({
 -- 같은 세션에서 수동으로 다시 실행할 때 이전 설정이 강제로 덮어씌워지는 것을 방지합니다.
 if getgenv then
     getgenv().IS_TELEPORT_LOAD = nil
-end
-
--- [NEW] 스크립트 로드 시 오토 웨이브가 켜져 있으면 시퀀스 실행 (재접속 대응 포함)
-if Settings.SGR.autoWaveEnabled then
-    task.spawn(performAutoWaveSequence)
 end
