@@ -3588,12 +3588,26 @@ local function performAutoWaveSequence()
         end
     end
     
-    -- [안전장치] 30초간 HP 변화 감지 및 강제 재설정(초기화)
+    -- [안전장치] HP 변화 감지 및 Plorb/Chorber 실시간 감지 리셋
     task.spawn(function()
         local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
         local hum = char:WaitForChild("Humanoid", 3)
         if not hum then return end
         
+        local connections = {}
+        local function checkEntity(child)
+            if child.Name == "Plorb" or child.Name == "Chorber" then
+                hum.Health = 0
+            end
+        end
+
+        -- 실시간 감지 (Option 1)
+        local entities = workspace:FindFirstChild("Entities")
+        if entities then
+            table.insert(connections, entities.ChildAdded:Connect(checkEntity))
+        end
+        table.insert(connections, workspace.ChildAdded:Connect(checkEntity))
+
         local lastHP = hum.Health
         local timeWithoutChange = 0
         
@@ -3601,16 +3615,13 @@ local function performAutoWaveSequence()
             task.wait(1)
             local currentHum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
             if not currentHum or currentHum.Health <= 0 then
-                break -- 죽으면 루프 종료, 다음 생에 새로 시작
+                break -- 죽으면 루프 종료
             end
             
-            -- [NEW] Plorb 또는 Chorber 감지 시 즉시 재설정
-            local entities = workspace:FindFirstChild("Entities")
-            if entities then
-                if entities:FindFirstChild("Plorb") or entities:FindFirstChild("Chorber") then
-                    currentHum.Health = 0
-                    break
-                end
+            -- 보조 폴링 (Option 3)
+            if entities and (entities:FindFirstChild("Plorb") or entities:FindFirstChild("Chorber")) then
+                currentHum.Health = 0
+                break
             end
 
             if math.abs(currentHum.Health - lastHP) >= 1 then
@@ -3623,6 +3634,11 @@ local function performAutoWaveSequence()
                     break
                 end
             end
+        end
+
+        -- 연결 해제
+        for _, c in ipairs(connections) do
+            c:Disconnect()
         end
     end)
     
