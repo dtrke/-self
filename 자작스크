@@ -3755,6 +3755,7 @@ local function performAutoWaveSequence()
                 
                 local entities = workspace:FindFirstChild("Entities")
                 local specialOrbs = {"Altered Orb", "Plorb", "Chorber", "Orb", "Enlightened Orb", "Repressed Orb", "Synthesis Orb", "GunsForGuns Orb"}
+                local wasBossBindEnabledBefore = false
                 
                 while Settings.SGR.autoWaveEnabled and hum.Health > 0 do
                     local targetOrb = nil
@@ -3772,20 +3773,48 @@ local function performAutoWaveSequence()
                         local t_hum = targetOrb:FindFirstChildOfClass("Humanoid")
                         -- Humanoid가 사라지거나(Destroy) 체력이 0이 되면 즉시 추적 중단
                         if not t_hum or t_hum.Health <= 0 then
+                            -- 대상 엔티티의 모든 부위 충돌 끄기 (Noclip)
+                            pcall(function()
+                                for _, part in ipairs(targetOrb:GetDescendants()) do
+                                    if part:IsA("BasePart") then
+                                        part.CanCollide = false
+                                    end
+                                end
+                            end)
                             targetOrb = nil
                         end
                     end
 
                     if targetOrb then
+                        -- 보스 속박이 켜져있다면 끄기 (비주얼/로직 동기화)
+                        if Settings.SGR.bossBindEnabled then
+                            wasBossBindEnabledBefore = true
+                            Settings.SGR.bossBindEnabled = false
+                            if bossBindToggleObj then pcall(function() bossBindToggleObj:SetState(false) end) end
+                        end
+
                         Settings.SGR.isAlteredOrbActive = true
                         local currentOrbPos = targetOrb:GetPivot().Position
                         hrp.CFrame = CFrame.new(currentOrbPos + Vector3.new(0, 3, 0)) * (hrp.CFrame - hrp.CFrame.Position)
                     else
+                        -- 보스 속박이 원래 켜져있었다면 다시 켜기
+                        if wasBossBindEnabledBefore and not Settings.SGR.bossBindEnabled then
+                            wasBossBindEnabledBefore = false
+                            Settings.SGR.bossBindEnabled = true
+                            if bossBindToggleObj then pcall(function() bossBindToggleObj:SetState(true) end) end
+                        end
+
                         Settings.SGR.isAlteredOrbActive = false
                     end
                     task.wait()
                 end
                 Settings.SGR.isAlteredOrbActive = false
+                
+                -- 종료 시 원복 (안전장치)
+                if wasBossBindEnabledBefore and not Settings.SGR.bossBindEnabled then
+                    Settings.SGR.bossBindEnabled = true
+                    if bossBindToggleObj then pcall(function() bossBindToggleObj:SetState(true) end) end
+                end
             end)
             
             -- 죽을 때까지 0.1초마다 현재 마우스 위치에 오토마우스(클릭)
