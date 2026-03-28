@@ -2526,7 +2526,7 @@ end)
 local SCAN_INTERVAL = 0.2
 local RIGHT_CLICK_DELAY = 0.5
 local INTERACT_DISTANCE = 3
-local APPROACH_TIMEOUT = 
+local APPROACH_TIMEOUT = 0 -- 더 이상 사용되지 않음 (무한 대기)
 local JUMP_STUCK_TIME = 2
 local STUCK_TIME = 5
 local STUCK_MOVE_THRESHOLD = 6.0 -- 점프로 인한 수평 이동(보통 1~3 studs)이 데스 타이머를 초기화하지 않도록 임계값 상향
