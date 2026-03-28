@@ -2526,10 +2526,10 @@ end)
 local SCAN_INTERVAL = 0.2
 local RIGHT_CLICK_DELAY = 0.5
 local INTERACT_DISTANCE = 3
-local APPROACH_TIMEOUT = 0 -- unused
+local APPROACH_TIMEOUT = 999999
 local JUMP_STUCK_TIME = 2
 local STUCK_TIME = 5
-local STUCK_MOVE_THRESHOLD = 6.0 
+local STUCK_MOVE_THRESHOLD = 1.5
 local E_RETRY_DELAY = 0.5
 local EXTRA_E_RETRIES = 3
 local CAMERA_LOOK_HEIGHT = 3
@@ -2739,39 +2739,41 @@ local function pressEOnTarget(target)
 	return false
 end
 
-local function updateMovementState(lastPos, stillSince, jumpUsedThisStall)
+local function updateMovementState(lastPos, stillSince, jumpUsedThisStall, jumpOriginPos)
 	local char = LocalPlayer.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart")
-	if not root then return nil, nil, jumpUsedThisStall, false, false end
-	
+	if not root then return nil, nil, jumpUsedThisStall, jumpOriginPos, false, false end
 	local currentPos = root.Position
-	if not lastPos then return currentPos, tick(), false, false, false end
+	if not lastPos then return currentPos, tick(), jumpUsedThisStall, nil, false, false end
 	
-	-- 수평 이동(X, Z 축)만 감지
-	local horizontalMoved = (Vector2.new(currentPos.X, currentPos.Z) - Vector2.new(lastPos.X, lastPos.Z)).Magnitude
+	local movedSinceLast = (currentPos - lastPos).Magnitude
 	
-	-- 임계값(6.0) 이상의 수평 이동이 발생해야만 "진짜로 움직였다"고 판단하여 타이머를 초기화함.
-	-- 6.0 스터드는 일반적인 점프나 미세한 떨림으로는 도달하기 힘든 거리입니다.
-	if horizontalMoved >= STUCK_MOVE_THRESHOLD then 
-		return currentPos, tick(), false, false, false -- 이동 중: 타이머 및 점프 사용 여부 초기화
+	-- 10스터드 이상 이동 시 점프 초기화
+	if jumpUsedThisStall and jumpOriginPos then
+		local distFromJump = (currentPos - jumpOriginPos).Magnitude
+		if distFromJump >= 10 then
+			jumpUsedThisStall = false
+			jumpOriginPos = nil
+		end
 	end
-	
+
+	-- 움직임이 있으면 (1.5스터드 이상) 타이머 리셋
+	if movedSinceLast >= STUCK_MOVE_THRESHOLD then 
+		return currentPos, tick(), jumpUsedThisStall, jumpOriginPos, false, false 
+	end
+
 	local elapsed = tick() - stillSince
 	local shouldJump = false
-	
-	-- 끼인 상태에서 2초 경과 시 딱 1회만 점프 시도 (타이머가 초기화되지 않는 한 추가 점프 없음)
 	if elapsed >= JUMP_STUCK_TIME and not jumpUsedThisStall then
 		shouldJump = true
 		jumpUsedThisStall = true
+		jumpOriginPos = currentPos -- 점프한 위치 저장
 	end
 	
-	-- 끼인 상태에서 총 5초가 경과하면 리셋(사망) 판정
 	if elapsed >= STUCK_TIME then 
-		return currentPos, stillSince, jumpUsedThisStall, shouldJump, true 
+		return currentPos, stillSince, jumpUsedThisStall, jumpOriginPos, shouldJump, true 
 	end
-	
-	-- 아직 움직임이 부족한 경우: 이전 위치(lastPos)와 타이머(stillSince)를 그대로 유지하여 누적 이동 거리를 측정함
-	return lastPos, stillSince, jumpUsedThisStall, shouldJump, false
+	return lastPos, stillSince, jumpUsedThisStall, jumpOriginPos, shouldJump, false
 end
 
 local function captureInitialSoundSet(target)
@@ -2790,9 +2792,10 @@ local function hasNewSound(target, initialSoundSet)
 	return false
 end
 
-local function waitInRange(target)
-	local lastPos, stillSince, jumpUsed = nil, nil, false
-	while true do
+local function waitInRange(target, timeout)
+	local deadline = tick() + timeout
+	local lastPos, stillSince, jumpUsed, jumpOrg = nil, nil, false, nil
+	while tick() < deadline do
 		if not target or not target.Parent or not Settings.SolEgg.enabled then return false, "aborted" end
 		local char = LocalPlayer.Character
 		local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -2804,25 +2807,26 @@ local function waitInRange(target)
 		UpdateEggHUD()
 		if dist <= INTERACT_DISTANCE then return true, "in range" end
 		
-		-- 직접 이동 로직 삭제 (외부 시스템에 의존)
-		-- hum:MoveTo(pos) 
+		-- [MOD] 직접 이동 로직 삭제 (외부 시스템 활용)
+		-- hum:MoveTo(pos)
 		
 		local sj, stuck
-		lastPos, stillSince, jumpUsed, sj, stuck = updateMovementState(lastPos, stillSince, jumpUsed)
+		lastPos, stillSince, jumpUsed, jumpOrg, sj, stuck = updateMovementState(lastPos, stillSince, jumpUsed, jumpOrg)
 		if sj then pressSpaceOnce() end
 		if stuck then return false, "stuck" end
 		task.wait(0.1)
 	end
+	return false, "timeout"
 end
 
 local function waitForSoundOrStuck(target, initialSet, duration)
 	local deadline = tick() + duration
-	local lastPos, stillSince, jumpUsed = nil, nil, false
+	local lastPos, stillSince, jumpUsed, jumpOrg = nil, nil, false, nil
 	while tick() < deadline do
 		if not target or not target.Parent or not Settings.SolEgg.enabled then return false, "aborted" end
 		if hasNewSound(target, initialSet) then return true, "sound detected" end
 		local sj, stuck
-		lastPos, stillSince, jumpUsed, sj, stuck = updateMovementState(lastPos, stillSince, jumpUsed)
+		lastPos, stillSince, jumpUsed, jumpOrg, sj, stuck = updateMovementState(lastPos, stillSince, jumpUsed, jumpOrg)
 		if sj then pressSpaceOnce() end
 		if stuck then return false, "stuck" end
 		task.wait(0.05)
@@ -2856,7 +2860,7 @@ local function handleEgg(target)
 	if restore then restore() end
 	Settings.SolEgg.status = "대상 접근 중 (1차)"
 	UpdateEggHUD()
-	local ok, reason = waitInRange(target)
+	local ok, reason = waitInRange(target, APPROACH_TIMEOUT)
 	if not ok then
 		if reason == "stuck" then
 			local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
@@ -2882,7 +2886,7 @@ local function handleEgg(target)
 	if restore then restore() end
 	Settings.SolEgg.status = "대상 접근 중 (2차)"
 	UpdateEggHUD()
-	ok, reason = waitInRange(target)
+	ok, reason = waitInRange(target, APPROACH_TIMEOUT)
 	if not ok then
 		Settings.SolEgg.excludedTargets[target] = true
 		return
