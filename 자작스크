@@ -196,6 +196,17 @@ local Settings = {
     -- 스크립트 제어 (추가됨)
     Persistence = {
         enabled = true -- 기본적으로 자동 실행 활성화 (원하지 않으면 토글로 끌 수 있음)
+    },
+
+    -- 솔스 (Egg Bot) 추가
+    SolEgg = {
+        enabled = false,
+        busy = false,
+        status = "대기 중",
+        targetName = "없음",
+        distance = 0,
+        successCount = 0,
+        excludedTargets = setmetatable({}, { __mode = "k" })
     }
 }
 
@@ -2510,6 +2521,416 @@ player.CharacterAdded:Connect(function(char)
 end)
 
 -- =============================
+-- [ 솔스 Egg Bot ]
+-- =============================
+local SCAN_INTERVAL = 0.2
+local RIGHT_CLICK_DELAY = 0.5
+local INTERACT_DISTANCE = 5
+local APPROACH_TIMEOUT = 20
+local JUMP_STUCK_TIME = 2
+local STUCK_TIME = 5
+local STUCK_MOVE_THRESHOLD = 1.5
+local E_RETRY_DELAY = 0.5
+local EXTRA_E_RETRIES = 3
+local CAMERA_LOOK_HEIGHT = 3
+local CAMERA_DISTANCE = 1
+local FINAL_DOUBLECLICK_WAIT = 0.75
+
+-- [ 솔스 Debug HUD ]
+local eggHUD = Instance.new("ScreenGui", LocalPlayer.PlayerGui)
+eggHUD.Name = "EggBotDebugHUD"
+eggHUD.ResetOnSpawn = false
+eggHUD.Enabled = false
+
+local eggHUDMain = Instance.new("Frame", eggHUD)
+eggHUDMain.Size = UDim2.new(0, 240, 0, 110)
+eggHUDMain.Position = UDim2.new(1, -250, 0.5, -55)
+eggHUDMain.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+eggHUDMain.BackgroundTransparency = 0.2
+eggHUDMain.BorderSizePixel = 0
+
+local eggUIStroke = Instance.new("UIStroke", eggHUDMain)
+eggUIStroke.Color = Color3.fromRGB(180, 0, 255)
+eggUIStroke.Thickness = 1.5
+
+local eggUICorner = Instance.new("UICorner", eggHUDMain)
+eggUICorner.CornerRadius = UDim.new(0, 6)
+
+local eggTitle = Instance.new("TextLabel", eggHUDMain)
+eggTitle.Size = UDim2.new(1, 0, 0, 30)
+eggTitle.BackgroundTransparency = 1
+eggTitle.Text = "▣ SOL'S EGG BOT ▣"
+eggTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+eggTitle.Font = Enum.Font.GothamBold
+eggTitle.TextSize = 14
+
+local statusLabel = Instance.new("TextLabel", eggHUDMain)
+statusLabel.Size = UDim2.new(1, -20, 0, 20)
+statusLabel.Position = UDim2.new(0, 10, 0, 35)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "상태: 대기 중"
+statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextSize = 13
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local targetLabel = Instance.new("TextLabel", eggHUDMain)
+targetLabel.Size = UDim2.new(1, -20, 0, 20)
+targetLabel.Position = UDim2.new(0, 10, 0, 55)
+targetLabel.BackgroundTransparency = 1
+targetLabel.Text = "대상: 없음"
+targetLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+targetLabel.Font = Enum.Font.Gotham
+targetLabel.TextSize = 13
+targetLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local distLabel = Instance.new("TextLabel", eggHUDMain)
+distLabel.Size = UDim2.new(1, -20, 0, 20)
+distLabel.Position = UDim2.new(0, 10, 0, 75)
+distLabel.BackgroundTransparency = 1
+distLabel.Text = "거리: 0 studs"
+distLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+distLabel.Font = Enum.Font.Gotham
+distLabel.TextSize = 13
+distLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+-- [ 솔스 Success HUD (Left) ]
+local successHUDMain = Instance.new("Frame", eggHUD)
+successHUDMain.Size = UDim2.new(0, 180, 0, 70)
+successHUDMain.Position = UDim2.new(0, 50, 0.5, -35)
+successHUDMain.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+successHUDMain.BackgroundTransparency = 0.2
+successHUDMain.BorderSizePixel = 0
+
+local successUIStroke = Instance.new("UIStroke", successHUDMain)
+successUIStroke.Color = Color3.fromRGB(0, 255, 150) -- 성공 느낌의 에메랄드 색상
+successUIStroke.Thickness = 1.5
+
+local successUICorner = Instance.new("UICorner", successHUDMain)
+successUICorner.CornerRadius = UDim.new(0, 6)
+
+local successTitle = Instance.new("TextLabel", successHUDMain)
+successTitle.Size = UDim2.new(1, 0, 0, 30)
+successTitle.BackgroundTransparency = 1
+successTitle.Text = "▣ COLLECTION STATS ▣"
+successTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+successTitle.Font = Enum.Font.GothamBold
+successTitle.TextSize = 13
+
+local successCountLabel = Instance.new("TextLabel", successHUDMain)
+successCountLabel.Size = UDim2.new(1, 0, 0, 30)
+successCountLabel.Position = UDim2.new(0, 0, 0, 32)
+successCountLabel.BackgroundTransparency = 1
+successCountLabel.Text = "수집 성공: 0"
+successCountLabel.TextColor3 = Color3.fromRGB(0, 255, 150)
+successCountLabel.Font = Enum.Font.GothamBold
+successCountLabel.TextSize = 20
+
+local function UpdateEggHUD()
+    if not Settings.SolEgg.enabled then
+        eggHUD.Enabled = false
+        return
+    end
+    eggHUD.Enabled = true
+    statusLabel.Text = "상태: " .. Settings.SolEgg.status
+    targetLabel.Text = "대상: " .. Settings.SolEgg.targetName
+    distLabel.Text = "거리: " .. string.format("%.1f", Settings.SolEgg.distance) .. " studs"
+    successCountLabel.Text = "수집 성공: " .. Settings.SolEgg.successCount
+end
+
+-- Egg Bot Core Helpers
+local function nameHasEgg(name)
+	return string.find(string.lower(name), "egg", 1, true) ~= nil
+end
+
+local function getTargetPart(obj)
+	if obj:IsA("BasePart") then return obj end
+	if obj:IsA("Model") then
+		if obj.PrimaryPart then return obj.PrimaryPart end
+		local hrp = obj:FindFirstChild("HumanoidRootPart")
+		if hrp and hrp:IsA("BasePart") then return hrp end
+		local anyPart = obj:FindFirstChildWhichIsA("BasePart")
+		if anyPart then return anyPart end
+	end
+	return nil
+end
+
+local function getWorldPosition(obj)
+	local part = getTargetPart(obj)
+	return part and part.Position or nil
+end
+
+local function getPrompt(obj)
+	if obj:IsA("ProximityPrompt") then return obj end
+	return obj:FindFirstChildWhichIsA("ProximityPrompt", true)
+end
+
+local function isValidEggCandidate(obj)
+	if not obj or not obj.Parent or obj.Parent ~= workspace then return false end
+	if not (obj:IsA("Model") or obj:IsA("BasePart")) then return false end
+	if not nameHasEgg(obj.Name) then return false end
+	if Settings.SolEgg.excludedTargets[obj] then return false end
+	return getWorldPosition(obj) ~= nil
+end
+
+local function moveCameraToTarget(targetPos)
+	local oldType = Camera.CameraType
+	local oldCFrame = Camera.CFrame
+	Camera.CameraType = Enum.CameraType.Scriptable
+	local lookPos = targetPos + Vector3.new(0, CAMERA_LOOK_HEIGHT, 0)
+	local camPos = lookPos + Vector3.new(0, CAMERA_DISTANCE, 0)
+	Camera.CFrame = CFrame.new(camPos) * CFrame.Angles(-math.rad(90), 0, 0)
+	task.wait(0.05)
+	return function()
+		Camera.CameraType = oldType
+		if oldType == Enum.CameraType.Scriptable then Camera.CFrame = oldCFrame end
+	end
+end
+
+local function rightClickScreenCenter()
+	if not Camera or not Services.VirtualInputManager then return false end
+	local x, y = math.floor(Camera.ViewportSize.X / 2), math.floor(Camera.ViewportSize.Y / 2)
+	Services.VirtualInputManager:SendMouseButtonEvent(x, y, 1, true, game, 0)
+	task.wait(0.03)
+	Services.VirtualInputManager:SendMouseButtonEvent(x, y, 1, false, game, 0)
+	return true
+end
+
+local function leftDoubleClickScreenCenter()
+	if not Camera or not Services.VirtualInputManager then return false end
+	local x, y = math.floor(Camera.ViewportSize.X / 2), math.floor(Camera.ViewportSize.Y / 2)
+	for i = 1, 2 do
+		Services.VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+		task.wait(0.03)
+		Services.VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+		if i < 2 then task.wait(0.08) end
+	end
+	return true
+end
+
+local function pressSpaceOnce()
+	if Services.VirtualInputManager then
+		Services.VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+		task.wait(0.05)
+		Services.VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+		return true
+	end
+	local char = LocalPlayer.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if hum then hum.Jump = true return true end
+	return false
+end
+
+local function pressEOnTarget(target)
+	local prompt = getPrompt(target)
+	if prompt and typeof(fireproximityprompt) == "function" then
+		pcall(function() fireproximityprompt(prompt) end)
+		return true
+	end
+	if Services.VirtualInputManager then
+		for i = 1, 2 do
+			Services.VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+			task.wait(0.2)
+			Services.VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+			if i < 2 then task.wait(0.08) end
+		end
+		return true
+	end
+	return false
+end
+
+local function updateMovementState(lastPos, stillSince, jumpUsedThisStall)
+	local char = LocalPlayer.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not root then return nil, nil, jumpUsedThisStall, false, false end
+	local currentPos = root.Position
+	if not lastPos then return currentPos, tick(), false, false, false end
+	local moved = (currentPos - lastPos).Magnitude
+	if moved >= STUCK_MOVE_THRESHOLD then return currentPos, tick(), false, false, false end
+	local elapsed = tick() - stillSince
+	local shouldJump = false
+	if elapsed >= JUMP_STUCK_TIME and not jumpUsedThisStall then
+		shouldJump = true
+		jumpUsedThisStall = true
+	end
+	if elapsed >= STUCK_TIME then return currentPos, stillSince, jumpUsedThisStall, shouldJump, true end
+	return lastPos, stillSince, jumpUsedThisStall, shouldJump, false
+end
+
+local function captureInitialSoundSet(target)
+	local initial = setmetatable({}, { __mode = "k" })
+	for _, desc in ipairs(target:GetDescendants()) do
+		if desc.Name == "Sound" then initial[desc] = true end
+	end
+	return initial
+end
+
+local function hasNewSound(target, initialSoundSet)
+	if not target or not target.Parent then return false end
+	for _, desc in ipairs(target:GetDescendants()) do
+		if desc.Name == "Sound" and not initialSoundSet[desc] then return true end
+	end
+	return false
+end
+
+local function waitInRange(target, timeout)
+	local deadline = tick() + timeout
+	local lastPos, stillSince, jumpUsed = nil, nil, false
+	while tick() < deadline do
+		if not target or not target.Parent or not Settings.SolEgg.enabled then return false, "aborted" end
+		local char = LocalPlayer.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local hum = char and char:FindFirstChild("Humanoid")
+		local pos = getWorldPosition(target)
+		if not root or not pos then return false, "missing reference" end
+		local dist = (root.Position - pos).Magnitude
+		Settings.SolEgg.distance = dist
+		UpdateEggHUD()
+		if dist <= INTERACT_DISTANCE then return true, "in range" end
+		hum:MoveTo(pos)
+		local sj, stuck
+		lastPos, stillSince, jumpUsed, sj, stuck = updateMovementState(lastPos, stillSince, jumpUsed)
+		if sj then pressSpaceOnce() end
+		if stuck then return false, "stuck" end
+		task.wait(0.1)
+	end
+	return false, "timeout"
+end
+
+local function waitForSoundOrStuck(target, initialSet, duration)
+	local deadline = tick() + duration
+	local lastPos, stillSince, jumpUsed = nil, nil, false
+	while tick() < deadline do
+		if not target or not target.Parent or not Settings.SolEgg.enabled then return false, "aborted" end
+		if hasNewSound(target, initialSet) then return true, "sound detected" end
+		local sj, stuck
+		lastPos, stillSince, jumpUsed, sj, stuck = updateMovementState(lastPos, stillSince, jumpUsed)
+		if sj then pressSpaceOnce() end
+		if stuck then return false, "stuck" end
+		task.wait(0.05)
+	end
+	return false, "no sound"
+end
+
+local function attemptE(target, initialSet)
+	for i = 1, 1 + EXTRA_E_RETRIES do
+		if not target or not target.Parent or not Settings.SolEgg.enabled then return false, "aborted" end
+		Settings.SolEgg.status = "E 입력 시도 (" .. i .. "/" .. (1 + EXTRA_E_RETRIES) .. ")"
+		UpdateEggHUD()
+		pressEOnTarget(target)
+		local ok, reason = waitForSoundOrStuck(target, initialSet, E_RETRY_DELAY)
+		if ok then return true, "success" end
+		if reason == "stuck" or reason == "aborted" then return false, reason end
+	end
+	return false, "failed all E retries"
+end
+
+local function handleEgg(target)
+	Settings.SolEgg.targetName = target.Name
+	Settings.SolEgg.status = "카메라 우클릭"
+	UpdateEggHUD()
+	local initialSoundSet = captureInitialSoundSet(target)
+	local pos = getWorldPosition(target)
+	if not pos then return end
+	local restore = moveCameraToTarget(pos)
+	task.wait(RIGHT_CLICK_DELAY)
+	rightClickScreenCenter()
+	if restore then restore() end
+	Settings.SolEgg.status = "대상 접근 중 (1차)"
+	UpdateEggHUD()
+	local ok, reason = waitInRange(target, APPROACH_TIMEOUT)
+	if not ok then
+		if reason == "stuck" then
+			local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+			if hum then hum.Health = 0 end
+		end
+		Settings.SolEgg.excludedTargets[target] = true
+		return
+	end
+	ok, reason = attemptE(target, initialSoundSet)
+	if ok then 
+		Settings.SolEgg.excludedTargets[target] = true
+		Settings.SolEgg.successCount = Settings.SolEgg.successCount + 1
+		Settings.SolEgg.status = "수집 성공 (Sound 감지)"
+		UpdateEggHUD()
+		return 
+	end
+	if reason == "stuck" or reason == "aborted" then return end
+	Settings.SolEgg.status = "카메라 우클릭 (2차)"
+	UpdateEggHUD()
+	restore = moveCameraToTarget(pos)
+	task.wait(RIGHT_CLICK_DELAY)
+	rightClickScreenCenter()
+	if restore then restore() end
+	Settings.SolEgg.status = "대상 접근 중 (2차)"
+	UpdateEggHUD()
+	ok, reason = waitInRange(target, APPROACH_TIMEOUT)
+	if not ok then
+		Settings.SolEgg.excludedTargets[target] = true
+		return
+	end
+	ok, reason = attemptE(target, initialSoundSet)
+	if ok then 
+		Settings.SolEgg.excludedTargets[target] = true
+		Settings.SolEgg.successCount = Settings.SolEgg.successCount + 1
+		Settings.SolEgg.status = "수집 성공 (Sound 감지)"
+		UpdateEggHUD()
+		return 
+	end
+	if reason == "stuck" or reason == "aborted" then return end
+	Settings.SolEgg.status = "화면 중앙 더블클릭"
+	UpdateEggHUD()
+	restore = moveCameraToTarget(pos)
+	task.wait(RIGHT_CLICK_DELAY)
+	leftDoubleClickScreenCenter()
+	if restore then restore() end
+	ok, reason = waitForSoundOrStuck(target, initialSoundSet, FINAL_DOUBLECLICK_WAIT)
+	if ok then
+		Settings.SolEgg.excludedTargets[target] = true
+		Settings.SolEgg.successCount = Settings.SolEgg.successCount + 1
+		Settings.SolEgg.status = "수집 성공 (더블클릭)"
+		UpdateEggHUD()
+		return
+	end
+	Settings.SolEgg.excludedTargets[target] = true
+	Settings.SolEgg.status = "수집 실패: 최종 도달"
+	UpdateEggHUD()
+end
+
+task.spawn(function()
+	while true do
+		if Settings.SolEgg.enabled and not Settings.SolEgg.busy then
+			local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+			if root then
+				local nearest, dist = nil, math.huge
+				for _, obj in ipairs(workspace:GetChildren()) do
+					if isValidEggCandidate(obj) then
+						local pos = getWorldPosition(obj)
+						if pos then
+							local d = (root.Position - pos).Magnitude
+							if d < dist then dist, nearest = d, obj end
+						end
+					end
+				end
+				if nearest then
+					Settings.SolEgg.busy = true
+					pcall(function() handleEgg(nearest) end)
+					Settings.SolEgg.busy = false
+				else
+					Settings.SolEgg.status = "색적 중..."
+					Settings.SolEgg.targetName = "없음"
+					Settings.SolEgg.distance = 0
+					UpdateEggHUD()
+				end
+			end
+		elseif not Settings.SolEgg.enabled then
+			eggHUD.Enabled = false
+		end
+		task.wait(SCAN_INTERVAL)
+	end
+end)
+
+-- =============================
 -- Material UI 로드
 -- =============================
 local Material
@@ -4014,6 +4435,16 @@ SBTab.Button({
 
 -- ================= 기타 게임들 탭 =================
 local OtherGameTab = UI.New({ Title = "기타 게임들", Icon = "gamepad-2" })
+
+OtherGameTab.Label({ Text = ">[ 솔스 ]<" })
+OtherGameTab.Toggle({
+    Text = "에그 자동 수집",
+    Enabled = false,
+    Callback = function(v)
+        Settings.SolEgg.enabled = v
+        UpdateEggHUD()
+    end
+})
 
 OtherGameTab.Label({ Text = ">[ 죽음의 배달 ]<" })
 OtherGameTab.Button({
