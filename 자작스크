@@ -2526,7 +2526,7 @@ end)
 local SCAN_INTERVAL = 0.2
 local RIGHT_CLICK_DELAY = 0.5
 local INTERACT_DISTANCE = 3
-local APPROACH_TIMEOUT = 99999
+local APPROACH_TIMEOUT = 0 -- 더 이상 사용되지 않음 (무한 대기)
 local JUMP_STUCK_TIME = 2
 local STUCK_TIME = 5
 local STUCK_MOVE_THRESHOLD = 1.5
@@ -2773,10 +2773,9 @@ local function hasNewSound(target, initialSoundSet)
 	return false
 end
 
-local function waitInRange(target, timeout)
-	local deadline = tick() + timeout
+local function waitInRange(target)
 	local lastPos, stillSince, jumpUsed = nil, nil, false
-	while tick() < deadline do
+	while true do
 		if not target or not target.Parent or not Settings.SolEgg.enabled then return false, "aborted" end
 		local char = LocalPlayer.Character
 		local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -2787,14 +2786,16 @@ local function waitInRange(target, timeout)
 		Settings.SolEgg.distance = dist
 		UpdateEggHUD()
 		if dist <= INTERACT_DISTANCE then return true, "in range" end
-		hum:MoveTo(pos)
+		
+		-- 직접 이동 로직 삭제 (외부 시스템에 의존)
+		-- hum:MoveTo(pos) 
+		
 		local sj, stuck
 		lastPos, stillSince, jumpUsed, sj, stuck = updateMovementState(lastPos, stillSince, jumpUsed)
 		if sj then pressSpaceOnce() end
 		if stuck then return false, "stuck" end
 		task.wait(0.1)
 	end
-	return false, "timeout"
 end
 
 local function waitForSoundOrStuck(target, initialSet, duration)
@@ -2838,7 +2839,7 @@ local function handleEgg(target)
 	if restore then restore() end
 	Settings.SolEgg.status = "대상 접근 중 (1차)"
 	UpdateEggHUD()
-	local ok, reason = waitInRange(target, APPROACH_TIMEOUT)
+	local ok, reason = waitInRange(target)
 	if not ok then
 		if reason == "stuck" then
 			local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
@@ -2864,7 +2865,7 @@ local function handleEgg(target)
 	if restore then restore() end
 	Settings.SolEgg.status = "대상 접근 중 (2차)"
 	UpdateEggHUD()
-	ok, reason = waitInRange(target, APPROACH_TIMEOUT)
+	ok, reason = waitInRange(target)
 	if not ok then
 		Settings.SolEgg.excludedTargets[target] = true
 		return
