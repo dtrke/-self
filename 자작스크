@@ -2526,7 +2526,7 @@ end)
 local SCAN_INTERVAL = 0.2
 local RIGHT_CLICK_DELAY = 0.5
 local INTERACT_DISTANCE = 3
-local APPROACH_TIMEOUT = 0 -- 더 이상 사용되지 않음 (무한 대기)
+local APPROACH_TIMEOUT = 
 local JUMP_STUCK_TIME = 2
 local STUCK_TIME = 5
 local STUCK_MOVE_THRESHOLD = 1.5
@@ -2743,17 +2743,32 @@ local function updateMovementState(lastPos, stillSince, jumpUsedThisStall)
 	local char = LocalPlayer.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart")
 	if not root then return nil, nil, jumpUsedThisStall, false, false end
+	
 	local currentPos = root.Position
 	if not lastPos then return currentPos, tick(), false, false, false end
-	local moved = (currentPos - lastPos).Magnitude
-	if moved >= STUCK_MOVE_THRESHOLD then return currentPos, tick(), false, false, false end
+	
+	-- 수평 이동(X, Z 축)만 감지하여 점프(Y 축)가 스택 타이머를 초기화하지 않도록 함
+	local horizontalMoved = (Vector2.new(currentPos.X, currentPos.Z) - Vector2.new(lastPos.X, lastPos.Z)).Magnitude
+	
+	-- 임계값 이상의 수평 이동이 있으면 이동 중으로 간주하고 모든 상태 초기화
+	if horizontalMoved >= STUCK_MOVE_THRESHOLD then 
+		return currentPos, tick(), false, false, false 
+	end
+	
 	local elapsed = tick() - stillSince
 	local shouldJump = false
+	
+	-- 끼인 상태에서 2초 경과 시 1회 점프 시도
 	if elapsed >= JUMP_STUCK_TIME and not jumpUsedThisStall then
 		shouldJump = true
 		jumpUsedThisStall = true
 	end
-	if elapsed >= STUCK_TIME then return currentPos, stillSince, jumpUsedThisStall, shouldJump, true end
+	
+	-- 끼인 상태에서 5초 경과 시 최종 끼임(stuck) 판정 -> 이후 리셋 로직 트리거
+	if elapsed >= STUCK_TIME then 
+		return currentPos, stillSince, jumpUsedThisStall, shouldJump, true 
+	end
+	
 	return lastPos, stillSince, jumpUsedThisStall, shouldJump, false
 end
 
