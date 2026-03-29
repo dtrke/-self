@@ -206,7 +206,7 @@ local Settings = {
         targetName = "없음",
         distance = 0,
         successCount = 0,
-        failureCount = 0,
+        failCount = 0, -- 영구 실패한 횟수
         collectedStatus = {}, -- [이름] = 갯수
         excludedTargets = setmetatable({}, { __mode = "k" })
     }
@@ -2549,7 +2549,6 @@ local listContainer = Instance.new("Frame", eggHUD)
 listContainer.Size = UDim2.new(0, 300, 0, 140)
 listContainer.Position = UDim2.new(0.5, -150, 0, 45)
 listContainer.BackgroundTransparency = 1
-listContainer.ClipsDescendants = true -- 애니메이션을 위해 추가
 
 -- ▣ 목록 표시/숨김 토글 버튼
 local toggleListBtn = Instance.new("TextButton", listContainer)
@@ -2578,13 +2577,14 @@ listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 listLayout.SortOrder = Enum.SortOrder.LayoutOrder
 listLayout.Padding = UDim.new(0, 3)
 
-local isFolded = false
 toggleListBtn.MouseButton1Click:Connect(function()
-    isFolded = not isFolded
-    toggleListBtn.Text = isFolded and "▼ 펼치기 ▼" or "▲ 접기 ▲"
-    
-    local targetSize = isFolded and UDim2.new(0, 300, 0, 0) or UDim2.new(0, 300, 0, 140)
-    Services.TweenService:Create(listContainer, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = targetSize}):Play()
+    collectionListHUD.Visible = not collectionListHUD.Visible
+    toggleListBtn.Text = collectionListHUD.Visible and "▲ 접기 ▲" or "▼ 펼치기 ▼"
+    if not collectionListHUD.Visible then
+        listContainer.Size = UDim2.new(0, 300, 0, 0)
+    else
+        listContainer.Size = UDim2.new(0, 300, 0, 140)
+    end
 end)
 
 local function UpdateCollectionListUI()
@@ -2602,7 +2602,6 @@ local function UpdateCollectionListUI()
 
     -- 목록 생성 (컴팩트하게)
     for i, data in ipairs(sortedEggs) do
-        local display_name = string.gsub(data.name, "_", " ")
         local frame = Instance.new("Frame", collectionListHUD)
         frame.Size = UDim2.new(0.95, 0, 0, 22) -- 높이 축소
         frame.BackgroundTransparency = 0.4
@@ -2629,7 +2628,7 @@ local function UpdateCollectionListUI()
         label.Size = UDim2.new(1, -10, 1, 0)
         label.Position = UDim2.new(0, 5, 0, 0)
         label.BackgroundTransparency = 1
-        label.Text = string.format("▣ %s = %d ▣", display_name, data.count)
+        label.Text = string.format("▣ %s = %d ▣", string.gsub(data.name, "_", " "), data.count)
         label.TextColor3 = (t > 0.55) and Color3.fromRGB(20, 20, 20) or Color3.fromRGB(255, 255, 255)
         label.Font = Enum.Font.GothamBold
         label.TextSize = 12
@@ -2639,8 +2638,8 @@ end
 
 -- 2. 상태 HUD (우측 중앙)
 local statusFrame = Instance.new("Frame", eggHUD)
-statusFrame.Size = UDim2.new(0, 260, 0, 140) -- 높이 약간 조정
-statusFrame.Position = UDim2.new(1, -280, 0.5, -70)
+statusFrame.Size = UDim2.new(0, 260, 0, 120)
+statusFrame.Position = UDim2.new(1, -280, 0.5, -60)
 statusFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 statusFrame.BackgroundTransparency = 0.1
 statusFrame.BorderSizePixel = 0
@@ -2659,8 +2658,17 @@ statusTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 statusTitle.Font = Enum.Font.GothamBold
 statusTitle.TextSize = 15
 
+local failInfo = Instance.new("TextLabel", statusFrame)
+failInfo.Size = UDim2.new(1, 0, 0, 20)
+failInfo.Position = UDim2.new(0, 0, 0, 28)
+failInfo.BackgroundTransparency = 1
+failInfo.Text = "영구 실패한 횟수: 0"
+failInfo.TextColor3 = Color3.fromRGB(255, 50, 50) -- 빨간색
+failInfo.Font = Enum.Font.GothamBold
+failInfo.TextSize = 12
+
 local statusInfo = Instance.new("TextLabel", statusFrame)
-statusInfo.Size = UDim2.new(1, -30, 0, 60)
+statusInfo.Size = UDim2.new(1, -30, 1, -40)
 statusInfo.Position = UDim2.new(0, 15, 0, 35)
 statusInfo.BackgroundTransparency = 1
 statusInfo.Text = "상태: 대기 중\n대상: 없음\n거리: 0 studs"
@@ -2670,16 +2678,6 @@ statusInfo.TextSize = 13
 statusInfo.TextXAlignment = Enum.TextXAlignment.Left
 statusInfo.TextYAlignment = Enum.TextYAlignment.Top
 statusInfo.LineHeight = 1.3
-
-local failureInfo = Instance.new("TextLabel", statusFrame)
-failureInfo.Size = UDim2.new(1, -30, 0, 30)
-failureInfo.Position = UDim2.new(0, 15, 0, 100)
-failureInfo.BackgroundTransparency = 1
-failureInfo.Text = "필패 수집: 0"
-failureInfo.TextColor3 = Color3.fromRGB(255, 80, 80) -- 빨간색
-failureInfo.Font = Enum.Font.GothamBold
-failureInfo.TextSize = 13
-failureInfo.TextXAlignment = Enum.TextXAlignment.Left
 
 -- 3. 성공 통계 HUD (좌측 중앙)
 local statsFrame = Instance.new("Frame", eggHUD)
@@ -2711,36 +2709,20 @@ statsCount.TextColor3 = Color3.fromRGB(0, 255, 180)
 statsCount.Font = Enum.Font.GothamBold
 statsCount.TextSize = 24
 
-local lastSuccessCount = 0
 local function UpdateEggHUD()
     if not Settings.SolEgg.enabled then
         eggHUD.Enabled = false
         return
     end
     eggHUD.Enabled = true
+    
+    local nameNoUnder = string.gsub(Settings.SolEgg.targetName, "_", " ")
     statusInfo.Text = string.format("상태: %s\n대상: %s\n거리: %.1f studs", 
         Settings.SolEgg.status, 
-        Settings.SolEgg.targetName, 
+        nameNoUnder, 
         Settings.SolEgg.distance)
-    
-    failureInfo.Text = "필패 수집: " .. Settings.SolEgg.failureCount
-    
-    if Settings.SolEgg.successCount > lastSuccessCount then
-        lastSuccessCount = Settings.SolEgg.successCount
-        statsCount.Text = "TOTAL: " .. lastSuccessCount
-        
-        -- 펄스 애니메이션
-        task.spawn(function()
-            local originalSize = UDim2.new(1, 0, 0, 40)
-            local pulseSize = UDim2.new(1.2, 0, 0, 50)
-            Services.TweenService:Create(statsCount, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = pulseSize}):Play()
-            task.wait(0.15)
-            Services.TweenService:Create(statsCount, TweenInfo.new(0.15, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {Size = originalSize}):Play()
-        end)
-    else
-        statsCount.Text = "TOTAL: " .. Settings.SolEgg.successCount
-    end
-    
+    failInfo.Text = "영구 실패한 횟수: " .. Settings.SolEgg.failCount
+    statsCount.Text = "TOTAL: " .. Settings.SolEgg.successCount
     UpdateCollectionListUI()
 end
 
@@ -2919,8 +2901,7 @@ local function waitInRange(target, timeout)
 		local root = char and char:FindFirstChild("HumanoidRootPart")
 		local hum = char and char:FindFirstChild("Humanoid")
 		local pos = getWorldPosition(target)
-		if not pos then return false, "disappeared" end
-		if not root then return false, "missing reference" end
+		if not root or not pos then return false, "missing reference" end
 		local diff = root.Position - pos
 		local horizontalDist = Vector2.new(diff.X, diff.Z).Magnitude
 		local verticalDist = math.abs(diff.Y)
@@ -2950,7 +2931,6 @@ local function waitForSoundOrStuck(target, initialSet, duration)
 	while tick() < deadline do
 		if not target or not target.Parent or not Settings.SolEgg.enabled then return false, "aborted" end
 		if hasNewSound(target, initialSet) then return true, "sound detected" end
-		if not target or not target.Parent then return false, "disappeared" end
 		local sj, stuck
 		lastPos, stillSince, jumpUsed, jumpOrg, sj, stuck = updateMovementState(lastPos, stillSince, jumpUsed, jumpOrg)
 		if sj then pressSpaceOnce() end
@@ -2987,13 +2967,7 @@ local function handleEgg(target)
 		
 		-- 공통 실패 처리 (끼임 시 리셋 또는 포기)
 		local function handleFailure(reason)
-			if reason == "disappeared" then
-				Settings.SolEgg.failureCount = Settings.SolEgg.failureCount + 1
-				Settings.SolEgg.status = "수집 실패: 대상 증발"
-				Settings.SolEgg.excludedTargets[target] = tick()
-				UpdateEggHUD()
-				return "giveup"
-			elseif reason == "stuck" then
+			if reason == "stuck" then
 				local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
 				if hum then hum.Health = 0 end
 				
@@ -3005,6 +2979,7 @@ local function handleEgg(target)
 					return "retry"
 				else
 					Settings.SolEgg.status = "수집 실패: 최종 포기"
+					Settings.SolEgg.failCount = Settings.SolEgg.failCount + 1 -- 영구 실패 증가
 					UpdateEggHUD()
 					Settings.SolEgg.excludedTargets[target] = tick()
 					return "giveup"
@@ -3012,6 +2987,9 @@ local function handleEgg(target)
 			elseif reason == "aborted" then
 				return "abort"
 			else
+				Settings.SolEgg.status = "수집 실패: 포기 (" .. tostring(reason) .. ")"
+				Settings.SolEgg.failCount = Settings.SolEgg.failCount + 1 -- 영구 실패 증가
+				UpdateEggHUD()
 				Settings.SolEgg.excludedTargets[target] = tick()
 				return "giveup"
 			end
