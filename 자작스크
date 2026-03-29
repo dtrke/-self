@@ -2814,10 +2814,16 @@ local function waitInRange(target, timeout)
 		local hum = char and char:FindFirstChild("Humanoid")
 		local pos = getWorldPosition(target)
 		if not root or not pos then return false, "missing reference" end
-		local dist = (root.Position - pos).Magnitude
-		Settings.SolEgg.distance = dist
+		local diff = root.Position - pos
+		local horizontalDist = Vector2.new(diff.X, diff.Z).Magnitude
+		local verticalDist = math.abs(diff.Y)
+		
+		Settings.SolEgg.distance = diff.Magnitude
 		UpdateEggHUD()
-		if dist <= INTERACT_DISTANCE then return true, "in range" end
+		
+		if horizontalDist <= INTERACT_DISTANCE and verticalDist <= 15 then 
+			return true, "in range" 
+		end
 		
 		-- [MOD] 직접 이동 로직 삭제 (외부 시스템 활용)
 		-- hum:MoveTo(pos)
