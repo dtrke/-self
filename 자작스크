@@ -206,6 +206,7 @@ local Settings = {
         targetName = "없음",
         distance = 0,
         successCount = 0,
+        collectedStatus = {}, -- [이름] = 갯수
         excludedTargets = setmetatable({}, { __mode = "k" })
     }
 }
@@ -2536,95 +2537,135 @@ local CAMERA_LOOK_HEIGHT = 3
 local CAMERA_DISTANCE = 1
 local FINAL_DOUBLECLICK_WAIT = 0.75
 
--- [ 솔스 Debug HUD ]
+-- [ 솔스 Egg Bot UI ]
 local eggHUD = Instance.new("ScreenGui", LocalPlayer.PlayerGui)
-eggHUD.Name = "EggBotDebugHUD"
+eggHUD.Name = "EggBotPremiumHUD"
 eggHUD.ResetOnSpawn = false
 eggHUD.Enabled = false
 
-local eggHUDMain = Instance.new("Frame", eggHUD)
-eggHUDMain.Size = UDim2.new(0, 240, 0, 110)
-eggHUDMain.Position = UDim2.new(1, -250, 0.5, -55)
-eggHUDMain.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-eggHUDMain.BackgroundTransparency = 0.2
-eggHUDMain.BorderSizePixel = 0
+-- 1. 상단 중앙 에그 목록 UI
+local collectionListHUD = Instance.new("Frame", eggHUD)
+collectionListHUD.Size = UDim2.new(0, 400, 0, 300)
+collectionListHUD.Position = UDim2.new(0.5, -200, 0, 50)
+collectionListHUD.BackgroundTransparency = 1
 
-local eggUIStroke = Instance.new("UIStroke", eggHUDMain)
-eggUIStroke.Color = Color3.fromRGB(180, 0, 255)
-eggUIStroke.Thickness = 1.5
+local listLayout = Instance.new("UIListLayout", collectionListHUD)
+listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+listLayout.Padding = UDim.new(0, 4)
 
-local eggUICorner = Instance.new("UICorner", eggHUDMain)
-eggUICorner.CornerRadius = UDim.new(0, 6)
+local function UpdateCollectionListUI()
+    -- 기존 목록 초기화
+    for _, child in ipairs(collectionListHUD:GetChildren()) do
+        if child:IsA("Frame") then child:Destroy() end
+    end
 
-local eggTitle = Instance.new("TextLabel", eggHUDMain)
-eggTitle.Size = UDim2.new(1, 0, 0, 30)
-eggTitle.BackgroundTransparency = 1
-eggTitle.Text = "▣ SOL'S EGG BOT ▣"
-eggTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-eggTitle.Font = Enum.Font.GothamBold
-eggTitle.TextSize = 14
+    -- 데이터 정렬 (갯수 많은 순)
+    local sortedEggs = {}
+    for name, count in pairs(Settings.SolEgg.collectedStatus) do
+        table.insert(sortedEggs, {name = name, count = count})
+    end
+    table.sort(sortedEggs, function(a, b) return a.count > b.count end)
 
-local statusLabel = Instance.new("TextLabel", eggHUDMain)
-statusLabel.Size = UDim2.new(1, -20, 0, 20)
-statusLabel.Position = UDim2.new(0, 10, 0, 35)
-statusLabel.BackgroundTransparency = 1
-statusLabel.Text = "상태: 대기 중"
-statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-statusLabel.Font = Enum.Font.Gotham
-statusLabel.TextSize = 13
-statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    -- 목록 생성
+    for i, data in ipairs(sortedEggs) do
+        local frame = Instance.new("Frame", collectionListHUD)
+        frame.Size = UDim2.new(1, 0, 0, 25)
+        frame.BackgroundTransparency = 0.4
+        frame.BorderSizePixel = 0
+        frame.LayoutOrder = i
 
-local targetLabel = Instance.new("TextLabel", eggHUDMain)
-targetLabel.Size = UDim2.new(1, -20, 0, 20)
-targetLabel.Position = UDim2.new(0, 10, 0, 55)
-targetLabel.BackgroundTransparency = 1
-targetLabel.Text = "대상: 없음"
-targetLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-targetLabel.Font = Enum.Font.Gotham
-targetLabel.TextSize = 13
-targetLabel.TextXAlignment = Enum.TextXAlignment.Left
+        -- 그라디언트 계산 (진한 파란색 -> 하얀색)
+        local t = #sortedEggs > 1 and (i - 1) / (#sortedEggs - 1) or 0
+        local startColor = Color3.fromRGB(0, 80, 200) -- 진한 파란색
+        local endColor = Color3.fromRGB(255, 255, 255) -- 하얀색
+        local lerpedColor = startColor:Lerp(endColor, t)
+        
+        frame.BackgroundColor3 = lerpedColor
+        
+        local corner = Instance.new("UICorner", frame)
+        corner.CornerRadius = UDim.new(0, 4)
 
-local distLabel = Instance.new("TextLabel", eggHUDMain)
-distLabel.Size = UDim2.new(1, -20, 0, 20)
-distLabel.Position = UDim2.new(0, 10, 0, 75)
-distLabel.BackgroundTransparency = 1
-distLabel.Text = "거리: 0 studs"
-distLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-distLabel.Font = Enum.Font.Gotham
-distLabel.TextSize = 13
-distLabel.TextXAlignment = Enum.TextXAlignment.Left
+        local stroke = Instance.new("UIStroke", frame)
+        stroke.Color = Color3.fromRGB(0, 0, 0)
+        stroke.Thickness = 1
+        stroke.Transparency = 0.8
 
--- [ 솔스 Success HUD (Left) ]
-local successHUDMain = Instance.new("Frame", eggHUD)
-successHUDMain.Size = UDim2.new(0, 180, 0, 70)
-successHUDMain.Position = UDim2.new(0, 50, 0.5, -35)
-successHUDMain.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-successHUDMain.BackgroundTransparency = 0.2
-successHUDMain.BorderSizePixel = 0
+        local label = Instance.new("TextLabel", frame)
+        label.Size = UDim2.new(1, -20, 1, 0)
+        label.Position = UDim2.new(0, 10, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Text = string.format("▣ %s = %d ▣", data.name, data.count)
+        label.TextColor3 = (t > 0.5) and Color3.fromRGB(20, 20, 20) or Color3.fromRGB(255, 255, 255)
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 13
+        label.TextXAlignment = Enum.TextXAlignment.Center
+    end
+end
 
-local successUIStroke = Instance.new("UIStroke", successHUDMain)
-successUIStroke.Color = Color3.fromRGB(0, 255, 150) -- 성공 느낌의 에메랄드 색상
-successUIStroke.Thickness = 1.5
+-- 2. 상태 HUD (우측 중앙)
+local statusFrame = Instance.new("Frame", eggHUD)
+statusFrame.Size = UDim2.new(0, 260, 0, 120)
+statusFrame.Position = UDim2.new(1, -280, 0.5, -60)
+statusFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+statusFrame.BackgroundTransparency = 0.1
+statusFrame.BorderSizePixel = 0
 
-local successUICorner = Instance.new("UICorner", successHUDMain)
-successUICorner.CornerRadius = UDim.new(0, 6)
+local statusCorner = Instance.new("UICorner", statusFrame)
+local statusStroke = Instance.new("UIStroke", statusFrame)
+statusStroke.Thickness = 2
+statusStroke.Color = Color3.fromRGB(60, 120, 255)
+statusStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 
-local successTitle = Instance.new("TextLabel", successHUDMain)
-successTitle.Size = UDim2.new(1, 0, 0, 30)
-successTitle.BackgroundTransparency = 1
-successTitle.Text = "▣ COLLECTION STATS ▣"
-successTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-successTitle.Font = Enum.Font.GothamBold
-successTitle.TextSize = 13
+local statusTitle = Instance.new("TextLabel", statusFrame)
+statusTitle.Size = UDim2.new(1, 0, 0, 35)
+statusTitle.BackgroundTransparency = 1
+statusTitle.Text = "✧ EGG BOT STATUS ✧"
+statusTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+statusTitle.Font = Enum.Font.GothamBold
+statusTitle.TextSize = 15
 
-local successCountLabel = Instance.new("TextLabel", successHUDMain)
-successCountLabel.Size = UDim2.new(1, 0, 0, 30)
-successCountLabel.Position = UDim2.new(0, 0, 0, 32)
-successCountLabel.BackgroundTransparency = 1
-successCountLabel.Text = "수집 성공: 0"
-successCountLabel.TextColor3 = Color3.fromRGB(0, 255, 150)
-successCountLabel.Font = Enum.Font.GothamBold
-successCountLabel.TextSize = 20
+local statusInfo = Instance.new("TextLabel", statusFrame)
+statusInfo.Size = UDim2.new(1, -30, 1, -40)
+statusInfo.Position = UDim2.new(0, 15, 0, 35)
+statusInfo.BackgroundTransparency = 1
+statusInfo.Text = "상태: 대기 중\n대상: 없음\n거리: 0 studs"
+statusInfo.TextColor3 = Color3.fromRGB(200, 220, 255)
+statusInfo.Font = Enum.Font.Gotham
+statusInfo.TextSize = 13
+statusInfo.TextXAlignment = Enum.TextXAlignment.Left
+statusInfo.TextYAlignment = Enum.TextYAlignment.Top
+statusInfo.LineHeight = 1.3
+
+-- 3. 성공 통계 HUD (좌측 중앙)
+local statsFrame = Instance.new("Frame", eggHUD)
+statsFrame.Size = UDim2.new(0, 200, 0, 80)
+statsFrame.Position = UDim2.new(0, 30, 0.5, -40)
+statsFrame.BackgroundColor3 = Color3.fromRGB(10, 20, 15)
+statsFrame.BackgroundTransparency = 0.1
+statsFrame.BorderSizePixel = 0
+
+local statsCorner = Instance.new("UICorner", statsFrame)
+local statsStroke = Instance.new("UIStroke", statsFrame)
+statsStroke.Thickness = 2
+statsStroke.Color = Color3.fromRGB(0, 255, 180)
+
+local statsTitle = Instance.new("TextLabel", statsFrame)
+statsTitle.Size = UDim2.new(1, 0, 0, 30)
+statsTitle.BackgroundTransparency = 1
+statsTitle.Text = "✦ COLLECTION STATS ✦"
+statsTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+statsTitle.Font = Enum.Font.GothamBold
+statsTitle.TextSize = 13
+
+local statsCount = Instance.new("TextLabel", statsFrame)
+statsCount.Size = UDim2.new(1, 0, 0, 40)
+statsCount.Position = UDim2.new(0, 0, 0, 35)
+statsCount.BackgroundTransparency = 1
+statsCount.Text = "TOTAL: 0"
+statsCount.TextColor3 = Color3.fromRGB(0, 255, 180)
+statsCount.Font = Enum.Font.GothamBold
+statsCount.TextSize = 24
 
 local function UpdateEggHUD()
     if not Settings.SolEgg.enabled then
@@ -2632,10 +2673,12 @@ local function UpdateEggHUD()
         return
     end
     eggHUD.Enabled = true
-    statusLabel.Text = "상태: " .. Settings.SolEgg.status
-    targetLabel.Text = "대상: " .. Settings.SolEgg.targetName
-    distLabel.Text = "거리: " .. string.format("%.1f", Settings.SolEgg.distance) .. " studs"
-    successCountLabel.Text = "수집 성공: " .. Settings.SolEgg.successCount
+    statusInfo.Text = string.format("상태: %s\n대상: %s\n거리: %.1f studs", 
+        Settings.SolEgg.status, 
+        Settings.SolEgg.targetName, 
+        Settings.SolEgg.distance)
+    statsCount.Text = "TOTAL: " .. Settings.SolEgg.successCount
+    UpdateCollectionListUI()
 end
 
 -- Egg Bot Core Helpers
@@ -2924,6 +2967,7 @@ local function handleEgg(target)
 		if ok then 
 			Settings.SolEgg.excludedTargets[target] = tick()
 			Settings.SolEgg.successCount = Settings.SolEgg.successCount + 1
+			Settings.SolEgg.collectedStatus[target.Name] = (Settings.SolEgg.collectedStatus[target.Name] or 0) + 1
 			Settings.SolEgg.status = "수집 성공 (Sound 감지)"
 			UpdateEggHUD()
 			return 
@@ -2957,6 +3001,7 @@ local function handleEgg(target)
 		if ok then 
 			Settings.SolEgg.excludedTargets[target] = tick()
 			Settings.SolEgg.successCount = Settings.SolEgg.successCount + 1
+			Settings.SolEgg.collectedStatus[target.Name] = (Settings.SolEgg.collectedStatus[target.Name] or 0) + 1
 			Settings.SolEgg.status = "수집 성공 (Sound 감지)"
 			UpdateEggHUD()
 			return 
@@ -2980,6 +3025,7 @@ local function handleEgg(target)
 		if ok then
 			Settings.SolEgg.excludedTargets[target] = tick()
 			Settings.SolEgg.successCount = Settings.SolEgg.successCount + 1
+			Settings.SolEgg.collectedStatus[target.Name] = (Settings.SolEgg.collectedStatus[target.Name] or 0) + 1
 			Settings.SolEgg.status = "수집 성공 (더블클릭)"
 			UpdateEggHUD()
 			return
