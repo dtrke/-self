@@ -2525,7 +2525,7 @@ end)
 -- =============================
 local SCAN_INTERVAL = 0.2
 local RIGHT_CLICK_DELAY = 0.5
-local INTERACT_DISTANCE = 3
+local INTERACT_DISTANCE = 5
 local APPROACH_TIMEOUT = 999999
 local JUMP_STUCK_TIME = 2
 local STUCK_TIME = 5
