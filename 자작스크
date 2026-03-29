@@ -2545,7 +2545,7 @@ eggHUD.Enabled = false
 
 -- 1. 상단 중앙 에그 목록 UI (최적화)
 local listContainer = Instance.new("Frame", eggHUD)
-listContainer.Size = UDim2.new(0, 300, 0, 240)
+listContainer.Size = UDim2.new(0, 300, 0, 140)
 listContainer.Position = UDim2.new(0.5, -150, 0, 45)
 listContainer.BackgroundTransparency = 1
 
@@ -2582,7 +2582,7 @@ toggleListBtn.MouseButton1Click:Connect(function()
     if not collectionListHUD.Visible then
         listContainer.Size = UDim2.new(0, 300, 0, 0)
     else
-        listContainer.Size = UDim2.new(0, 300, 0, 240)
+        listContainer.Size = UDim2.new(0, 300, 0, 140)
     end
 end)
 
