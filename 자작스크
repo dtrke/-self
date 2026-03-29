@@ -2543,16 +2543,48 @@ eggHUD.Name = "EggBotPremiumHUD"
 eggHUD.ResetOnSpawn = false
 eggHUD.Enabled = false
 
--- 1. 상단 중앙 에그 목록 UI
-local collectionListHUD = Instance.new("Frame", eggHUD)
-collectionListHUD.Size = UDim2.new(0, 400, 0, 300)
-collectionListHUD.Position = UDim2.new(0.5, -200, 0, 50)
+-- 1. 상단 중앙 에그 목록 UI (최적화)
+local listContainer = Instance.new("Frame", eggHUD)
+listContainer.Size = UDim2.new(0, 300, 0, 240)
+listContainer.Position = UDim2.new(0.5, -150, 0, 45)
+listContainer.BackgroundTransparency = 1
+
+-- ▣ 목록 표시/숨김 토글 버튼
+local toggleListBtn = Instance.new("TextButton", listContainer)
+toggleListBtn.Size = UDim2.new(0, 100, 0, 20)
+toggleListBtn.Position = UDim2.new(0.5, -50, 0, -25)
+toggleListBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+toggleListBtn.BackgroundTransparency = 0.2
+toggleListBtn.Text = "▲ 접기 ▲"
+toggleListBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleListBtn.Font = Enum.Font.GothamBold
+toggleListBtn.TextSize = 12
+Instance.new("UICorner", toggleListBtn).CornerRadius = UDim.new(0, 4)
+Instance.new("UIStroke", toggleListBtn).Color = Color3.fromRGB(100, 100, 120)
+
+local collectionListHUD = Instance.new("ScrollingFrame", listContainer)
+collectionListHUD.Size = UDim2.new(1, 0, 1, 0)
 collectionListHUD.BackgroundTransparency = 1
+collectionListHUD.ScrollBarThickness = 3
+collectionListHUD.ScrollBarImageColor3 = Color3.fromRGB(100, 150, 255)
+collectionListHUD.CanvasSize = UDim2.new(0, 0, 0, 0)
+collectionListHUD.AutomaticCanvasSize = Enum.AutomaticSize.Y
+collectionListHUD.BorderSizePixel = 0
 
 local listLayout = Instance.new("UIListLayout", collectionListHUD)
 listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-listLayout.Padding = UDim.new(0, 4)
+listLayout.Padding = UDim.new(0, 3)
+
+toggleListBtn.MouseButton1Click:Connect(function()
+    collectionListHUD.Visible = not collectionListHUD.Visible
+    toggleListBtn.Text = collectionListHUD.Visible and "▲ 접기 ▲" or "▼ 펼치기 ▼"
+    if not collectionListHUD.Visible then
+        listContainer.Size = UDim2.new(0, 300, 0, 0)
+    else
+        listContainer.Size = UDim2.new(0, 300, 0, 240)
+    end
+end)
 
 local function UpdateCollectionListUI()
     -- 기존 목록 초기화
@@ -2567,10 +2599,10 @@ local function UpdateCollectionListUI()
     end
     table.sort(sortedEggs, function(a, b) return a.count > b.count end)
 
-    -- 목록 생성
+    -- 목록 생성 (컴팩트하게)
     for i, data in ipairs(sortedEggs) do
         local frame = Instance.new("Frame", collectionListHUD)
-        frame.Size = UDim2.new(1, 0, 0, 25)
+        frame.Size = UDim2.new(0.95, 0, 0, 22) -- 높이 축소
         frame.BackgroundTransparency = 0.4
         frame.BorderSizePixel = 0
         frame.LayoutOrder = i
@@ -2578,7 +2610,7 @@ local function UpdateCollectionListUI()
         -- 그라디언트 계산 (진한 파란색 -> 하얀색)
         local t = #sortedEggs > 1 and (i - 1) / (#sortedEggs - 1) or 0
         local startColor = Color3.fromRGB(0, 80, 200) -- 진한 파란색
-        local endColor = Color3.fromRGB(255, 255, 255) -- 하얀색
+        local endColor = Color3.fromRGB(240, 240, 240) -- 연한 하얀색
         local lerpedColor = startColor:Lerp(endColor, t)
         
         frame.BackgroundColor3 = lerpedColor
@@ -2592,13 +2624,13 @@ local function UpdateCollectionListUI()
         stroke.Transparency = 0.8
 
         local label = Instance.new("TextLabel", frame)
-        label.Size = UDim2.new(1, -20, 1, 0)
-        label.Position = UDim2.new(0, 10, 0, 0)
+        label.Size = UDim2.new(1, -10, 1, 0)
+        label.Position = UDim2.new(0, 5, 0, 0)
         label.BackgroundTransparency = 1
         label.Text = string.format("▣ %s = %d ▣", data.name, data.count)
-        label.TextColor3 = (t > 0.5) and Color3.fromRGB(20, 20, 20) or Color3.fromRGB(255, 255, 255)
+        label.TextColor3 = (t > 0.55) and Color3.fromRGB(20, 20, 20) or Color3.fromRGB(255, 255, 255)
         label.Font = Enum.Font.GothamBold
-        label.TextSize = 13
+        label.TextSize = 12
         label.TextXAlignment = Enum.TextXAlignment.Center
     end
 end
