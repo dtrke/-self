@@ -4527,7 +4527,7 @@ local OtherGameTab = UI.New({ Title = "기타 게임들", Icon = "gamepad-2" })
 
 OtherGameTab.Label({ Text = ">[ 솔스 ]<" })
 OtherGameTab.Toggle({
-    Text = "에그 자동 수집",
+    Text = "에그 자동 수집 - 마우스 클릭으로 이동 기능을 켜야합니다",
     Enabled = false,
     Callback = function(v)
         Settings.SolEgg.enabled = v
