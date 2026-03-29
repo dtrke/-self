@@ -2638,7 +2638,7 @@ end
 
 -- 2. 상태 HUD (우측 중앙)
 local statusFrame = Instance.new("Frame", eggHUD)
-statusFrame.Size = UDim2.new(0, 260, 0, 120)
+statusFrame.Size = UDim2.new(0, 260, 0, 125)
 statusFrame.Position = UDim2.new(1, -280, 0.5, -60)
 statusFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 statusFrame.BackgroundTransparency = 0.1
@@ -2660,7 +2660,7 @@ statusTitle.TextSize = 15
 
 local failInfo = Instance.new("TextLabel", statusFrame)
 failInfo.Size = UDim2.new(1, 0, 0, 20)
-failInfo.Position = UDim2.new(0, 0, 0, 28)
+failInfo.Position = UDim2.new(0, 0, 1, -22)
 failInfo.BackgroundTransparency = 1
 failInfo.Text = "영구 실패한 횟수: 0"
 failInfo.TextColor3 = Color3.fromRGB(255, 50, 50) -- 빨간색
@@ -2668,7 +2668,7 @@ failInfo.Font = Enum.Font.GothamBold
 failInfo.TextSize = 12
 
 local statusInfo = Instance.new("TextLabel", statusFrame)
-statusInfo.Size = UDim2.new(1, -30, 1, -40)
+statusInfo.Size = UDim2.new(1, -30, 0, 60)
 statusInfo.Position = UDim2.new(0, 15, 0, 35)
 statusInfo.BackgroundTransparency = 1
 statusInfo.Text = "상태: 대기 중\n대상: 없음\n거리: 0 studs"
