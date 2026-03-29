@@ -2669,7 +2669,19 @@ local function isValidEggCandidate(obj)
 	if not obj or not obj.Parent or obj.Parent ~= workspace then return false end
 	if not (obj:IsA("Model") or obj:IsA("BasePart")) then return false end
 	if not nameHasEgg(obj.Name) then return false end
-	if Settings.SolEgg.excludedTargets[obj] then return false end
+	
+	local exclusionTime = Settings.SolEgg.excludedTargets[obj]
+	if exclusionTime then
+		if type(exclusionTime) == "number" then
+			if tick() - exclusionTime < 600 then
+				return false
+			end
+		else
+			-- 하위 호환성 및 불리언 처리
+			return false
+		end
+	end
+	
 	return getWorldPosition(obj) ~= nil
 end
 
@@ -2848,75 +2860,130 @@ local function attemptE(target, initialSet)
 end
 
 local function handleEgg(target)
-	Settings.SolEgg.targetName = target.Name
-	Settings.SolEgg.status = "카메라 우클릭"
-	UpdateEggHUD()
-	local initialSoundSet = captureInitialSoundSet(target)
-	local pos = getWorldPosition(target)
-	if not pos then return end
-	local restore = moveCameraToTarget(pos)
-	task.wait(RIGHT_CLICK_DELAY)
-	rightClickScreenCenter()
-	if restore then restore() end
-	Settings.SolEgg.status = "대상 접근 중 (1차)"
-	UpdateEggHUD()
-	local ok, reason = waitInRange(target, APPROACH_TIMEOUT)
-	if not ok then
-		if reason == "stuck" then
-			local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
-			if hum then hum.Health = 0 end
+	for attempt = 1, 2 do
+		local isFirstAttempt = (attempt == 1)
+		
+		Settings.SolEgg.targetName = target.Name
+		Settings.SolEgg.status = isFirstAttempt and "카메라 우클릭" or "재시도: 카메라 우클릭"
+		UpdateEggHUD()
+		
+		local initialSoundSet = captureInitialSoundSet(target)
+		local pos = getWorldPosition(target)
+		if not pos then return end
+		
+		-- 공통 실패 처리 (끼임 시 리셋 또는 포기)
+		local function handleFailure(reason)
+			if reason == "stuck" then
+				local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+				if hum then hum.Health = 0 end
+				
+				if isFirstAttempt then
+					Settings.SolEgg.status = "끼임 감지: 리셋 후 재시도 중..."
+					UpdateEggHUD()
+					LocalPlayer.CharacterAdded:Wait()
+					task.wait(1)
+					return "retry"
+				else
+					Settings.SolEgg.status = "수집 실패: 최종 포기"
+					UpdateEggHUD()
+					Settings.SolEgg.excludedTargets[target] = tick()
+					return "giveup"
+				end
+			elseif reason == "aborted" then
+				return "abort"
+			else
+				Settings.SolEgg.excludedTargets[target] = tick()
+				return "giveup"
+			end
 		end
-		Settings.SolEgg.excludedTargets[target] = true
-		return
-	end
-	ok, reason = attemptE(target, initialSoundSet)
-	if ok then 
-		Settings.SolEgg.excludedTargets[target] = true
-		Settings.SolEgg.successCount = Settings.SolEgg.successCount + 1
-		Settings.SolEgg.status = "수집 성공 (Sound 감지)"
+
+		-- 1차 시도
+		local restore = moveCameraToTarget(pos)
+		task.wait(RIGHT_CLICK_DELAY)
+		rightClickScreenCenter()
+		if restore then restore() end
+		
+		Settings.SolEgg.status = isFirstAttempt and "대상 접근 중 (1차)" or "재시도: 대상 접근 중 (1차)"
 		UpdateEggHUD()
-		return 
-	end
-	if reason == "stuck" or reason == "aborted" then return end
-	Settings.SolEgg.status = "카메라 우클릭 (2차)"
-	UpdateEggHUD()
-	restore = moveCameraToTarget(pos)
-	task.wait(RIGHT_CLICK_DELAY)
-	rightClickScreenCenter()
-	if restore then restore() end
-	Settings.SolEgg.status = "대상 접근 중 (2차)"
-	UpdateEggHUD()
-	ok, reason = waitInRange(target, APPROACH_TIMEOUT)
-	if not ok then
-		Settings.SolEgg.excludedTargets[target] = true
-		return
-	end
-	ok, reason = attemptE(target, initialSoundSet)
-	if ok then 
-		Settings.SolEgg.excludedTargets[target] = true
-		Settings.SolEgg.successCount = Settings.SolEgg.successCount + 1
-		Settings.SolEgg.status = "수집 성공 (Sound 감지)"
+		
+		local ok, reason = waitInRange(target, APPROACH_TIMEOUT)
+		if not ok then
+			local action = handleFailure(reason)
+			if action == "retry" then continue 
+			elseif action == "abort" then return
+			else return end
+		end
+		
+		ok, reason = attemptE(target, initialSoundSet)
+		if ok then 
+			Settings.SolEgg.excludedTargets[target] = tick()
+			Settings.SolEgg.successCount = Settings.SolEgg.successCount + 1
+			Settings.SolEgg.status = "수집 성공 (Sound 감지)"
+			UpdateEggHUD()
+			return 
+		end
+		if reason == "stuck" or reason == "aborted" then
+			local action = handleFailure(reason)
+			if action == "retry" then continue 
+			elseif action == "abort" then return 
+			else return end
+		end
+		
+		-- 2차 시도 (우클릭 재수행)
+		Settings.SolEgg.status = isFirstAttempt and "카메라 우클릭 (2차)" or "재시도: 카메라 우클릭 (2차)"
 		UpdateEggHUD()
-		return 
-	end
-	if reason == "stuck" or reason == "aborted" then return end
-	Settings.SolEgg.status = "화면 중앙 더블클릭"
-	UpdateEggHUD()
-	restore = moveCameraToTarget(pos)
-	task.wait(RIGHT_CLICK_DELAY)
-	leftDoubleClickScreenCenter()
-	if restore then restore() end
-	ok, reason = waitForSoundOrStuck(target, initialSoundSet, FINAL_DOUBLECLICK_WAIT)
-	if ok then
-		Settings.SolEgg.excludedTargets[target] = true
-		Settings.SolEgg.successCount = Settings.SolEgg.successCount + 1
-		Settings.SolEgg.status = "수집 성공 (더블클릭)"
+		restore = moveCameraToTarget(pos)
+		task.wait(RIGHT_CLICK_DELAY)
+		rightClickScreenCenter()
+		if restore then restore() end
+		
+		Settings.SolEgg.status = isFirstAttempt and "대상 접근 중 (2차)" or "재시도: 대상 접근 중 (2차)"
 		UpdateEggHUD()
-		return
+		ok, reason = waitInRange(target, APPROACH_TIMEOUT)
+		if not ok then
+			local action = handleFailure(reason)
+			if action == "retry" then continue
+			elseif action == "abort" then return
+			else return end
+		end
+		
+		ok, reason = attemptE(target, initialSoundSet)
+		if ok then 
+			Settings.SolEgg.excludedTargets[target] = tick()
+			Settings.SolEgg.successCount = Settings.SolEgg.successCount + 1
+			Settings.SolEgg.status = "수집 성공 (Sound 감지)"
+			UpdateEggHUD()
+			return 
+		end
+		if reason == "stuck" or reason == "aborted" then
+			local action = handleFailure(reason)
+			if action == "retry" then continue
+			elseif action == "abort" then return
+			else return end
+		end
+		
+		-- 최종 더블클릭
+		Settings.SolEgg.status = isFirstAttempt and "화면 중앙 더블클릭" or "재시도: 화면 중앙 더블클릭"
+		UpdateEggHUD()
+		restore = moveCameraToTarget(pos)
+		task.wait(RIGHT_CLICK_DELAY)
+		leftDoubleClickScreenCenter()
+		if restore then restore() end
+		
+		ok, reason = waitForSoundOrStuck(target, initialSoundSet, FINAL_DOUBLECLICK_WAIT)
+		if ok then
+			Settings.SolEgg.excludedTargets[target] = tick()
+			Settings.SolEgg.successCount = Settings.SolEgg.successCount + 1
+			Settings.SolEgg.status = "수집 성공 (더블클릭)"
+			UpdateEggHUD()
+			return
+		end
+		
+		local action = handleFailure(reason)
+		if action == "retry" then continue
+		elseif action == "abort" then return
+		else return end
 	end
-	Settings.SolEgg.excludedTargets[target] = true
-	Settings.SolEgg.status = "수집 실패: 최종 도달"
-	UpdateEggHUD()
 end
 
 task.spawn(function()
