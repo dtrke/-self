@@ -3254,15 +3254,32 @@ local UI = Material.Load({
 -- === 설정 자동 저장/불러오기 Hook 시스템 ===
 local HttpService = game:GetService("HttpService")
 local CONFIG_FILE = "ZajakScript_AutoLoad.json"
+local PERMANENT_FILE = "ZajakScript_Permanent.json"
+
 local ConfigSystem = {
     AutoLoad = true,
     SavedStates = {},
+    PermanentStates = {},
     Components = {},
     Callbacks = {},
     IsTeleportLoad = (getgenv and getgenv().IS_TELEPORT_LOAD) or false
 }
 
--- 수동으로 직접 켰을 때(텔레포트 아님)는 이전에 저장된 파일을 무시(완전 초기화)합니다.
+-- [ 영구 저장 ] 웹후크 등 항상 유지되어야 하는 설정 로드
+pcall(function()
+    if isfile and isfile(PERMANENT_FILE) then
+        local data = readfile(PERMANENT_FILE)
+        local decoded = HttpService:JSONDecode(data)
+        if decoded and type(decoded) == "table" then
+            ConfigSystem.PermanentStates = decoded
+            -- Settings 테이블에 즉시 반영 (UI 생성 전)
+            if decoded["에그 알림 웹후크 URL"] then Settings.SolEgg.webhook = decoded["에그 알림 웹후크 URL"] end
+            if decoded["웹후크 URL"] then Settings.Screenshot.webhook = decoded["웹후크 URL"] end
+        end
+    end
+end)
+
+-- [ 세션 저장 ] 텔레포트 시에만 불러오기
 pcall(function()
     if ConfigSystem.IsTeleportLoad and isfile and isfile(CONFIG_FILE) then
         local data = readfile(CONFIG_FILE)
@@ -3276,9 +3293,14 @@ end)
 
 local function SaveConfig()
     pcall(function()
+        -- 세션 설정 저장
         ConfigSystem.SavedStates["_AUTO_LOAD_ENABLED"] = ConfigSystem.AutoLoad
         if writefile then
             writefile(CONFIG_FILE, HttpService:JSONEncode(ConfigSystem.SavedStates))
+        end
+        -- 영구 설정 저장
+        if writefile then
+            writefile(PERMANENT_FILE, HttpService:JSONEncode(ConfigSystem.PermanentStates))
         end
     end)
 end
@@ -3295,10 +3317,19 @@ UI.New = function(...)
             local cName = options.Text
             if not cName then return originalComp(options) end
             
+            -- 특정 필드(웹후크 등)는 영구 저장 모드로 작동
+            local isPermanent = (cName == "에그 알림 웹후크 URL" or cName == "웹후크 URL")
             local originalCallback = options.Callback
             
-            -- 컴포넌트 생성 시 초기 렌더링 값 덮어씌우기 (텔레포트 로딩 & 자동복구 켜짐 한정)
-            if ConfigSystem.IsTeleportLoad and ConfigSystem.AutoLoad and ConfigSystem.SavedStates[cName] ~= nil then
+            -- 초기값 설정
+            if isPermanent then
+                if ConfigSystem.PermanentStates[cName] ~= nil then
+                    local savedVal = ConfigSystem.PermanentStates[cName]
+                    options.Def = savedVal
+                    options.Default = savedVal
+                    options.Type = savedVal
+                end
+            elseif ConfigSystem.IsTeleportLoad and ConfigSystem.AutoLoad and ConfigSystem.SavedStates[cName] ~= nil then
                 local savedVal = ConfigSystem.SavedStates[cName]
                 options.Def = savedVal
                 options.Default = savedVal
@@ -3307,7 +3338,12 @@ UI.New = function(...)
             end
             
             local wrappedCallback = function(val)
-                ConfigSystem.SavedStates[cName] = val
+                if isPermanent then
+                    ConfigSystem.PermanentStates[cName] = val
+                else
+                    ConfigSystem.SavedStates[cName] = val
+                end
+                
                 SaveConfig()
                 if originalCallback then
                     originalCallback(val)
@@ -4897,7 +4933,7 @@ local function sendStatusToDiscord()
                 { name = "게임", value = string.format("%s (%d)", gameName, game.PlaceId), inline = true },
                 { name = "서버 ID", value = "```" .. game.JobId .. "```", inline = false }
             },
-            footer = { text = "Zajak Script | " .. os.date("%Y-%m-%d %H:%M:%S") }
+            footer = { text = "자작 스크립트 | " .. os.date("%Y-%m-%d %H:%M:%S") }
         }
 
         if screenshotData then
