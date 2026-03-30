@@ -1,3 +1,4 @@
+local scriptStartTime = tick()
 local Rayfield
 local success, err = pcall(function()
     Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
@@ -208,7 +209,9 @@ local Settings = {
         successCount = 0,
         failCount = 0, -- 영구 실패한 횟수
         collectedStatus = {}, -- [이름] = 갯수
-        excludedTargets = setmetatable({}, { __mode = "k" })
+        excludedTargets = setmetatable({}, { __mode = "k" }),
+        webhook = "",
+        webhookEnabled = false
     },
 
     -- 스크린샷 (Webhook) 추가
@@ -2959,6 +2962,64 @@ local function attemptE(target, initialSet)
 	return false, "failed all E retries"
 end
 
+local function formatUptime()
+    local seconds = math.floor(tick() - scriptStartTime)
+    local days = math.floor(seconds / 86400)
+    seconds = seconds % 86400
+    local hours = math.floor(seconds / 3600)
+    seconds = seconds % 3600
+    local minutes = math.floor(seconds / 60)
+    seconds = seconds % 60
+    
+    local parts = {}
+    if days > 0 then table.insert(parts, days .. "일") end
+    if hours > 0 then table.insert(parts, hours .. "시간") end
+    if minutes > 0 then table.insert(parts, minutes .. "분") end
+    table.insert(parts, seconds .. "초")
+    
+    return table.concat(parts, " ")
+end
+
+local function sendEggCollectionWebhook(eggName)
+    local settings = Settings.SolEgg
+    if not settings.webhookEnabled or settings.webhook == "" then return end
+    if not settings.webhook:find("discord.com/api/webhooks") then return end
+
+    local http_request = request or (syn and syn.request) or (http and http.request) or http_request
+    if not http_request then return end
+
+    task.spawn(function()
+        local cleanName = eggName:gsub("_", " ")
+        local timeStr = os.date("%H:%M:%S")
+        local uptimeStr = formatUptime()
+        
+        local collectionSummary = ""
+        for name, count in pairs(settings.collectedStatus) do
+            collectionSummary = collectionSummary .. string.format("- %s (%d)\n", name:gsub("_", " "), count)
+        end
+
+        local embed = {
+            title = "🥚 에그 획득 알림",
+            color = 65280, -- Green
+            fields = {
+                { name = "시간", value = timeStr, inline = true },
+                { name = "획득한 에그", value = cleanName, inline = true },
+                { name = "가동시간", value = uptimeStr, inline = false },
+                { name = "지금까지 획득한 목록", value = collectionSummary ~= "" and collectionSummary or "없음", inline = false }
+            },
+            footer = { text = "Zajak Script | Sol's Egg Bot" },
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+        }
+
+        http_request({
+            Url = settings.webhook,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = game:GetService("HttpService"):JSONEncode({ embeds = { embed } })
+        })
+    end)
+end
+
 local function handleEgg(target)
 	for attempt = 1, 2 do
 		local isFirstAttempt = (attempt == 1)
@@ -3025,6 +3086,7 @@ local function handleEgg(target)
 			Settings.SolEgg.collectedStatus[target.Name] = (Settings.SolEgg.collectedStatus[target.Name] or 0) + 1
 			Settings.SolEgg.status = "수집 성공 (Sound 감지)"
 			UpdateEggHUD()
+            sendEggCollectionWebhook(target.Name)
 			return 
 		end
 		if reason == "stuck" or reason == "aborted" then
@@ -3059,6 +3121,7 @@ local function handleEgg(target)
 			Settings.SolEgg.collectedStatus[target.Name] = (Settings.SolEgg.collectedStatus[target.Name] or 0) + 1
 			Settings.SolEgg.status = "수집 성공 (Sound 감지)"
 			UpdateEggHUD()
+            sendEggCollectionWebhook(target.Name)
 			return 
 		end
 		if reason == "stuck" or reason == "aborted" then
@@ -3083,6 +3146,7 @@ local function handleEgg(target)
 			Settings.SolEgg.collectedStatus[target.Name] = (Settings.SolEgg.collectedStatus[target.Name] or 0) + 1
 			Settings.SolEgg.status = "수집 성공 (더블클릭)"
 			UpdateEggHUD()
+            sendEggCollectionWebhook(target.Name)
 			return
 		end
 		
@@ -4642,6 +4706,22 @@ OtherGameTab.Toggle({
     end
 })
 
+OtherGameTab.Toggle({
+    Text = "에그 획득 디스코드 알림",
+    Enabled = Settings.SolEgg.webhookEnabled,
+    Callback = function(v)
+        Settings.SolEgg.webhookEnabled = v
+    end
+})
+
+OtherGameTab.TextField({
+    Text = "에그 알림 웹후크 URL",
+    Type = "Default",
+    Callback = function(v)
+        Settings.SolEgg.webhook = v
+    end
+})
+
 OtherGameTab.Label({ Text = ">[ 죽음의 배달 ]<" })
 OtherGameTab.Button({
     Text = "죽음의 배달 탭 이동",
@@ -4719,6 +4799,130 @@ EtcTab.Button({
     end
 })
 
+EtcTab.Label({ Text = "디스코드 웹후크" })
+
+-- =============================
+-- 스크린샷 기능 (Webhook)
+-- =============================
+local function sendStatusToDiscord()
+    local webhook = Settings.Screenshot.webhook
+    if webhook == "" or not webhook:find("discord.com/api/webhooks") then
+        print("[Webhook Error] 유효한 디스코드 웹후크 URL을 입력해주세요.")
+        return
+    end
+
+    local success, result = pcall(function()
+        -- 1. 데이터 수집
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        
+        local hp = hum and math.floor(hum.Health) or 0
+        local maxHp = hum and math.floor(hum.MaxHealth) or 0
+        local pos = hrp and string.format("%.1f, %.1f, %.1f", hrp.Position.X, hrp.Position.Y, hrp.Position.Z) or "알 수 없음"
+        
+        local gameName = "알 수 없음"
+        pcall(function()
+            gameName = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name
+        end)
+        
+        -- 2. 스크린샷 캡쳐 시도
+        local screenshotData = (getgenv().screenshot and getgenv().screenshot()) 
+                            or (getgenv().capture_screenshot and getgenv().capture_screenshot())
+                            or (getgenv().get_screenshot and getgenv().get_screenshot())
+                            or (getgenv().capture_screen and getgenv().capture_screen())
+                            or (syn and syn.screenshot and syn.screenshot())
+                            or (syn and syn.capture_screenshot and syn.capture_screenshot())
+        
+        local http_request = request or (syn and syn.request) or (http and http.request) or http_request
+        if not http_request then
+            print("[Error] HTTP 요청(request) 함수를 지원하지 않는 실행기입니다.")
+            return
+        end
+
+        local executor = (identifyexecutor and identifyexecutor()) or "Unknown"
+
+        -- 3. 디스코드 전송 데이터 구성
+        local embed = {
+            title = "📊 플레이어 상태 보고서",
+            color = screenshotData and 5814783 or 16733525, -- 사진 있으면 파랑, 없으면 빨강
+            thumbnail = {
+                url = string.format("https://www.roblox.com/asset-thumbnail/image?assetId=%d&width=420&height=420&format=png", game.PlaceId)
+            },
+            fields = {
+                { name = "플레이어", value = string.format("%s (@%s)", LocalPlayer.DisplayName, LocalPlayer.Name), inline = true },
+                { name = "체력", value = string.format("%d / %d", hp, maxHp), inline = true },
+                { name = "위치 (XYZ)", value = pos, inline = false },
+                { name = "게임", value = string.format("%s (%d)", gameName, game.PlaceId), inline = true },
+                { name = "서버 ID", value = "```" .. game.JobId .. "```", inline = false }
+            },
+            footer = { text = "Zajak Script | " .. os.date("%Y-%m-%d %H:%M:%S") }
+        }
+
+        if screenshotData then
+            -- 사진이 있는 경우 (멀티파트 전송)
+            local boundary = "---------------------------" .. tick()
+            embed.image = { url = "attachment://screenshot.png" }
+            
+            local body = "--" .. boundary .. "\r\n" ..
+                         "Content-Disposition: form-data; name=\"payload_json\"\r\n" ..
+                         "Content-Type: application/json\r\n\r\n" ..
+                         game:GetService("HttpService"):JSONEncode({ embeds = { embed } }) .. "\r\n" ..
+                         "--" .. boundary .. "\r\n" ..
+                         "Content-Disposition: form-data; name=\"file\"; filename=\"screenshot.png\"\r\n" ..
+                         "Content-Type: image/png\r\n\r\n" ..
+                         screenshotData .. "\r\n" ..
+                         "--" .. boundary .. "--\r\n"
+            
+            http_request({
+                Url = webhook,
+                Method = "POST",
+                Headers = { ["Content-Type"] = "multipart/form-data; boundary=" .. boundary },
+                Body = body
+            })
+            print("[Screenshot] 사진 및 상태 전송 완료!")
+        else
+            -- 사진이 없는 경우 (Solara 등, 텍스트 임베드만 전송)
+            http_request({
+                Url = webhook,
+                Method = "POST",
+                Headers = { ["Content-Type"] = "application/json" },
+                Body = game:GetService("HttpService"):JSONEncode({
+                    content = executor:find("Solara") and "! Solara는 캡쳐를 지원하지 않아 상태 정보만 전송합니다." or "! 캡쳐 API를 찾을 수 없어 상태 정보만 전송합니다.",
+                    embeds = { embed }
+                })
+            })
+            print("[Status] 상태 정보 전송 완료! (캡쳐 미지원)")
+        end
+    end)
+    if not success then
+        print("[Error] 전송 오류: " .. tostring(result))
+    end
+end
+
+EtcTab.Toggle({
+    Text = "1분마다 상태 및 스크린샷 전송",
+    Enabled = Settings.Screenshot.enabled,
+    Callback = function(v)
+        Settings.Screenshot.enabled = v
+    end
+})
+
+EtcTab.TextField({
+    Text = "웹후크 URL",
+    Default = Settings.Screenshot.webhook,
+    Callback = function(v)
+        Settings.Screenshot.webhook = v
+    end
+})
+
+EtcTab.Button({
+    Text = "즉시 상태/스크린샷 보내기",
+    Callback = function()
+        sendStatusToDiscord()
+    end
+})
+
 EtcTab.Label({ Text = "기타/다른 작자 스크립트" })
 
 EtcTab.Button({
@@ -4767,54 +4971,14 @@ EtcTab.Button({
     end
 })
 
-EtcTab.Label({ Text = "내가만든 스크" })
-EtcTab.Toggle({
-    Text = "1분마다 스크샷 전송",
-    Enabled = Settings.Screenshot.enabled,
-    Callback = function(v)
-        Settings.Screenshot.enabled = v
-    end
-})
-EtcTab.TextField({
-    Text = "웹후크 URL",
-    Default = Settings.Screenshot.webhook,
-    Callback = function(v)
-        Settings.Screenshot.webhook = v
-    end
-})
 
 -- =============================
 -- 스크린샷 자동 전송 루프
 -- =============================
 task.spawn(function()
     while true do
-        if Settings.Screenshot and Settings.Screenshot.enabled and Settings.Screenshot.webhook ~= "" and Settings.Screenshot.webhook:find("discord.com/api/webhooks") then
-            -- 다양한 익스플로잇 환경의 스크린샷 API 대응
-            local screenshotData = (getgenv().screenshot and getgenv().screenshot()) 
-                                or (getgenv().capture_screenshot and getgenv().capture_screenshot())
-                                or (syn and syn.screenshot and syn.screenshot())
-            
-            if screenshotData then
-                local boundary = "---------------------------" .. tick()
-                local body = "--" .. boundary .. "\r\n" ..
-                             "Content-Disposition: form-data; name=\"file\"; filename=\"screenshot.png\"\r\n" ..
-                             "Content-Type: image/png\r\n\r\n" ..
-                             screenshotData .. "\r\n--" .. boundary .. "--\r\n"
-                
-                local req_func = request or (syn and syn.request) or (http and http.request) or http_request
-                if req_func then
-                    pcall(function()
-                        req_func({
-                            Url = Settings.Screenshot.webhook,
-                            Method = "POST",
-                            Headers = {
-                                ["Content-Type"] = "multipart/form-data; boundary=" .. boundary
-                            },
-                            Body = body
-                        })
-                    end)
-                end
-            end
+        if Settings.Screenshot and Settings.Screenshot.enabled then
+            sendStatusToDiscord()
         end
         task.wait(60) -- 1분 대기
     end
