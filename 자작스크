@@ -4704,6 +4704,15 @@ local NewToggle = FUNNYTab.Toggle({
 -- ================= 기타 스크 탭 =================
 local EtcTab = UI.New({ Title = "기타 스크", Icon = "boxes" })
 
+EtcTab.Label({ Text = "내가만든 다른 스크립트" })
+
+EtcTab.Button({
+    Text = "애니메이션 감지기",
+    Callback = function()
+        https://pastebin.com/raw/Bn8KJsAH
+    end
+})
+
 EtcTab.Label({ Text = "기타/다른 작자 스크립트" })
 
 EtcTab.Button({
