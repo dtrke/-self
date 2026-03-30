@@ -3322,14 +3322,15 @@ UI.New = function(...)
             local originalCallback = options.Callback
             
             -- 초기값 설정
+            local savedVal = nil
             if isPermanent then
                 if ConfigSystem.PermanentStates[cName] ~= nil then
-                    local savedVal = ConfigSystem.PermanentStates[cName]
+                    savedVal = ConfigSystem.PermanentStates[cName]
                     options.Def = savedVal
                     options.Default = savedVal
                 end
             elseif ConfigSystem.IsTeleportLoad and ConfigSystem.AutoLoad and ConfigSystem.SavedStates[cName] ~= nil then
-                local savedVal = ConfigSystem.SavedStates[cName]
+                savedVal = ConfigSystem.SavedStates[cName]
                 options.Def = savedVal
                 options.Default = savedVal
                 options.Enabled = savedVal
@@ -3351,6 +3352,12 @@ UI.New = function(...)
             options.Callback = wrappedCallback
             
             local compObj = originalComp(options)
+            
+            -- [NEW] TextField 초기값 강제 주입 (Material 라이브러리 대응)
+            if compName == "TextField" and savedVal then
+                pcall(function() compObj:SetText(savedVal) end)
+            end
+
             ConfigSystem.Components[cName] = compObj
             ConfigSystem.Callbacks[cName] = wrappedCallback
             return compObj
@@ -4790,7 +4797,7 @@ OtherGameTab.Toggle({
 })
 
 OtherGameTab.TextField({
-    Text = "에그 알림 웹후크 URL",
+    Text = "에그 알림 웹후크 URL - 스크립트를 껐다켜도 유지됨",
     Default = Settings.SolEgg.webhook,
     Type = "Default",
     Callback = function(v)
@@ -4985,7 +4992,7 @@ EtcTab.Toggle({
 })
 
 EtcTab.TextField({
-    Text = "웹후크 URL",
+    Text = "웹후크 URL - 스크립트를 껐다켜도 유지됨",
     Default = Settings.Screenshot.webhook,
     Callback = function(v)
         Settings.Screenshot.webhook = v
