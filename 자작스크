@@ -3045,7 +3045,7 @@ local function sendEggCollectionWebhook(eggName)
                 { name = "가동시간", value = uptimeStr, inline = false },
                 { name = "지금까지 획득한 목록", value = collectionSummary ~= "" and collectionSummary or "없음", inline = false }
             },
-            footer = { text = "Zajak Script | Sol's Egg Bot" },
+            footer = { text = "자작 스크립트 | Sol's Egg Bot" },
             timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
         }
 
