@@ -4709,7 +4709,7 @@ EtcTab.Label({ Text = "내가만든 다른 스크립트" })
 EtcTab.Button({
     Text = "애니메이션 감지기",
     Callback = function()
-        https://pastebin.com/raw/Bn8KJsAH
+        loadstring(game:HttpGet("https://pastebin.com/raw/Bn8KJsAH"))()
     end
 })
 
