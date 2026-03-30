@@ -3327,13 +3327,11 @@ UI.New = function(...)
                     local savedVal = ConfigSystem.PermanentStates[cName]
                     options.Def = savedVal
                     options.Default = savedVal
-                    options.Type = savedVal
                 end
             elseif ConfigSystem.IsTeleportLoad and ConfigSystem.AutoLoad and ConfigSystem.SavedStates[cName] ~= nil then
                 local savedVal = ConfigSystem.SavedStates[cName]
                 options.Def = savedVal
                 options.Default = savedVal
-                options.Type = savedVal
                 options.Enabled = savedVal
             end
             
@@ -4793,6 +4791,7 @@ OtherGameTab.Toggle({
 
 OtherGameTab.TextField({
     Text = "에그 알림 웹후크 URL - 스크립트를 껐다켜도 유지됨",
+    Default = Settings.SolEgg.webhook,
     Type = "Default",
     Callback = function(v)
         Settings.SolEgg.webhook = v
