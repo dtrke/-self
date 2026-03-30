@@ -209,6 +209,12 @@ local Settings = {
         failCount = 0, -- 영구 실패한 횟수
         collectedStatus = {}, -- [이름] = 갯수
         excludedTargets = setmetatable({}, { __mode = "k" })
+    },
+
+    -- 스크린샷 (Webhook) 추가
+    Screenshot = {
+        enabled = false,
+        webhook = ""
     }
 }
 
@@ -4760,6 +4766,59 @@ EtcTab.Button({
         loadstring(game:HttpGet("https://raw.githubusercontent.com/yofriendfromschool1/Sky-Hub-Backup/main/gameuigiver.lua"))()
     end
 })
+
+EtcTab.Label({ Text = "내가만든 스크" })
+EtcTab.Toggle({
+    Text = "1분마다 스크샷 전송",
+    Enabled = Settings.Screenshot.enabled,
+    Callback = function(v)
+        Settings.Screenshot.enabled = v
+    end
+})
+EtcTab.TextField({
+    Text = "웹후크 URL",
+    Default = Settings.Screenshot.webhook,
+    Callback = function(v)
+        Settings.Screenshot.webhook = v
+    end
+})
+
+-- =============================
+-- 스크린샷 자동 전송 루프
+-- =============================
+task.spawn(function()
+    while true do
+        if Settings.Screenshot and Settings.Screenshot.enabled and Settings.Screenshot.webhook ~= "" and Settings.Screenshot.webhook:find("discord.com/api/webhooks") then
+            -- 다양한 익스플로잇 환경의 스크린샷 API 대응
+            local screenshotData = (getgenv().screenshot and getgenv().screenshot()) 
+                                or (getgenv().capture_screenshot and getgenv().capture_screenshot())
+                                or (syn and syn.screenshot and syn.screenshot())
+            
+            if screenshotData then
+                local boundary = "---------------------------" .. tick()
+                local body = "--" .. boundary .. "\r\n" ..
+                             "Content-Disposition: form-data; name=\"file\"; filename=\"screenshot.png\"\r\n" ..
+                             "Content-Type: image/png\r\n\r\n" ..
+                             screenshotData .. "\r\n--" .. boundary .. "--\r\n"
+                
+                local req_func = request or (syn and syn.request) or (http and http.request) or http_request
+                if req_func then
+                    pcall(function()
+                        req_func({
+                            Url = Settings.Screenshot.webhook,
+                            Method = "POST",
+                            Headers = {
+                                ["Content-Type"] = "multipart/form-data; boundary=" .. boundary
+                            },
+                            Body = body
+                        })
+                    end)
+                end
+            end
+        end
+        task.wait(60) -- 1분 대기
+    end
+end)
 
 -- [FIX BUG #2] 스크립트 실행이 완료된 후 텔레포트 플래그를 초기화하여, 
 -- 같은 세션에서 수동으로 다시 실행할 때 이전 설정이 강제로 덮어씌워지는 것을 방지합니다.
