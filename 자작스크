@@ -3000,6 +3000,87 @@ local function formatUptime()
     return table.concat(parts, " ")
 end
 
+-- [NEW] Notify Spawn Tracking
+local notifiedSpawn = setmetatable({}, { __mode = "k" })
+
+-- [NEW] Send Spawn Webhook
+local function sendEggSpawnWebhook(eggName)
+    local settings = Settings.SolEgg
+    if not settings.webhookEnabled or settings.webhook == "" then return end
+    if not settings.webhook:find("discord.com/api/webhooks") then return end
+
+    local http_request = request or (syn and syn.request) or (http and http.request) or http_request
+    if not http_request then return end
+
+    task.spawn(function()
+        local cleanName = eggName:gsub("_", " ")
+        if COMMON_EGGS_ORDER[cleanName:lower()] then return end -- 희귀 에그만 알림
+
+        local mentionStr = "<@&1465516269322109031>"
+        local timeStr = os.date("%H:%M:%S")
+        
+        local embed = {
+            title = "🥚 [희귀 에그 발견] 필드에 소환되었습니다!",
+            color = 16776960, -- Yellow
+            description = "**" .. cleanName .. "** 에그가 지금 필드에 나타났습니다!",
+            fields = {
+                { name = "발견 시간", value = timeStr, inline = true },
+                { name = "상태", value = "수집 시도 예정", inline = true },
+                { name = "가동시간", value = formatUptime(), inline = false },
+            },
+            footer = { text = "자작 스크립트 | Sol's Egg Bot" },
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+        }
+
+        http_request({
+            Url = settings.webhook,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = game:GetService("HttpService"):JSONEncode({ 
+                content = mentionStr,
+                embeds = { embed } 
+            })
+        })
+    end)
+end
+
+-- [NEW] Send Failure Webhook
+local function sendEggFailureWebhook(eggName, reason)
+    local settings = Settings.SolEgg
+    if not settings.webhookEnabled or settings.webhook == "" then return end
+    if not settings.webhook:find("discord.com/api/webhooks") then return end
+
+    local http_request = request or (syn and syn.request) or (http and http.request) or http_request
+    if not http_request then return end
+
+    task.spawn(function()
+        local cleanName = eggName:gsub("_", " ")
+        local timeStr = os.date("%H:%M:%S")
+        
+        local embed = {
+            title = "❌ [영구 실패] 에그 수집 포기",
+            color = 16711680, -- Red
+            fields = {
+                { name = "시간", value = timeStr, inline = true },
+                { name = "에그 이름", value = cleanName, inline = true },
+                { name = "실패 사유", value = tostring(reason), inline = false },
+                { name = "가동시간", value = formatUptime(), inline = false },
+            },
+            footer = { text = "자작 스크립트 | Sol's Egg Bot" },
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+        }
+
+        http_request({
+            Url = settings.webhook,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = game:GetService("HttpService"):JSONEncode({ 
+                embeds = { embed } 
+            }) -- No mention
+        })
+    end)
+end
+
 local function sendEggCollectionWebhook(eggName)
     local settings = Settings.SolEgg
     if not settings.webhookEnabled or settings.webhook == "" then return end
@@ -3037,7 +3118,7 @@ local function sendEggCollectionWebhook(eggName)
 
         local embed = {
             title = "🥚 에그 획득 알림",
-            color = 65280, -- Green
+            color = 5242879, -- Sky Blue
             fields = {
                 { name = "시간", value = timeStr, inline = true },
                 { name = "획득한 에그", value = cleanName, inline = true },
@@ -3090,6 +3171,7 @@ local function handleEgg(target)
 					Settings.SolEgg.failCount = Settings.SolEgg.failCount + 1 -- 영구 실패 증가
 					UpdateEggHUD()
 					Settings.SolEgg.excludedTargets[target] = tick()
+                    sendEggFailureWebhook(target.Name, "끼임 감지 (최종 포기)")
 					return "giveup"
 				end
 			elseif reason == "aborted" then
@@ -3099,6 +3181,7 @@ local function handleEgg(target)
 				Settings.SolEgg.failCount = Settings.SolEgg.failCount + 1 -- 영구 실패 증가
 				UpdateEggHUD()
 				Settings.SolEgg.excludedTargets[target] = tick()
+                sendEggFailureWebhook(target.Name, reason)
 				return "giveup"
 			end
 		end
@@ -3200,7 +3283,21 @@ end
 
 task.spawn(function()
 	while true do
-		if Settings.SolEgg.enabled and not Settings.SolEgg.busy then
+		if Settings.SolEgg.enabled then
+            -- [NEW] Rare Egg Spawn Detection (Always active regardless of busy state)
+            for _, obj in ipairs(workspace:GetChildren()) do
+                if isValidEggCandidate(obj) then
+                    if not notifiedSpawn[obj] then
+                        local cleanName = obj.Name:gsub("_", " ")
+                        if not COMMON_EGGS_ORDER[cleanName:lower()] then
+                            notifiedSpawn[obj] = true
+                            sendEggSpawnWebhook(obj.Name)
+                        end
+                    end
+                end
+            end
+
+            if not Settings.SolEgg.busy then
 			local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 			if root then
 				local nearest, dist = nil, math.huge
