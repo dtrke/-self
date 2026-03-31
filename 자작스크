@@ -4790,7 +4790,7 @@ OtherGameTab.Toggle({
 })
 
 OtherGameTab.TextField({
-    Text = "에그 알림 웹후크 URL - 스크립트를 껐다켜도 유지됨",
+    Text = "에그 알림 웹후크 URL",
     Default = Settings.SolEgg.webhook,
     Type = "Default",
     Callback = function(v)
@@ -4985,7 +4985,7 @@ EtcTab.Toggle({
 })
 
 EtcTab.TextField({
-    Text = "웹후크 URL - 스크립트를 껐다켜도 유지됨",
+    Text = "웹후크 URL",
     Default = Settings.Screenshot.webhook,
     Callback = function(v)
         Settings.Screenshot.webhook = v
