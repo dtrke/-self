@@ -3111,6 +3111,7 @@ local function sendEggCollectionWebhook(eggName)
             return a.count > b.count
         end)
 
+        local isRare = not COMMON_EGGS_ORDER[cleanName:lower()]
         local collectionSummary = ""
         for _, data in ipairs(sortedSummary) do
             collectionSummary = collectionSummary .. string.format("- %s (%d)\n", data.name, data.count)
@@ -3118,7 +3119,7 @@ local function sendEggCollectionWebhook(eggName)
 
         local embed = {
             title = "🥚 에그 획득 알림",
-            color = 5242879, -- Sky Blue
+            color = isRare and 5242879 or 65280, -- Rare: Sky Blue, Common: Green
             fields = {
                 { name = "시간", value = timeStr, inline = true },
                 { name = "획득한 에그", value = cleanName, inline = true },
