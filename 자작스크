@@ -3321,6 +3321,7 @@ task.spawn(function()
 					UpdateEggHUD()
 				end
 			end
+		end
 		elseif not Settings.SolEgg.enabled then
 			eggHUD.Enabled = false
 		end
