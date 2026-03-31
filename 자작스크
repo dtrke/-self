@@ -3058,7 +3058,7 @@ local function sendEggFailureWebhook(eggName, reason)
         local timeStr = os.date("%H:%M:%S")
         
         local embed = {
-            title = "❌ [영구 실패] 에그 수집 포기",
+            title = "[영구 실패] 에그 수집 포기",
             color = 16711680, -- Red
             fields = {
                 { name = "시간", value = timeStr, inline = true },
@@ -3094,9 +3094,20 @@ local function sendEggCollectionWebhook(eggName)
         local timeStr = os.date("%H:%M:%S")
         local uptimeStr = formatUptime()
         
+        -- 알림 형태 및 색상 결정 (강력한 매칭 로직)
+        local n = cleanName:lower()
+        local isCommon = false
+        for commonName, _ in pairs(COMMON_EGGS_ORDER) do
+            if n:find(commonName:lower(), 1, true) then
+                isCommon = true
+                break
+            end
+        end
+        local isRare = not isCommon
+        
         -- 역할 멘션 결정
         local mentionStr = ""
-        if not COMMON_EGGS_ORDER[cleanName:lower()] then
+        if isRare then
             mentionStr = "<@&1465516269322109031>" -- 특정 역할 멘션
         end
 
@@ -3111,7 +3122,6 @@ local function sendEggCollectionWebhook(eggName)
             return a.count > b.count
         end)
 
-        local isRare = not COMMON_EGGS_ORDER[cleanName:lower()]
         local collectionSummary = ""
         for _, data in ipairs(sortedSummary) do
             collectionSummary = collectionSummary .. string.format("- %s (%d)\n", data.name, data.count)
@@ -3119,7 +3129,7 @@ local function sendEggCollectionWebhook(eggName)
 
         local embed = {
             title = "🥚 에그 획득 알림",
-            color = isRare and 5242879 or 65280, -- Rare: Sky Blue, Common: Green
+            color = isRare and 5242879 or 65280, -- Rare: Sky Blue(5242879), Common: Green(65280)
             fields = {
                 { name = "시간", value = timeStr, inline = true },
                 { name = "획득한 에그", value = cleanName, inline = true },
