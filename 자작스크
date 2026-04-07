@@ -4785,6 +4785,14 @@ SGRTab.Button({
     end
 })
 
+local PLACE_ID = 124807187147436
+SGRTab.Button({
+    Text = "[ 이벤트 ] - 제프 더 킬러 미로로 이동",
+    Callback = function()
+        Services.TeleportService:Teleport(PLACE_ID, LocalPlayer)
+    end
+})
+
 SGRTab.Label({ Text = "울트라헬 점프맵" })
 
 local function quickTP(pos)
