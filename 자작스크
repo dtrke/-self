@@ -129,8 +129,7 @@ local Settings = {
         enabled = true,
         distance = 3.5,
         key = Enum.KeyCode.E,
-        effectLevel = 2,
-        backstabSynergy = false
+        effectLevel = 2
     },
     
     -- 대시
@@ -203,6 +202,7 @@ local Settings = {
     SolEgg = {
         enabled = false,
         busy = false,
+        autoBiomeUse = false, -- [NEW] 바이옴 아이템 자동 사용 여부
         status = "대기 중",
         targetName = "없음",
         distance = 0,
@@ -1405,54 +1405,53 @@ Services.RunService.RenderStepped:Connect(function()
     end
 end)
 
--- 에임 실제 적용 (레그돌 체크 추가됨)
+-- 에임 실제 적용 (수정됨: 정밀 좌표 및 진단용 콘솔 메시지 추가)
 Services.RunService.RenderStepped:Connect(function()
-    -- 레그돌 상태면 무시
-    if isRagdolled then
-        return
+    if isRagdolled then 
+        -- print("Aim Bottled: Ragdoll status blocking.")
+        return 
     end
     
-
-    
-    -- 플레이어 락이나 캐릭터 락이 활성화되어 있으면 무시
     if (Settings.PlayerLock.enabled and Settings.PlayerLock.isActive) or 
        (Settings.CharLock.masterToggle and Settings.CharLock.isLocked) then
         return
     end
     
-    if Settings.Aim.enabled and AimModule.isCurrentTargetAlive() then
+    if Settings.Aim.enabled then
+        if not AimModule.isCurrentTargetAlive() then
+            -- print("Aim Debug: No alive target.")
+            return
+        end
+        
         local targetChar = Settings.Aim.currentTarget.Character
         local part = AimModule.getAimPart(targetChar)
         if part then
             local predictedPos = part.Position
-            
             if Settings.Aim.predictionEnabled then
-                local velocity = part.AssemblyLinearVelocity
-                predictedPos = predictedPos + (velocity * (Settings.Aim.predictionMs / 1000))
+                predictedPos = predictedPos + (part.AssemblyLinearVelocity * (Settings.Aim.predictionMs / 1000))
             end
 
-            if Settings.Aim.forced and mousemoverel then
-                local currentLook = Camera.CFrame.LookVector
-                local targetLook = (predictedPos - Camera.CFrame.Position).Unit
-                
-                -- Calculate angles
-                local dotX = currentLook:Dot(targetLook)
-                local currentRight = Camera.CFrame.RightVector
-                local currentUp = Camera.CFrame.UpVector
-                
-                local deltaX = currentRight:Dot(targetLook)
-                local deltaY = currentUp:Dot(targetLook)
-                
-                -- Convert to pixel movement based on FOV and ViewportSize
-                local viewportSize = Camera.ViewportSize
-                local fovRatio = math.tan(math.rad(Camera.FieldOfView / 2))
-                
-                -- The sensitivity multiplier ensures it doesn't snap instantly
-                local sens = Settings.Aim.forcedSensitivity
-                local moveX = (deltaX / fovRatio) * (viewportSize.X / 2) * sens
-                local moveY = -(deltaY / fovRatio) * (viewportSize.X / 2) * sens
+            if Settings.Aim.forced then
+                local screenPos, onScreen = Camera:WorldToScreenPoint(predictedPos)
+                if onScreen then
+                    local mousePos = Services.UserInputService:GetMouseLocation()
+                    local sens = Settings.Aim.forcedSensitivity or 0.5
+                    local moveX = (screenPos.X - mousePos.X) * sens
+                    local moveY = (screenPos.Y - mousePos.Y) * sens
+                    
+                    local finalX = math.round(moveX)
+                    local finalY = math.round(moveY)
 
-                mousemoverel(moveX, moveY)
+                    if mousemoverel then
+                        mousemoverel(finalX, finalY)
+                    elseif Services.VirtualInputManager then
+                        Services.VirtualInputManager:SendMouseMoveEvent(mousePos.X + finalX, mousePos.Y + finalY, workspace)
+                    else
+                        -- print("Aim Debug: No mouse movement function available!")
+                    end
+                else
+                    -- print("Aim Debug: Target off-screen.")
+                end
             else
                 Camera.CFrame = CFrame.new(Camera.CFrame.Position, predictedPos)
             end
@@ -1615,12 +1614,7 @@ end
 function TPModule.teleportBehindNearestPlayer()
     local targetPlayer = nil
     
-    -- 시너지가 켜져 있고 에임 보정 타겟이 유효한 경우 우선순위 적용
-    if Settings.Teleport.backstabSynergy and Settings.Aim.enabled and AimModule.isCurrentTargetAlive() then
-        targetPlayer = Settings.Aim.currentTarget
-    else
-        targetPlayer = TPModule.getNearestPlayer()
-    end
+    targetPlayer = TPModule.getNearestPlayer()
     
     if not targetPlayer then return end
     local targetChar, myChar = targetPlayer.Character, LocalPlayer.Character
@@ -2298,24 +2292,28 @@ function MouseLockModule.start()
             MouseLockModule.targetHighlight.Enabled = true
         end
 
-        -- 화면상 마우스 포인터 이동
-        if mousemoverel then
-            local torsoPos, onScreen = Camera:WorldToViewportPoint(target.Position)
-            if onScreen then
-                local currentMouse = Services.UserInputService:GetMouseLocation()
-                local targetScreenPos = Vector2.new(torsoPos.X, torsoPos.Y)
-                local delta = targetScreenPos - currentMouse
-                
-                -- 감도
-                local sens = 0.5
-                mousemoverel(delta.X * sens, delta.Y * sens)
+        -- 화면상 마우스 포인터 이동 (수정됨: 정밀 좌표 및 Fallback 적용)
+        local torsoPos, onScreen = Camera:WorldToScreenPoint(target.Position)
+        if onScreen then
+            local mousePos = Services.UserInputService:GetMouseLocation()
+            local sens = 0.5
+            local moveX = (torsoPos.X - mousePos.X) * sens
+            local moveY = (torsoPos.Y - mousePos.Y) * sens
+            
+            local finalX = math.floor(moveX + (moveX > 0 and 0.5 or -0.5))
+            local finalY = math.floor(moveY + (moveY > 0 and 0.5 or -0.5))
+
+            if mousemoverel then
+                mousemoverel(finalX, finalY)
+            elseif Services.VirtualInputManager then
+                Services.VirtualInputManager:SendMouseMoveEvent(mousePos.X + finalX, mousePos.Y + finalY, workspace)
+            end
+        else
+            -- 화면 밖으로 나가면 (단일 플레이어 모드가 아니면) 재검색
+            if not Settings.MouseLock.singlePlayer then
+                Settings.MouseLock.currentTarget = MouseLockModule.getClosestPlayerToMouse()
             else
-                -- 화면 밖으로 나가면 (단일 플레이어 모드가 아니면) 재검색
-                if not Settings.MouseLock.singlePlayer then
-                    Settings.MouseLock.currentTarget = MouseLockModule.getClosestPlayerToMouse()
-                else
-                    if MouseLockModule.targetHighlight then MouseLockModule.targetHighlight.Enabled = false end
-                end
+                if MouseLockModule.targetHighlight then MouseLockModule.targetHighlight.Enabled = false end
             end
         end
     end)
@@ -2607,7 +2605,11 @@ local COMMON_EGGS_ORDER = {
     ["random potion egg 2"] = 8
 }
 
+local lastSuccessCount = -1
 local function UpdateCollectionListUI()
+    if lastSuccessCount == Settings.SolEgg.successCount then return end
+    lastSuccessCount = Settings.SolEgg.successCount
+
     -- 기존 목록 초기화
     for _, child in ipairs(collectionListHUD:GetChildren()) do
         if child:IsA("Frame") then child:Destroy() end
@@ -3338,6 +3340,180 @@ task.spawn(function()
 		end
 		task.wait(SCAN_INTERVAL)
 	end
+end)
+
+-- =============================
+-- [ 바이옴 아이템 자동 사용 시스템 ]
+-- =============================
+local function showPremiumIndicator(x, y)
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "TacticalIndicatorGui"
+    sg.IgnoreGuiInset = true
+    sg.Parent = LocalPlayer.PlayerGui
+    
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(0, 40, 0, 40)
+    container.Position = UDim2.new(0, x, 0, y)
+    container.AnchorPoint = Vector2.new(0.5, 0.5)
+    container.BackgroundTransparency = 1
+    container.Parent = sg
+
+    local color = Color3.fromRGB(0, 160, 255) -- [BLUE] 요청하신 파란색 테마
+
+    local dot = Instance.new("Frame")
+    dot.Size, dot.Position = UDim2.new(0, 4, 0, 4), UDim2.new(0.5, 0, 0.5, 0)
+    dot.AnchorPoint, dot.BackgroundColor3 = Vector2.new(0.5, 0.5), color
+    dot.BorderSizePixel = 0
+    dot.Parent = container
+    Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+
+    local ring = Instance.new("Frame")
+    ring.Size, ring.Position = UDim2.new(0, 20, 0, 20), UDim2.new(0.5, 0, 0.5, 0)
+    ring.AnchorPoint, ring.BackgroundTransparency = Vector2.new(0.5,0.5), 1
+    ring.Parent = container
+    local stroke = Instance.new("UIStroke")
+    stroke.Color, stroke.Thickness = color, 1.2
+    stroke.Parent = ring
+    Instance.new("UICorner", ring).CornerRadius = UDim.new(1, 0)
+
+    local function createLine(size)
+        local line = Instance.new("Frame")
+        line.Size, line.Position, line.AnchorPoint = size, UDim2.new(0.5, 0, 0.5, 0), Vector2.new(0.5, 0.5)
+        line.BackgroundColor3, line.BorderSizePixel = color, 0
+        line.Parent = container
+        return line
+    end
+    createLine(UDim2.new(0, 30, 0, 1))
+    createLine(UDim2.new(0, 1, 0, 30))
+
+    container.Size = UDim2.new(0, 10, 0, 10)
+    local expandInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    Services.TweenService:Create(container, expandInfo, {Size = UDim2.new(0, 45, 0, 45)}):Play()
+
+    task.delay(0.4, function()
+        local fadeInfo = TweenInfo.new(0.6, Enum.EasingStyle.Linear)
+        for _, obj in pairs(container:GetDescendants()) do
+            if obj:IsA("Frame") then Services.TweenService:Create(obj, fadeInfo, {BackgroundTransparency = 1}):Play()
+            elseif obj:IsA("UIStroke") then Services.TweenService:Create(obj, fadeInfo, {Transparency = 1}):Play() end
+        end
+        task.wait(0.6)
+        sg:Destroy()
+    end)
+end
+
+local function clickExactly(button)
+    if button and button.AbsoluteSize.X > 0 and button.Visible then
+        local absPos = button.AbsolutePosition
+        local absSize = button.AbsoluteSize
+        local topBarHeight = game:GetService("GuiService"):GetGuiInset().Y
+        local centerX = absPos.X + (absSize.X / 2)
+        local centerY = absPos.Y + (absSize.Y / 2) + topBarHeight
+
+        showPremiumIndicator(centerX, centerY)
+        Services.VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 0)
+        task.wait(0.05)
+        Services.VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 0)
+        return true
+    end
+    return false
+end
+
+local function useSpecificItemByName(itemName)
+    local inventory = LocalPlayer.PlayerGui.MainInterface:FindFirstChild("Inventory")
+    if not inventory then return false end
+    
+    local scrollingFrame = inventory:FindFirstChild("Items") and inventory.Items:FindFirstChild("ItemGrid") and inventory.Items.ItemGrid:FindFirstChild("ItemGridScrollingFrame")
+    if not scrollingFrame then return false end
+
+    local targetItem = nil
+    for _, item in pairs(scrollingFrame:GetChildren()) do
+        if item.Name == itemName or item:FindFirstChild(itemName, true) then
+            targetItem = item
+        else
+            for _, desc in pairs(item:GetDescendants()) do
+                if desc:IsA("TextLabel") and string.find(desc.Text, itemName) then
+                    targetItem = item
+                    break
+                end
+            end
+        end
+        if targetItem then break end
+    end
+
+    if targetItem then
+        clickExactly(targetItem)
+        task.wait(0.5)
+        local itemIndex = inventory:WaitForChild("Index"):WaitForChild("ItemIndex")
+        local useAmount = itemIndex:WaitForChild("UseHolder"):WaitForChild("UseAmount")
+        local useButton = itemIndex.UseHolder:WaitForChild("UseButton")
+        
+        if useAmount.Text == "1" then
+            clickExactly(useButton)
+        else
+            useAmount.Text = "1"
+            if useAmount:IsA("TextBox") then useAmount:ReleaseFocus() end
+            task.wait(0.25)
+            clickExactly(useButton)
+        end
+        return true
+    end
+    return false
+end
+
+local function performBiomeAutoSequence()
+    local mainInterface = LocalPlayer.PlayerGui:FindFirstChild("MainInterface")
+    local inventory = mainInterface and mainInterface:FindFirstChild("Inventory")
+    if not inventory then return end
+
+    -- 1. 인벤토리 열기
+    if not inventory.Visible then
+        local sideButtons = mainInterface:FindFirstChild("SideButtons")
+        if sideButtons then
+            for _, btn in pairs(sideButtons:GetChildren()) do
+                if btn.Name == "TextButton" and btn:FindFirstChild("Usage") and btn.Usage.Text == "Inventory" then
+                    clickExactly(btn)
+                    task.wait(0.8)
+                    break
+                end
+            end
+        end
+    end
+    if not inventory.Visible then return end
+    task.wait(0.5)
+
+    -- 2. ItemsTab 클릭
+    local itemsTab = inventory:FindFirstChild("Items") and inventory.Items:FindFirstChild("ItemsTab")
+    if itemsTab then clickExactly(itemsTab) end
+    task.wait(0.3)
+
+    -- 3. 카테고리(30001) 클릭
+    local quickCategory = inventory:FindFirstChild("QuickCategory")
+    if quickCategory then
+        for _, btn in pairs(quickCategory:GetChildren()) do
+            if btn:IsA("ImageButton") and btn.LayoutOrder == 30001 then
+                clickExactly(btn)
+                break
+            end
+        end
+    end
+
+    -- 4. 아이템 사용 릴레이
+    task.wait(2)
+    useSpecificItemByName("Strange Controller")
+    
+    task.wait(0.75)
+    useSpecificItemByName("Biome Randomizer")
+end
+
+task.spawn(function()
+    while true do
+        if Settings.SolEgg.autoBiomeUse then
+            pcall(performBiomeAutoSequence)
+            task.wait(3) -- [끝 - 3초 대기 - 시작] 반복
+        else
+            task.wait(1)
+        end
+    end
 end)
 
 -- =============================
@@ -4291,36 +4467,40 @@ AllSettingTab.Slider({
     end
 })
 
--- ================= 시너지 탭 =================
+-- ================= 솔스 탭 =================
+local SolTab = UI.New({ Title = "솔스", Icon = "egg" })
 
-local PageSYNERGY = UI.New({ Title = "ALL_시너지" })
-
-PageSYNERGY.Label({ Text = "에임 보정기" }
-)
-PageSYNERGY.Toggle({
-    Text = "뒷치기 텔레포트 시너지",
-    Enabled = Settings.Teleport.backstabSynergy,
+SolTab.Toggle({
+    Text = "오토 아이템 사용 (바이옴)",
+    Enabled = Settings.SolEgg.autoBiomeUse,
     Callback = function(v)
-        Settings.Teleport.backstabSynergy = v
+        Settings.SolEgg.autoBiomeUse = v
     end
 })
 
--- ================= TSB 탭 =================
-local TSBTab = UI.New({ Title = "TSB", Icon = "swords" })
-
-TSBTab.Label({ Text = "Tech" })
-
-TSBTab.Button({
-    Text = "M1 리셋 스크립트",
-    Callback = function()
-        loadstring(game:HttpGet("https://pastebin.com/raw/Rm32av76"))()
+SolTab.Toggle({
+    Text = "에그 자동 수집 - 마우스 클릭으로 이동 기능을 켜야합니다",
+    Enabled = false,
+    Callback = function(v)
+        Settings.SolEgg.enabled = v
+        UpdateEggHUD()
     end
 })
 
-TSBTab.Button({
-    Text = "쓰레기통 스크립트",
-    Callback = function()
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/yes1nt/yes/refs/heads/main/Trashcan%20Man"))()
+SolTab.Toggle({
+    Text = "에그 획득 디스코드 알림",
+    Enabled = Settings.SolEgg.webhookEnabled,
+    Callback = function(v)
+        Settings.SolEgg.webhookEnabled = v
+    end
+})
+
+SolTab.TextField({
+    Text = "에그 알림 웹후크 URL",
+    Default = Settings.SolEgg.webhook,
+    Type = "Default",
+    Callback = function(v)
+        Settings.SolEgg.webhook = v
     end
 })
 
@@ -4700,8 +4880,6 @@ local function performAutoWaveSequence()
 end
 
 
-
-
 local autoWaveToggleObj = SGRTab.Toggle({
     Text = "오토 웨이브",
     Enabled = false,
@@ -4785,14 +4963,6 @@ SGRTab.Button({
     end
 })
 
-local PLACE_ID = 124807187147436
-SGRTab.Button({
-    Text = "[ 이벤트 ] - 제프 더 킬러 미로로 이동",
-    Callback = function()
-        Services.TeleportService:Teleport(PLACE_ID, LocalPlayer)
-    end
-})
-
 SGRTab.Label({ Text = "울트라헬 점프맵" })
 
 local function quickTP(pos)
@@ -4850,6 +5020,25 @@ SGRTab.Button({
     end
 })
 
+-- ================= TSB 탭 =================
+local TSBTab = UI.New({ Title = "TSB", Icon = "swords" })
+
+TSBTab.Label({ Text = "Tech" })
+
+TSBTab.Button({
+    Text = "M1 리셋 스크립트",
+    Callback = function()
+        loadstring(game:HttpGet("https://pastebin.com/raw/Rm32av76"))()
+    end
+})
+
+TSBTab.Button({
+    Text = "쓰레기통 스크립트",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/yes1nt/yes/refs/heads/main/Trashcan%20Man"))()
+    end
+})
+
 -- ================= SB_슬배 탭 =================
 local SBTab = UI.New({ Title = "SB_슬배", Icon = "swords" })
 
@@ -4887,33 +5076,6 @@ SBTab.Button({
 
 -- ================= 기타 게임들 탭 =================
 local OtherGameTab = UI.New({ Title = "기타 게임들", Icon = "gamepad-2" })
-
-OtherGameTab.Label({ Text = ">[ 솔스 ]<" })
-OtherGameTab.Toggle({
-    Text = "에그 자동 수집 - 마우스 클릭으로 이동 기능을 켜야합니다",
-    Enabled = false,
-    Callback = function(v)
-        Settings.SolEgg.enabled = v
-        UpdateEggHUD()
-    end
-})
-
-OtherGameTab.Toggle({
-    Text = "에그 획득 디스코드 알림",
-    Enabled = Settings.SolEgg.webhookEnabled,
-    Callback = function(v)
-        Settings.SolEgg.webhookEnabled = v
-    end
-})
-
-OtherGameTab.TextField({
-    Text = "에그 알림 웹후크 URL",
-    Default = Settings.SolEgg.webhook,
-    Type = "Default",
-    Callback = function(v)
-        Settings.SolEgg.webhook = v
-    end
-})
 
 OtherGameTab.Label({ Text = ">[ 죽음의 배달 ]<" })
 OtherGameTab.Button({
