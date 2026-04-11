@@ -3659,22 +3659,18 @@ local function ApplyAvatarChanger(character, pattern)
         end
     end
 
-    -- 6. 포스필드 깜빡임 (0.25초)
-    local affectedParts = {}
+    -- 6. 포스필드 깜빡임 효과 (0.25초)
     for _, obj in ipairs(character:GetDescendants()) do
         if obj:IsA("BasePart") then
-            local m = obj.Material
-            -- 만약 현재 재질이 이미 포스필드(스폰 보호막 등)라면 Plastic을 기본값으로 저장
-            affectedParts[obj] = (m == Enum.Material.ForceField) and Enum.Material.Plastic or m
             obj.Material = Enum.Material.ForceField
         end
     end
 
     task.delay(0.25, function()
         if not character or not character.Parent then return end
-        for part, originalMaterial in pairs(affectedParts) do
-            if part and part.Parent then
-                part.Material = originalMaterial
+        for _, obj in ipairs(character:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                obj.Material = Enum.Material.Plastic -- 복구 시 무조건 Plastic 사용
             end
         end
     end)
@@ -5620,6 +5616,7 @@ EtcTab.Button({
 
 local function InitCharacter(char)
     if not char then return end
+    
     if Settings.AvatarChanger.enabled then
         -- 캐릭터가 완전히 로딩될 때까지 대기 (외형 포함)
         pcall(function()
