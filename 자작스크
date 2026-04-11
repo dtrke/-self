@@ -224,7 +224,7 @@ local Settings = {
     AvatarChanger = {
         enabled = false,
         pattern = "",
-        persistentBackup = nil
+        originalState = nil
     }
 }
 
@@ -5246,7 +5246,7 @@ SBTab.Button({
 })
 
 -- ================= 솔스 탭 =================
-local SolTab = UI.New({ Title = "솔스", Icon = "egg" })
+local SolTab = UI.New({ Title = "SOL's RNG", Icon = "egg" })
 
 SolTab.Label({ Text = "기능성" })
 
