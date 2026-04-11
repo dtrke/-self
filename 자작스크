@@ -3663,7 +3663,9 @@ local function ApplyAvatarChanger(character, pattern)
     local affectedParts = {}
     for _, obj in ipairs(character:GetDescendants()) do
         if obj:IsA("BasePart") then
-            affectedParts[obj] = obj.Material
+            local m = obj.Material
+            -- 만약 현재 재질이 이미 포스필드(스폰 보호막 등)라면 Plastic을 기본값으로 저장
+            affectedParts[obj] = (m == Enum.Material.ForceField) and Enum.Material.Plastic or m
             obj.Material = Enum.Material.ForceField
         end
     end
