@@ -3778,8 +3778,8 @@ pcall(function()
             ConfigSystem.AutoLoad = (decoded["_AUTO_LOAD_ENABLED"] == nil) and true or decoded["_AUTO_LOAD_ENABLED"]
             
             -- [중요] UI 생성 전 Settings 테이블에 핵심 설정 미리 반영 (레이스 컨디션 방지)
-            if decoded["아바타 코드 입력"] then Settings.AvatarChanger.pattern = decoded["아바타 코드 입력"] end
-            if decoded["아바타 변경 ON/OFF"] ~= nil then Settings.AvatarChanger.enabled = decoded["아바타 변경 ON/OFF"] end
+            if decoded["아바타 코드 입력"] then Settings.AvatarChanger.pattern = tostring(decoded["아바타 코드 입력"]) end
+            if decoded["아바타 변경 ON/OFF"] ~= nil then Settings.AvatarChanger.enabled = (decoded["아바타 변경 ON/OFF"] == true) end
         end
     end
 end)
@@ -3807,89 +3807,94 @@ UI.New = function(...)
         if not originalComp then return end
         
         page[compName] = function(options)
-            local rawName = options.Text or ""
-            local cName = rawName:gsub("^%s*(.-)%s*$", "%1") -- 공백 제거하여 매칭 확률 높임
-            if cName == "" then return originalComp(options) end
-            
-            -- 특정 필드(웹후크 등)는 영구 저장 모드로 작동
-            local isPermanent = (cName == "에그 알림 웹후크 URL" or cName == "웹후크 URL")
             local originalCallback = options.Callback
-            local hasSyncedValue = false
-            local syncedValue = nil
-            
-            -- [데이터 로드]
-            if isPermanent then
-                if ConfigSystem.PermanentStates[cName] ~= nil then
-                    syncedValue = ConfigSystem.PermanentStates[cName]
-                    hasSyncedValue = true
-                    options.Def = syncedValue
-                    options.Default = syncedValue
-                end
-            elseif ConfigSystem.IsTeleportLoad and ConfigSystem.AutoLoad and ConfigSystem.SavedStates[cName] ~= nil then
-                syncedValue = ConfigSystem.SavedStates[cName]
-                hasSyncedValue = true
-                options.Def = syncedValue
-                options.Default = syncedValue
+            local status, result = pcall(function()
+                local rawName = options.Text or ""
+                local cName = rawName:gsub("^%s*(.-)%s*$", "%1") -- 공백 제거
+                if cName == "" then return originalComp(options) end
                 
-                -- 시각적 표시 및 초기값 설정
-                if compName == "TextField" then
-                    options.Text = tostring(syncedValue) .. " - 동기화됨"
-                else
-                    options.Enabled = syncedValue
-                    options.Def = syncedValue
-                end
-            end
-            
-            -- [콜백 래퍼]
-            local initialCall = true
-            local wrappedCallback = function(val)
-                -- 라이브러리 초기화 중 빈 값이 들어오는 경우 저장 생략 (동기화 데이터 보호)
-                if initialCall then
-                    initialCall = false
-                    if hasSyncedValue and (val == "" or val == nil or val == false) then
-                        return
+                local isPermanent = (cName == "에그 알림 웹후크 URL" or cName == "웹후크 URL")
+                local hasSyncedValue = false
+                local syncedValue = nil
+                
+                -- [데이터 로드]
+                if isPermanent then
+                    if ConfigSystem.PermanentStates[cName] ~= nil then
+                        syncedValue = ConfigSystem.PermanentStates[cName]
+                        hasSyncedValue = true
+                        options.Def = syncedValue
+                        options.Default = syncedValue
+                    end
+                elseif ConfigSystem.IsTeleportLoad and ConfigSystem.AutoLoad and ConfigSystem.SavedStates[cName] ~= nil then
+                    syncedValue = ConfigSystem.SavedStates[cName]
+                    hasSyncedValue = true
+                    
+                    -- 타입 강제 변환 (라이브러리 충돌 방지)
+                    if compName == "TextField" then
+                        syncedValue = tostring(syncedValue)
+                        options.Text = syncedValue .. " - 동기화됨"
+                        options.Def = syncedValue
+                    else
+                        syncedValue = (syncedValue == true)
+                        options.Enabled = syncedValue
+                        options.Def = syncedValue
                     end
                 end
+                
+                -- [콜백 래퍼]
+                local initialCall = true
+                local wrappedCallback = function(val)
+                    if initialCall then
+                        initialCall = false
+                        if hasSyncedValue and (val == "" or val == nil or val == false) then
+                            return
+                        end
+                    end
 
-                if isPermanent then
-                    ConfigSystem.PermanentStates[cName] = val
-                else
-                    ConfigSystem.SavedStates[cName] = val
+                    if isPermanent then
+                        ConfigSystem.PermanentStates[cName] = val
+                    else
+                        ConfigSystem.SavedStates[cName] = val
+                    end
+                    
+                    SaveConfig()
+                    if originalCallback then
+                        originalCallback(val)
+                    end
                 end
                 
-                SaveConfig()
-                if originalCallback then
-                    originalCallback(val)
-                end
-            end
-            
-            options.Callback = wrappedCallback
-            
-            -- [컴포넌트 생성]
-            local compObj = originalComp(options)
-            
-            -- [동기화 강제 적용] UI 라이브러리가 초기 기본값을 지원하지 않거나 
-            -- 콜백을 자동으로 실행하지 않는 경우를 대비하여 수동으로 설정을 시도합니다.
-            if hasSyncedValue then
-                task.spawn(function()
-                    task.wait(0.5) -- UI 초기화 대기 시간 증가 (더 안정적인 반영을 위함)
-                    pcall(function()
-                        if compName == "TextField" and compObj and compObj.SetText then
-                            compObj:SetText(syncedValue) -- 실제 입력칸 텍스트 설정
-                        elseif compName == "Toggle" and compObj and compObj.SetState then
-                            compObj:SetState(syncedValue) -- 토글 상태 설정
-                        end
-                        -- 내부 변수 동기화를 위해 콜백 수동 호출 (사전 로딩이 안된 경우 대비)
-                        if originalCallback then
-                            originalCallback(syncedValue)
-                        end
+                options.Callback = wrappedCallback
+                
+                -- [컴포넌트 생성]
+                local compObj = originalComp(options)
+                
+                -- [동기화 강제 적용]
+                if hasSyncedValue then
+                    task.spawn(function()
+                        task.wait(0.5)
+                        pcall(function()
+                            if compName == "TextField" and compObj and compObj.SetText then
+                                compObj:SetText(syncedValue)
+                            elseif compName == "Toggle" and compObj and compObj.SetState then
+                                compObj:SetState(syncedValue)
+                            end
+                            if originalCallback then
+                                originalCallback(syncedValue)
+                            end
+                        end)
                     end)
-                end)
-            end
+                end
+                
+                ConfigSystem.Components[cName] = compObj
+                ConfigSystem.Callbacks[cName] = wrappedCallback
+                return compObj
+            end)
             
-            ConfigSystem.Components[cName] = compObj
-            ConfigSystem.Callbacks[cName] = wrappedCallback
-            return compObj
+            if not status then
+                warn("ConfigSystem Hook Error [" .. tostring(compName) .. "]: " .. tostring(result))
+                return originalComp(options) -- 오류 시 원본 생성 시도 (UI 유실 방지)
+            end
+            return result
         end
     end
     
