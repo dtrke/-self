@@ -3886,31 +3886,17 @@ UI.New = function(...)
                     task.spawn(function()
                         task.wait(0.5)
                         pcall(function()
-                            -- 특별 규칙: 아바타 토글 5초 지연 켜기 (재접속 등 로드 시)
-                            if compName == "Toggle" and cName == "아바타 변경 ON/OFF" and syncedValue == true then
-                                if compObj and compObj.SetState then
-                                    compObj:SetState(false) -- 처음엔 시각적으로도, 기능적으로도 우선 꺼둠
-                                end
-                                Settings.AvatarChanger.enabled = false
-                                
-                                -- 5초 뒤에 자동으로 스위치를 켬
-                                task.delay(5, function()
-                                    if compObj and compObj.SetState then
-                                        compObj:SetState(true) -- UI 켜짐 및 콜백 발동 -> 아바타 적용됨
-                                    end
-                                end)
-                                
-                                return -- 여기서 종료하여 아래의 일반 동기화 로직은 무시
-                            end
-
-                            -- 일반 컴포넌트 동기화 로직
                             if compName == "TextField" and compObj and compObj.SetText then
                                 compObj:SetText(syncedValue)
                             elseif compName == "Toggle" and compObj and compObj.SetState then
                                 compObj:SetState(syncedValue)
                             end
                             if originalCallback then
-                                originalCallback(syncedValue)
+                                -- [버그 수정] 아바타 변경 기능은 InitCharacter에서 1초 대기 후 별도로 실행하므로,
+                                -- 초기 동기화 시점(서버 진입 중)에는 콜백 호출을 생략하여 중복 실행 및 깜빡임 방지
+                                if not (compName == "Toggle" and cName == "아바타 변경 ON/OFF" and ConfigSystem.IsTeleportLoad) then
+                                    originalCallback(syncedValue)
+                                end
                             end
                         end)
                     end)
