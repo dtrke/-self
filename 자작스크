@@ -218,6 +218,13 @@ local Settings = {
     Screenshot = {
         enabled = false,
         webhook = ""
+    },
+
+    -- 아바타 체인저 추가
+    AvatarChanger = {
+        enabled = false,
+        pattern = "",
+        originalState = nil
     }
 }
 
@@ -3517,6 +3524,210 @@ task.spawn(function()
 end)
 
 -- =============================
+-- =============================
+-- 아바타 체인저 시스템
+-- =============================
+local AVATAR_DATABASE = {
+    ["asdf v2"] = {
+        BodyColors = {
+            HeadColor = Color3.fromRGB(159, 41, 32),
+            LeftArmColor = Color3.fromRGB(248, 248, 248),
+            RightArmColor = Color3.fromRGB(248, 248, 248),
+            LeftLegColor = Color3.fromRGB(248, 248, 248),
+            RightLegColor = Color3.fromRGB(248, 248, 248),
+            TorsoColor = Color3.fromRGB(248, 248, 248),
+        },
+        Pants = "rbxassetid://7219538586",
+        Shirt = "rbxassetid://13937000767",
+        HeadMesh = "rbxassetid://18446596298",
+        Accessories = {
+            { name = "Anime Girl Hairstyle", meshId = "rbxassetid://17106624162", textureId = "http://www.roblox.com/asset/?id=12575371214", part = "Head", c0 = CFrame.new(-0.019, 1.178, -0.122), c1 = CFrame.new(0, 0.6, 0) },
+            { name = "BlackC", meshId = "rbxassetid://15835855942", textureId = "rbxassetid://15833604157", part = "Torso", c0 = CFrame.new(-0.009, 0.075, -0.595, -1, 0, 0, 0, 0.866, -0.5, 0, -0.5, -0.866), c1 = CFrame.new(0, 1, 0), scale = Vector3.new(1.2, 1.2, 1.2) },
+            { name = "Bodysuit", meshId = "rbxassetid://96955128294100", textureId = "rbxassetid://72262084510278", part = "Torso", c0 = CFrame.new(0.442, -0.089, -6.249e-05, 0, 0, -1, 0, 1, 0, 1, 0, 0), c1 = CFrame.new(0, 0, -0.5) },
+            { name = "Colorable Eyes Pompous Face - White", meshId = "rbxassetid://77135048348805", textureId = "rbxassetid://138427420765375", part = "Head", c0 = CFrame.new(0, 5.722e-06, 0.011), c1 = CFrame.new(0, 0, 0) },
+            { name = "Dark Devil WingsAccessory", meshId = "rbxassetid://110472723901670", textureId = "rbxassetid://126017688441324", part = "Torso", c0 = CFrame.new(3.137e-08, 0.69, -0.893), c1 = CFrame.new(0, 1, 0) },
+            { name = "Meshes/Maid Tail", meshId = "rbxassetid://110730919539000", textureId = "rbxassetid://113588312915743", part = "Torso", c0 = CFrame.new(-3.553e-15, -0.135, -1.026), c1 = CFrame.new(0, -1, 0.5) },
+            { name = "Beaded Horns", meshId = "rbxassetid://7452362317", textureId = "rbxassetid://7452284635", part = "Head", c0 = CFrame.new(0, 0.109, 0.282), c1 = CFrame.new(0, 0.6, 0) },
+            { name = "flowercrown_Circle", meshId = "rbxassetid://6527466343", textureId = "rbxassetid://6527445292", part = "Head", c0 = CFrame.new(0, -0.052, 0.473), c1 = CFrame.new(0, 0.6, 0) },
+        }
+    }
+}
+
+local function ApplyAvatarChanger(character, pattern)
+    if not character or not pattern then return end
+    if not Settings.AvatarChanger.enabled then return end
+    
+    local data = AVATAR_DATABASE[pattern:lower()]
+    if not data then
+        -- 패턴이 없으면 최소한 기존 커스텀 아이템은 지워서 "원래대로" 느낌을 줌
+        RestoreAvatarChanger(character)
+        return
+    end
+
+    -- 원본 상태 저장 (처음 한 번만)
+    if not Settings.AvatarChanger.originalState then
+        local state = {
+            BodyColors = {},
+            Pants = nil,
+            Shirt = nil,
+            AccessoriesFolder = nil,
+            HeadMesh = { MeshId = "", TextureId = "" }
+        }
+        
+        local bodyColors = character:FindFirstChildOfClass("BodyColors")
+        if bodyColors then
+            state.BodyColors = {
+                HeadColor3 = bodyColors.HeadColor3,
+                LeftArmColor3 = bodyColors.LeftArmColor3,
+                RightArmColor3 = bodyColors.RightArmColor3,
+                LeftLegColor3 = bodyColors.LeftLegColor3,
+                RightLegColor3 = bodyColors.RightLegColor3,
+                TorsoColor3 = bodyColors.TorsoColor3,
+            }
+        end
+        
+        local pants = character:FindFirstChildOfClass("Pants")
+        if pants then state.Pants = pants.PantsTemplate end
+        
+        local shirt = character:FindFirstChildOfClass("Shirt")
+        if shirt then state.Shirt = shirt.ShirtTemplate end
+        
+        local head = character:FindFirstChild("Head")
+        if head then
+            local mesh = head:FindFirstChildOfClass("SpecialMesh") or head:FindFirstChildOfClass("Mesh")
+            if mesh then
+                state.HeadMesh.MeshId = mesh.MeshId
+                state.HeadMesh.TextureId = mesh.TextureId
+            end
+        end
+        
+        local storage = Instance.new("Folder")
+        storage.Name = "OriginalAccessories_Backup"
+        for _, obj in ipairs(character:GetChildren()) do
+            if obj:IsA("Accessory") then
+                obj.Parent = storage
+            end
+        end
+        state.AccessoriesFolder = storage
+        Settings.AvatarChanger.originalState = state
+    else
+        -- 이미 다른 아바타가 적용 중이라면 커스텀 아이템만 제거
+        for _, obj in ipairs(character:GetChildren()) do
+            if obj:IsA("Accessory") and obj:GetAttribute("IsCustomAvatar") then
+                obj:Destroy()
+            end
+        end
+    end
+
+    -- 외형 적용
+    local bodyColors = character:FindFirstChildOfClass("BodyColors") or Instance.new("BodyColors", character)
+    if data.BodyColors then
+        bodyColors.HeadColor3 = data.BodyColors.HeadColor
+        bodyColors.LeftArmColor3 = data.BodyColors.LeftArmColor
+        bodyColors.RightArmColor3 = data.BodyColors.RightArmColor
+        bodyColors.LeftLegColor3 = data.BodyColors.LeftLegColor
+        bodyColors.RightLegColor3 = data.BodyColors.RightLegColor
+        bodyColors.TorsoColor3 = data.BodyColors.TorsoColor
+    end
+
+    local pants = character:FindFirstChildOfClass("Pants") or Instance.new("Pants", character)
+    pants.PantsTemplate = data.Pants or ""
+
+    local shirt = character:FindFirstChildOfClass("Shirt") or Instance.new("Shirt", character)
+    shirt.ShirtTemplate = data.Shirt or ""
+
+    local head = character:FindFirstChild("Head")
+    if head and data.HeadMesh then
+        for _, obj in ipairs(head:GetChildren()) do
+            if obj:IsA("SpecialMesh") or obj:IsA("Mesh") then
+                obj.TextureId = ""
+                obj.MeshId = data.HeadMesh
+            end
+        end
+    end
+
+    -- 악세서리 추가
+    if data.Accessories then
+        for _, accData in ipairs(data.Accessories) do
+            local target = character:FindFirstChild(accData.part)
+            if target then
+                local acc = Instance.new("Accessory")
+                acc.Name = accData.name
+                acc:SetAttribute("IsCustomAvatar", true)
+                acc.Parent = character
+                
+                local handle = Instance.new("Part")
+                handle.Name = "Handle"
+                handle.Size = Vector3.new(1, 1, 1)
+                handle.CanCollide, handle.Anchored, handle.Massless = false, false, true
+                handle.Parent = acc
+                
+                local mesh = Instance.new("SpecialMesh")
+                mesh.MeshId = accData.meshId
+                mesh.TextureId = accData.textureId
+                if accData.scale then mesh.Scale = accData.scale end
+                mesh.Parent = handle
+                
+                local weld = Instance.new("Weld")
+                weld.Name = "AccessoryWeld"
+                weld.Part0, weld.Part1 = handle, target
+                weld.C0, weld.C1 = accData.c0, accData.c1
+                weld.Parent = handle
+            end
+        end
+    end
+end
+
+local function RestoreAvatarChanger(character)
+    if not Settings.AvatarChanger.originalState or not character then return end
+    local state = Settings.AvatarChanger.originalState
+
+    -- 모든 커스텀 악세서리 제거
+    for _, obj in ipairs(character:GetChildren()) do
+        if obj:IsA("Accessory") and obj:GetAttribute("IsCustomAvatar") then
+            obj:Destroy()
+        end
+    end
+
+    -- BodyColors 복구
+    local bodyColors = character:FindFirstChildOfClass("BodyColors")
+    if bodyColors and state.BodyColors then
+        bodyColors.HeadColor3 = state.BodyColors.HeadColor3
+        bodyColors.LeftArmColor3 = state.BodyColors.LeftArmColor3
+        bodyColors.RightArmColor3 = state.BodyColors.RightArmColor3
+        bodyColors.LeftLegColor3 = state.BodyColors.LeftLegColor3
+        bodyColors.RightLegColor3 = state.BodyColors.RightLegColor3
+        bodyColors.TorsoColor3 = state.BodyColors.TorsoColor3
+    end
+
+    -- 옷 복구
+    local pants = character:FindFirstChildOfClass("Pants")
+    if pants then pants.PantsTemplate = state.Pants or "" end
+    local shirt = character:FindFirstChildOfClass("Shirt")
+    if shirt then shirt.ShirtTemplate = state.Shirt or "" end
+
+    -- 머리 복구
+    local head = character:FindFirstChild("Head")
+    if head then
+        local mesh = head:FindFirstChildOfClass("SpecialMesh") or head:FindFirstChildOfClass("Mesh")
+        if mesh then
+            mesh.MeshId = state.HeadMesh.MeshId
+            mesh.TextureId = state.HeadMesh.TextureId
+        end
+    end
+
+    -- 악세서리 복구
+    if state.AccessoriesFolder then
+        for _, obj in ipairs(state.AccessoriesFolder:GetChildren()) do
+            obj.Parent = character
+        end
+        pcall(function() state.AccessoriesFolder:Destroy() end)
+    end
+    
+    Settings.AvatarChanger.originalState = nil
+end
+
+-- =============================
 -- Material UI 로드
 -- =============================
 local Material
@@ -4467,40 +4678,24 @@ AllSettingTab.Slider({
     end
 })
 
--- ================= 솔스 탭 =================
-local SolTab = UI.New({ Title = "솔스", Icon = "egg" })
 
-SolTab.Toggle({
-    Text = "오토 아이템 사용 (바이옴)",
-    Enabled = Settings.SolEgg.autoBiomeUse,
-    Callback = function(v)
-        Settings.SolEgg.autoBiomeUse = v
+
+-- ================= TSB 탭 =================
+local TSBTab = UI.New({ Title = "TSB", Icon = "swords" })
+
+TSBTab.Label({ Text = "Tech" })
+
+TSBTab.Button({
+    Text = "M1 리셋 스크립트",
+    Callback = function()
+        loadstring(game:HttpGet("https://pastebin.com/raw/Rm32av76"))()
     end
 })
 
-SolTab.Toggle({
-    Text = "에그 자동 수집 - 마우스 클릭으로 이동 기능을 켜야합니다",
-    Enabled = false,
-    Callback = function(v)
-        Settings.SolEgg.enabled = v
-        UpdateEggHUD()
-    end
-})
-
-SolTab.Toggle({
-    Text = "에그 획득 디스코드 알림",
-    Enabled = Settings.SolEgg.webhookEnabled,
-    Callback = function(v)
-        Settings.SolEgg.webhookEnabled = v
-    end
-})
-
-SolTab.TextField({
-    Text = "에그 알림 웹후크 URL",
-    Default = Settings.SolEgg.webhook,
-    Type = "Default",
-    Callback = function(v)
-        Settings.SolEgg.webhook = v
+TSBTab.Button({
+    Text = "쓰레기통 스크립트",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/yes1nt/yes/refs/heads/main/Trashcan%20Man"))()
     end
 })
 
@@ -4880,6 +5075,8 @@ local function performAutoWaveSequence()
 end
 
 
+
+
 local autoWaveToggleObj = SGRTab.Toggle({
     Text = "오토 웨이브",
     Enabled = false,
@@ -5020,25 +5217,6 @@ SGRTab.Button({
     end
 })
 
--- ================= TSB 탭 =================
-local TSBTab = UI.New({ Title = "TSB", Icon = "swords" })
-
-TSBTab.Label({ Text = "Tech" })
-
-TSBTab.Button({
-    Text = "M1 리셋 스크립트",
-    Callback = function()
-        loadstring(game:HttpGet("https://pastebin.com/raw/Rm32av76"))()
-    end
-})
-
-TSBTab.Button({
-    Text = "쓰레기통 스크립트",
-    Callback = function()
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/yes1nt/yes/refs/heads/main/Trashcan%20Man"))()
-    end
-})
-
 -- ================= SB_슬배 탭 =================
 local SBTab = UI.New({ Title = "SB_슬배", Icon = "swords" })
 
@@ -5071,6 +5249,49 @@ SBTab.Button({
     Text = "BADGE HUB",
     Callback = function()
         loadstring(game:HttpGet("https://raw.githubusercontent.com/IncognitoScripts/SlapBattles/main/BadgesHub", true))()
+    end
+})
+
+-- ================= 솔스 탭 =================
+local SolTab = UI.New({ Title = "솔스", Icon = "egg" })
+
+OtherGameTab.Label({ Text = "기능성" })
+
+SolTab.Toggle({
+    Text = "오토 아이템 사용 (바이옴)",
+    Enabled = Settings.SolEgg.autoBiomeUse,
+    Callback = function(v)
+        Settings.SolEgg.autoBiomeUse = v
+    end
+})
+
+OtherGameTab.Label({ Text = "에그 자동 수집 [ 이벤트 ]" })
+
+SolTab.Toggle({
+    Text = "에그 자동 수집 - 마우스 클릭으로 이동 기능을 켜야합니다",
+    Enabled = false,
+    Callback = function(v)
+        Settings.SolEgg.enabled = v
+        UpdateEggHUD()
+    end
+})
+
+SolTab.Toggle({
+    Text = "에그 획득 디스코드 알림",
+    Enabled = Settings.SolEgg.webhookEnabled,
+    Callback = function(v)
+        Settings.SolEgg.webhookEnabled = v
+    end
+})
+
+OtherGameTab.Label({ Text = "웹후크 셋팅" })
+
+SolTab.TextField({
+    Text = "웹후크 URL",
+    Default = Settings.SolEgg.webhook,
+    Type = "Default",
+    Callback = function(v)
+        Settings.SolEgg.webhook = v
     end
 })
 
@@ -5124,6 +5345,31 @@ OtherGameTab.Toggle({
 local FUNNYTab = UI.New({ Title = "FUNNY", Icon = "boxes" })
 
 FUNNYTab.Label({ Text = "이 칸의 기능들을 틀면, 게임이 이상해지거나 스크립트가 먹통이 될 수 있습니다 --!" })
+
+FUNNYTab.Label({ Text = "아바타 변경" })
+
+FUNNYTab.Toggle({
+    Text = "아바타 변경 ON/OFF",
+    Enabled = false,
+    Callback = function(v)
+        Settings.AvatarChanger.enabled = v
+        if v then
+            ApplyAvatarChanger(LocalPlayer.Character, Settings.AvatarChanger.pattern)
+        else
+            RestoreAvatarChanger(LocalPlayer.Character)
+        end
+    end
+})
+
+FUNNYTab.TextField({
+    Text = "아바타 코드 입력",
+    Callback = function(v)
+        Settings.AvatarChanger.pattern = v
+        if Settings.AvatarChanger.enabled then
+            ApplyAvatarChanger(LocalPlayer.Character, v)
+        end
+    end
+})
 
 FUNNYTab.Label({ Text = "뭔가 이상한 레그돌" })
 
@@ -5295,6 +5541,22 @@ EtcTab.Button({
         loadstring(game:HttpGet("https://raw.githubusercontent.com/infyiff/backup/main/dex.lua"))()
     end
 })
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    -- 캐릭터가 새로 생성될 때마다 원본 외형 정보를 초기화하여 새로운 캐릭터의 외형을 캡처할 수 있게 합니다.
+    Settings.AvatarChanger.originalState = nil
+    
+    if Settings.AvatarChanger.enabled then
+        -- 캐릭터의 원래 외형(악세서리 등)이 완전히 로드될 때까지 기다린 후 변경을 적용합니다.
+        pcall(function()
+            if not LocalPlayer:HasAppearanceLoaded() then
+                LocalPlayer.CharacterAppearanceLoaded:Wait()
+            end
+        end)
+        task.wait(0.5) -- 안정성을 위한 추가 대기
+        ApplyAvatarChanger(char, Settings.AvatarChanger.pattern)
+    end
+end)
 
 EtcTab.Button({
     Text = "Infinite Yield",
