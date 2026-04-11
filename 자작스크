@@ -3575,124 +3575,15 @@ end
 
 
 
-local function ApplyAvatarChanger(character, pattern)
-    if not character or not pattern then return end
-    if not Settings.AvatarChanger.enabled then return end
-    
-    local data = AVATAR_DATABASE[pattern:lower()]
-    if not data then
-        RestoreAvatarChanger(character)
-        return
-    end
-
-    -- 1. 기존 악세서리 투명화 (Destroy 대신 Transparency 사용)
-    for _, obj in ipairs(character:GetChildren()) do
-        if obj:IsA("Accessory") and not obj:GetAttribute("IsCustomAvatar") then
-            local handle = obj:FindFirstChild("Handle")
-            if handle and handle:IsA("BasePart") then
-                handle.Transparency = 1
+local function ClearAvatarConnections()
+    if Settings.AvatarChanger.connections then
+        for _, conn in ipairs(Settings.AvatarChanger.connections) do
+            if conn and conn.Connected then
+                conn:Disconnect()
             end
         end
     end
-
-    -- 2. 바디 컬러 적용
-    local bodyColors = character:FindFirstChildOfClass("BodyColors") or Instance.new("BodyColors", character)
-    if data.BodyColors then
-        bodyColors.HeadColor3 = data.BodyColors.HeadColor
-        bodyColors.LeftArmColor3 = data.BodyColors.LeftArmColor
-        bodyColors.RightArmColor3 = data.BodyColors.RightArmColor
-        bodyColors.LeftLegColor3 = data.BodyColors.LeftLegColor
-        bodyColors.RightLegColor3 = data.BodyColors.RightLegColor
-        bodyColors.TorsoColor3 = data.BodyColors.TorsoColor
-    end
-
-    -- 3. 옷 적용
-    local pants = character:FindFirstChildOfClass("Pants") or Instance.new("Pants", character)
-    pants.PantsTemplate = data.Pants or ""
-
-    local shirt = character:FindFirstChildOfClass("Shirt") or Instance.new("Shirt", character)
-    shirt.ShirtTemplate = data.Shirt or ""
-
-    -- 4. 머리 메시 적용
-    local head = character:FindFirstChild("Head")
-    if head and data.HeadMesh then
-        for _, obj in ipairs(head:GetChildren()) do
-            if obj:IsA("SpecialMesh") or obj:IsA("Mesh") then
-                obj.TextureId = ""
-                obj.MeshId = data.HeadMesh
-            end
-        end
-    end
-
-    -- 5. 커스텀 악세서리 추가
-    if data.Accessories then
-        for _, accData in ipairs(data.Accessories) do
-            local target = getAttachmentPart(character, accData.part)
-            if target then
-                local acc = character:FindFirstChild(accData.name)
-                if not (acc and acc:GetAttribute("IsCustomAvatar")) then
-                    acc = Instance.new("Accessory")
-                    acc.Name = accData.name
-                    acc:SetAttribute("IsCustomAvatar", true)
-                    acc.Parent = character
-                    
-                    local handle = Instance.new("Part")
-                    handle.Name = "Handle"
-                    handle.Size = Vector3.new(1, 1, 1)
-                    handle.CanCollide, handle.Anchored, handle.Massless = false, false, true
-                    
-                    local mesh = Instance.new("SpecialMesh")
-                    mesh.MeshId = accData.meshId
-                    mesh.TextureId = accData.textureId
-                    if accData.scale then mesh.Scale = accData.scale end
-                    mesh.Parent = handle
-                    
-                    local weld = Instance.new("Weld")
-                    weld.Name = "AccessoryWeld"
-                    weld.Part0, weld.Part1 = handle, target
-                    weld.C0, weld.C1 = accData.c0, accData.c1
-                    weld.Parent = handle
-                    
-                    handle.Parent = acc
-                end
-            end
-        end
-    end
-
-    -- 6. 포스필드 깜빡임 효과 (0.25초)
-    for _, obj in ipairs(character:GetDescendants()) do
-        if obj:IsA("BasePart") then
-            obj.Material = Enum.Material.ForceField
-        end
-    end
-
-    task.delay(0.25, function()
-        if not character or not character.Parent then return end
-        for _, obj in ipairs(character:GetDescendants()) do
-            if obj:IsA("BasePart") then
-                obj.Material = Enum.Material.Plastic -- 복구 시 무조건 Plastic 사용
-            end
-        end
-    end)
-end
-
--- [고급] 아바타 변경 보장 함수 (재시도 로직 포함)
-local function ApplyAvatarChangerSafe(character, pattern, retryCount)
-    if not character or not character.Parent then return end
-    retryCount = retryCount or 3
-    
-    task.spawn(function()
-        for i = 1, retryCount do
-            if not character or not character.Parent then break end
-            if not Settings.AvatarChanger.enabled then break end
-            
-            ApplyAvatarChanger(character, pattern)
-            
-            if i < retryCount then
-                task.wait(1) -- 로블록스 엔진의 강제 초기화를 이기기 위해 시간차 재시도
-            end
-        end
-    end)
+    Settings.AvatarChanger.connections = {}
 end
 
 -- [내부 함수] 현재 캐릭터 상태 백업 (복구용)
@@ -3725,8 +3616,138 @@ local function BackupAvatar(character)
     Settings.AvatarChanger.persistentBackup = backup
 end
 
+local function ApplyAvatarChanger(character, pattern)
+    if not character or not character.Parent then return end
+    if not Settings.AvatarChanger.enabled then return end
+    
+    local data = AVATAR_DATABASE[pattern:lower()]
+    if not data then return end
+
+    -- 기존 감시기계(Watchers) 모두 해제
+    ClearAvatarConnections()
+
+    -- 1. 악세서리 감시 및 투명화 강제 유지
+    local function HandleAccessory(obj)
+        if obj:IsA("Accessory") and not obj:GetAttribute("IsCustomAvatar") then
+            -- 로블록스 엔진이 악세서리를 뒤늦게 불러오더라도 즉시 감지하여 투명화
+            local handle = obj:WaitForChild("Handle", 2)
+            if handle and handle:IsA("BasePart") then
+                handle.Transparency = 1
+                table.insert(Settings.AvatarChanger.connections, handle:GetPropertyChangedSignal("Transparency"):Connect(function()
+                    if handle.Transparency ~= 1 then handle.Transparency = 1 end
+                end))
+            end
+        end
+    end
+
+    for _, obj in ipairs(character:GetChildren()) do
+        HandleAccessory(obj)
+    end
+    table.insert(Settings.AvatarChanger.connections, character.ChildAdded:Connect(HandleAccessory))
+
+    -- 2. 바디 컬러 감시 및 강제 유지
+    local function ApplyBodyColors()
+        local bodyColors = character:FindFirstChildOfClass("BodyColors")
+        if not bodyColors then
+            bodyColors = Instance.new("BodyColors", character)
+        end
+        if data.BodyColors then
+            bodyColors.HeadColor3 = data.BodyColors.HeadColor
+            bodyColors.LeftArmColor3 = data.BodyColors.LeftArmColor
+            bodyColors.RightArmColor3 = data.BodyColors.RightArmColor
+            bodyColors.LeftLegColor3 = data.BodyColors.LeftLegColor
+            bodyColors.RightLegColor3 = data.BodyColors.RightLegColor
+            bodyColors.TorsoColor3 = data.BodyColors.TorsoColor
+        end
+    end
+    ApplyBodyColors()
+    table.insert(Settings.AvatarChanger.connections, character.ChildAdded:Connect(function(child)
+        if child:IsA("BodyColors") then ApplyBodyColors() end
+    end))
+
+    -- 3. 옷 (Pants, Shirt) 감시 및 강제 유지
+    local function ApplyClothing()
+        local pants = character:FindFirstChildOfClass("Pants")
+        if not pants then pants = Instance.new("Pants", character) end
+        pants.PantsTemplate = data.Pants or ""
+
+        local shirt = character:FindFirstChildOfClass("Shirt")
+        if not shirt then shirt = Instance.new("Shirt", character) end
+        shirt.ShirtTemplate = data.Shirt or ""
+    end
+    ApplyClothing()
+    table.insert(Settings.AvatarChanger.connections, character.ChildAdded:Connect(function(child)
+        if child:IsA("Pants") or child:IsA("Shirt") then ApplyClothing() end
+    end))
+
+    -- 4. 머리 메시 적용
+    local head = character:FindFirstChild("Head")
+    if head and data.HeadMesh then
+        for _, obj in ipairs(head:GetChildren()) do
+            if obj:IsA("SpecialMesh") or obj:IsA("Mesh") then
+                obj.TextureId = ""
+                obj.MeshId = data.HeadMesh
+            end
+        end
+    end
+
+    -- 5. 커스텀 악세서리 추가 (중복 방지 적용)
+    if data.Accessories then
+        for _, accData in ipairs(data.Accessories) do
+            local target = getAttachmentPart(character, accData.part)
+            if target then
+                local existing = character:FindFirstChild(accData.name)
+                if not (existing and existing:GetAttribute("IsCustomAvatar")) then
+                    local acc = Instance.new("Accessory")
+                    acc.Name = accData.name
+                    acc:SetAttribute("IsCustomAvatar", true)
+                    acc.Parent = character
+                    
+                    local handle = Instance.new("Part")
+                    handle.Name = "Handle"
+                    handle.Size = Vector3.new(1, 1, 1)
+                    handle.CanCollide, handle.Anchored, handle.Massless = false, false, true
+                    
+                    local mesh = Instance.new("SpecialMesh")
+                    mesh.MeshId = accData.meshId
+                    mesh.TextureId = accData.textureId
+                    if accData.scale then mesh.Scale = accData.scale end
+                    mesh.Parent = handle
+                    
+                    local weld = Instance.new("Weld")
+                    weld.Name = "AccessoryWeld"
+                    weld.Part0, weld.Part1 = handle, target
+                    weld.C0, weld.C1 = accData.c0, accData.c1
+                    weld.Parent = handle
+                    
+                    handle.Parent = acc
+                end
+            end
+        end
+    end
+
+    -- 6. 포스필드 깜빡임 효과 (0.25초) - (1회만 실행됨)
+    for _, obj in ipairs(character:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            obj.Material = Enum.Material.ForceField
+        end
+    end
+
+    task.delay(0.25, function()
+        if not character or not character.Parent then return end
+        for _, obj in ipairs(character:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                obj.Material = Enum.Material.Plastic
+            end
+        end
+    end)
+end
+
 local function RestoreAvatarChanger(character)
     if not character then return end
+
+    -- 모든 상시 감시기계 해제
+    ClearAvatarConnections()
 
     -- 1. 커스텀 악세서리 제거
     for _, obj in ipairs(character:GetChildren()) do
@@ -3745,10 +3766,9 @@ local function RestoreAvatarChanger(character)
         end
     end
 
-    -- 3. 토글 킬 때 저장했던 원본 정보로 복구
+    -- 3. 저장했던 원본 상태로 복구
     local backup = Settings.AvatarChanger.persistentBackup
     if backup then
-        -- 바디 컬러 복구
         local bc = character:FindFirstChildOfClass("BodyColors")
         if bc and backup.BodyColors then
             bc.HeadColor3 = backup.BodyColors.HeadColor3
@@ -3759,7 +3779,6 @@ local function RestoreAvatarChanger(character)
             bc.TorsoColor3 = backup.BodyColors.TorsoColor3
         end
         
-        -- 옷 복구
         local p = character:FindFirstChildOfClass("Pants")
         if p then p.PantsTemplate = backup.Pants or "" end
         local s = character:FindFirstChildOfClass("Shirt")
@@ -5450,11 +5469,10 @@ FUNNYTab.Toggle({
     Callback = function(v)
         Settings.AvatarChanger.enabled = v
         if v then
-            -- 수동 토글 시에는 즉시 백업 및 적용 (수동 조작은 1회만 즉시 실행)
+            -- 수동 토글 시 1회 즉시 호출 (이후 발생할 에러는 Watcher들이 자동 방어)
             BackupAvatar(LocalPlayer.Character)
-            ApplyAvatarChangerSafe(LocalPlayer.Character, Settings.AvatarChanger.pattern, 1)
+            ApplyAvatarChanger(LocalPlayer.Character, Settings.AvatarChanger.pattern)
         else
-            -- 끄는 것도 즉시 처리
             RestoreAvatarChanger(LocalPlayer.Character)
         end
     end
@@ -5646,7 +5664,7 @@ local function InitCharacter(char)
     
     if Settings.AvatarChanger.enabled then
         task.spawn(function()
-            -- 1. 캐릭터가 완전히 로딩될 때까지 대기 (최대 15초)
+            -- 1. 캐릭터 외형 로드 대기
             local startTime = tick()
             pcall(function()
                 while not LocalPlayer:HasAppearanceLoaded() and tick() - startTime < 15 do
@@ -5656,14 +5674,15 @@ local function InitCharacter(char)
             
             local humanoid = char:WaitForChild("Humanoid", 10)
             if humanoid then
-                -- 2. 외형 로드 후 1초 추가 대기 (사용자 요청)
+                -- 2. 외형 로드 후 1초 안정화 대기
                 task.wait(1) 
                 
-                -- 3. 이 시점의 깨끗한 상태를 '원본'으로 백업
+                -- 3. 원본 상태 백업
                 BackupAvatar(char)
                 
-                -- 4. 무적 부활 적용 (3회 재시도 로직 호출)
-                ApplyAvatarChangerSafe(char, Settings.AvatarChanger.pattern, 3)
+                -- 4. 상시 감시망(Watcher) 기반 아바타 적용 1회 호출
+                -- (이제 Watcher들이 작동하므로 추가 재시도 로직이 필요 없습니다!)
+                ApplyAvatarChanger(char, Settings.AvatarChanger.pattern)
             end
         end)
     end
