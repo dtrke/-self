@@ -3810,7 +3810,16 @@ UI.New = function(...)
             local isPermanent = (cName == "에그 알림 웹후크 URL" or cName == "웹후크 URL")
             local originalCallback = options.Callback
             
-            -- 초기값 설정
+            -- [NEW] 입력칸(TextField) 동기화 및 표시 로직
+            if compName == "TextField" and not isPermanent and ConfigSystem.IsTeleportLoad and ConfigSystem.AutoLoad and ConfigSystem.SavedStates[cName] ~= nil then
+                local savedVal = ConfigSystem.SavedStates[cName]
+                options.Def = savedVal
+                options.Default = savedVal
+                -- 제목을 "입력값 - 동기화됨"으로 변경하여 UI에 표시
+                options.Text = tostring(savedVal) .. " - 동기화됨"
+            end
+
+            -- 초기값 설정 (나머지 및 영구 저장용)
             if isPermanent then
                 if ConfigSystem.PermanentStates[cName] ~= nil then
                     local savedVal = ConfigSystem.PermanentStates[cName]
