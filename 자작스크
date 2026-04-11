@@ -3728,6 +3728,9 @@ local function ApplyAvatarChanger(character, pattern)
             end
         end
     end
+
+    -- 로블록스 초기화 버그 극복을 위한 적용 확인 마커
+    character:SetAttribute("CustomAvatarLoaded_Mark", true)
 end
 
 -- =============================
@@ -3883,17 +3886,31 @@ UI.New = function(...)
                     task.spawn(function()
                         task.wait(0.5)
                         pcall(function()
+                            -- 특별 규칙: 아바타 토글 5초 지연 켜기 (재접속 등 로드 시)
+                            if compName == "Toggle" and cName == "아바타 변경 ON/OFF" and syncedValue == true then
+                                if compObj and compObj.SetState then
+                                    compObj:SetState(false) -- 처음엔 시각적으로도, 기능적으로도 우선 꺼둠
+                                end
+                                Settings.AvatarChanger.enabled = false
+                                
+                                -- 5초 뒤에 자동으로 스위치를 켬
+                                task.delay(5, function()
+                                    if compObj and compObj.SetState then
+                                        compObj:SetState(true) -- UI 켜짐 및 콜백 발동 -> 아바타 적용됨
+                                    end
+                                end)
+                                
+                                return -- 여기서 종료하여 아래의 일반 동기화 로직은 무시
+                            end
+
+                            -- 일반 컴포넌트 동기화 로직
                             if compName == "TextField" and compObj and compObj.SetText then
                                 compObj:SetText(syncedValue)
                             elseif compName == "Toggle" and compObj and compObj.SetState then
                                 compObj:SetState(syncedValue)
                             end
                             if originalCallback then
-                                -- [버그 수정] 아바타 변경 기능은 InitCharacter에서 1초 대기 후 별도로 실행하므로,
-                                -- 초기 동기화 시점(서버 진입 중)에는 콜백 호출을 생략하여 중복 실행 및 깜빡임 방지
-                                if not (compName == "Toggle" and cName == "아바타 변경 ON/OFF" and ConfigSystem.IsTeleportLoad) then
-                                    originalCallback(syncedValue)
-                                end
+                                originalCallback(syncedValue)
                             end
                         end)
                     end)
@@ -5413,10 +5430,15 @@ FUNNYTab.Toggle({
     Callback = function(v)
         Settings.AvatarChanger.enabled = v
         if v then
-            BackupAvatar(LocalPlayer.Character)
-            ApplyAvatarChanger(LocalPlayer.Character, Settings.AvatarChanger.pattern)
+            if LocalPlayer.Character then
+                BackupAvatar(LocalPlayer.Character)
+                ApplyAvatarChanger(LocalPlayer.Character, Settings.AvatarChanger.pattern)
+            end
         else
-            RestoreAvatarChanger(LocalPlayer.Character)
+            if LocalPlayer.Character then
+                LocalPlayer.Character:SetAttribute("CustomAvatarLoaded_Mark", nil)
+                RestoreAvatarChanger(LocalPlayer.Character)
+            end
         end
     end
 })
@@ -5602,22 +5624,39 @@ EtcTab.Button({
     end
 })
 
-local function InitCharacter(char)
-    if not char then return end
-    
-    if Settings.AvatarChanger.enabled then
-        BackupAvatar(char)
-        ApplyAvatarChanger(char, Settings.AvatarChanger.pattern)
+-- =============================
+-- [절대무적] 아바타 자동 적용 감시 루프
+-- =============================
+-- 로블록스 이벤트(생성, 로딩 완료 등)가 씹히는 게임이나 환경을 완벽히 극복하기 위해,
+-- 백그라운드에서 0.5초마다 캐릭터 상태를 직접 검사합니다.
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        local char = LocalPlayer.Character
+        
+        if Settings.AvatarChanger.enabled and char and char.Parent then
+            -- 캐릭터가 로딩 중인지 꼼꼼히 확인 (Humanoid, Head 존재 여부 등)
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            local head = char:FindFirstChild("Head")
+            
+            if humanoid and head then
+                -- 우리 스크립트가 아바타를 입혔다는 '마커'가 없는 새 캐릭터라면?
+                if not char:GetAttribute("CustomAvatarLoaded_Mark") then
+                    
+                    -- [버그 수정] 특정 게임이나 환경에서 HasAppearanceLoaded()가 영원히 false로 멈추는 현상 발생.
+                    -- 따라서 이 불완전한 로블록스 함수를 빼버리고, 머리와 몸통이 생긴 시점부터 무조건 1초를 기다립니다.
+                    task.wait(1)
+                    
+                    -- 그 1초 사이에 캐릭터가 또 죽지 않았다면 실행
+                    if char == LocalPlayer.Character and char.Parent then
+                        BackupAvatar(char)
+                        ApplyAvatarChanger(char, Settings.AvatarChanger.pattern)
+                    end
+                end
+            end
+        end
     end
-end
-
--- 스크립트 시작 시 이미 캐릭터가 있는 경우 처리
-if LocalPlayer.Character then
-    task.spawn(InitCharacter, LocalPlayer.Character)
-end
-
--- 캐릭터가 다시 생성될 때마다 처리
-LocalPlayer.CharacterAdded:Connect(InitCharacter)
+end)
 
 EtcTab.Button({
     Text = "Infinite Yield",
