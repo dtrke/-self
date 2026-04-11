@@ -3676,6 +3676,36 @@ local function ApplyAvatarChanger(character, pattern)
     end)
 end
 
+-- [내부 함수] 현재 캐릭터 상태 백업 (복구용)
+local function BackupAvatar(character)
+    if not character then return end
+    local backup = {
+        BodyColors = nil,
+        Pants = nil,
+        Shirt = nil
+    }
+    
+    local bc = character:FindFirstChildOfClass("BodyColors")
+    if bc then
+        backup.BodyColors = {
+            HeadColor3 = bc.HeadColor3,
+            LeftArmColor3 = bc.LeftArmColor3,
+            RightArmColor3 = bc.RightArmColor3,
+            LeftLegColor3 = bc.LeftLegColor3,
+            RightLegColor3 = bc.RightLegColor3,
+            TorsoColor3 = bc.TorsoColor3,
+        }
+    end
+    
+    local p = character:FindFirstChildOfClass("Pants")
+    if p then backup.Pants = p.PantsTemplate end
+    
+    local s = character:FindFirstChildOfClass("Shirt")
+    if s then backup.Shirt = s.ShirtTemplate end
+    
+    Settings.AvatarChanger.persistentBackup = backup
+end
+
 local function RestoreAvatarChanger(character)
     if not character then return end
 
@@ -5397,35 +5427,13 @@ FUNNYTab.Toggle({
     Callback = function(v)
         Settings.AvatarChanger.enabled = v
         if v then
-            -- [토글 킬 때 백업] 현재 캐릭터의 상태를 영구 백업 변수에 저장
-            local char = LocalPlayer.Character
-            if char then
-                local backup = {
-                    BodyColors = nil,
-                    Pants = nil,
-                    Shirt = nil
-                }
-                
-                local bc = char:FindFirstChildOfClass("BodyColors")
-                if bc then
-                    backup.BodyColors = {
-                        HeadColor3 = bc.HeadColor3,
-                        LeftArmColor3 = bc.LeftArmColor3,
-                        RightArmColor3 = bc.RightArmColor3,
-                        LeftLegColor3 = bc.LeftLegColor3,
-                        RightLegColor3 = bc.RightLegColor3,
-                        TorsoColor3 = bc.TorsoColor3,
-                    }
-                end
-                
-                local p = char:FindFirstChildOfClass("Pants")
-                if p then backup.Pants = p.PantsTemplate end
-                
-                local s = char:FindFirstChildOfClass("Shirt")
-                if s then backup.Shirt = s.ShirtTemplate end
-                
-                Settings.AvatarChanger.persistentBackup = backup
+            -- [중요] 텔레포트 초기 로드 중이라면 InitCharacter에서 별도로 처리하므로 여기서 즉시 실행 생략
+            if ConfigSystem.IsTeleportLoad and not LocalPlayer:HasAppearanceLoaded() then
+                return 
             end
+            
+            -- 수동 토글 시에는 즉시 백업 및 적용
+            BackupAvatar(LocalPlayer.Character)
             ApplyAvatarChanger(LocalPlayer.Character, Settings.AvatarChanger.pattern)
         else
             RestoreAvatarChanger(LocalPlayer.Character)
@@ -5618,7 +5626,7 @@ local function InitCharacter(char)
     if not char then return end
     
     if Settings.AvatarChanger.enabled then
-        -- 캐릭터가 완전히 로딩될 때까지 대기 (외형 포함)
+        -- 1. 캐릭터가 완전히 로딩될 때까지 대기 (외형 포함)
         pcall(function()
             if not LocalPlayer:HasAppearanceLoaded() then
                 LocalPlayer.CharacterAppearanceLoaded:Wait()
@@ -5627,7 +5635,13 @@ local function InitCharacter(char)
         
         local humanoid = char:WaitForChild("Humanoid", 10)
         if humanoid then
-            task.wait(1) -- 로딩 완료 후 최종 안정화 대기 시간 추가
+            -- 2. 로딩 완료 후 1초 추가 대기 (사용자 요청: 완벽히 로딩된 상태를 기본값으로 하기 위함)
+            task.wait(1) 
+            
+            -- 3. [중요] 이 시점의 깨끗한 상태를 '기본값'으로 백업
+            BackupAvatar(char)
+            
+            -- 4. 아바타 변경 적용
             ApplyAvatarChanger(char, Settings.AvatarChanger.pattern)
         end
     end
