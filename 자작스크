@@ -5253,9 +5253,9 @@ SBTab.Button({
 })
 
 -- ================= 솔스 탭 =================
-local SolTab = UI.New({ Title = "솔스", Icon = "egg" })
+local SolTab = UI.New({ Title = "Sol's RNG", Icon = "egg" })
 
-OtherGameTab.Label({ Text = "기능성" })
+SolTab.Label({ Text = "기능성" })
 
 SolTab.Toggle({
     Text = "오토 아이템 사용 (바이옴)",
@@ -5265,7 +5265,7 @@ SolTab.Toggle({
     end
 })
 
-OtherGameTab.Label({ Text = "에그 자동 수집 [ 이벤트 ]" })
+SolTab.Label({ Text = "에그 자동 수집 [ 이벤트 ]" })
 
 SolTab.Toggle({
     Text = "에그 자동 수집 - 마우스 클릭으로 이동 기능을 켜야합니다",
@@ -5284,7 +5284,7 @@ SolTab.Toggle({
     end
 })
 
-OtherGameTab.Label({ Text = "웹후크 셋팅" })
+SolTab.Label({ Text = "웹후크 셋팅" })
 
 SolTab.TextField({
     Text = "웹후크 URL",
