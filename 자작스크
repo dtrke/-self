@@ -224,7 +224,7 @@ local Settings = {
     AvatarChanger = {
         enabled = false,
         pattern = "",
-        originalState = nil
+        persistentBackup = nil
     }
 }
 
@@ -3553,73 +3553,49 @@ local AVATAR_DATABASE = {
     }
 }
 
+local function getAttachmentPart(character, partName)
+    if not character then return nil end
+    local part = character:FindFirstChild(partName)
+    if part then return part end
+    
+    -- R15 fallbacks
+    if partName == "Torso" then
+        return character:FindFirstChild("UpperTorso") or character:FindFirstChild("LowerTorso")
+    elseif partName == "Left Arm" then
+        return character:FindFirstChild("LeftUpperArm")
+    elseif partName == "Right Arm" then
+        return character:FindFirstChild("RightUpperArm")
+    elseif partName == "Left Leg" then
+        return character:FindFirstChild("LeftUpperLeg")
+    elseif partName == "Right Leg" then
+        return character:FindFirstChild("RightUpperLeg")
+    end
+    return nil
+end
+
+
+
 local function ApplyAvatarChanger(character, pattern)
     if not character or not pattern then return end
     if not Settings.AvatarChanger.enabled then return end
     
     local data = AVATAR_DATABASE[pattern:lower()]
     if not data then
-        -- 패턴이 없으면 최소한 기존 커스텀 아이템은 지워서 "원래대로" 느낌을 줌
         RestoreAvatarChanger(character)
         return
     end
 
-    -- 원본 상태 저장 (처음 한 번만)
-    if not Settings.AvatarChanger.originalState then
-        local state = {
-            BodyColors = {},
-            Pants = nil,
-            Shirt = nil,
-            AccessoriesFolder = nil,
-            HeadMesh = { MeshId = "", TextureId = "" }
-        }
-        
-        local bodyColors = character:FindFirstChildOfClass("BodyColors")
-        if bodyColors then
-            state.BodyColors = {
-                HeadColor3 = bodyColors.HeadColor3,
-                LeftArmColor3 = bodyColors.LeftArmColor3,
-                RightArmColor3 = bodyColors.RightArmColor3,
-                LeftLegColor3 = bodyColors.LeftLegColor3,
-                RightLegColor3 = bodyColors.RightLegColor3,
-                TorsoColor3 = bodyColors.TorsoColor3,
-            }
-        end
-        
-        local pants = character:FindFirstChildOfClass("Pants")
-        if pants then state.Pants = pants.PantsTemplate end
-        
-        local shirt = character:FindFirstChildOfClass("Shirt")
-        if shirt then state.Shirt = shirt.ShirtTemplate end
-        
-        local head = character:FindFirstChild("Head")
-        if head then
-            local mesh = head:FindFirstChildOfClass("SpecialMesh") or head:FindFirstChildOfClass("Mesh")
-            if mesh then
-                state.HeadMesh.MeshId = mesh.MeshId
-                state.HeadMesh.TextureId = mesh.TextureId
-            end
-        end
-        
-        local storage = Instance.new("Folder")
-        storage.Name = "OriginalAccessories_Backup"
-        for _, obj in ipairs(character:GetChildren()) do
-            if obj:IsA("Accessory") then
-                obj.Parent = storage
-            end
-        end
-        state.AccessoriesFolder = storage
-        Settings.AvatarChanger.originalState = state
-    else
-        -- 이미 다른 아바타가 적용 중이라면 커스텀 아이템만 제거
-        for _, obj in ipairs(character:GetChildren()) do
-            if obj:IsA("Accessory") and obj:GetAttribute("IsCustomAvatar") then
-                obj:Destroy()
+    -- 1. 기존 악세서리 투명화 (Destroy 대신 Transparency 사용)
+    for _, obj in ipairs(character:GetChildren()) do
+        if obj:IsA("Accessory") and not obj:GetAttribute("IsCustomAvatar") then
+            local handle = obj:FindFirstChild("Handle")
+            if handle and handle:IsA("BasePart") then
+                handle.Transparency = 1
             end
         end
     end
 
-    -- 외형 적용
+    -- 2. 바디 컬러 적용
     local bodyColors = character:FindFirstChildOfClass("BodyColors") or Instance.new("BodyColors", character)
     if data.BodyColors then
         bodyColors.HeadColor3 = data.BodyColors.HeadColor
@@ -3630,12 +3606,14 @@ local function ApplyAvatarChanger(character, pattern)
         bodyColors.TorsoColor3 = data.BodyColors.TorsoColor
     end
 
+    -- 3. 옷 적용
     local pants = character:FindFirstChildOfClass("Pants") or Instance.new("Pants", character)
     pants.PantsTemplate = data.Pants or ""
 
     local shirt = character:FindFirstChildOfClass("Shirt") or Instance.new("Shirt", character)
     shirt.ShirtTemplate = data.Shirt or ""
 
+    -- 4. 머리 메시 적용
     local head = character:FindFirstChild("Head")
     if head and data.HeadMesh then
         for _, obj in ipairs(head:GetChildren()) do
@@ -3646,85 +3624,100 @@ local function ApplyAvatarChanger(character, pattern)
         end
     end
 
-    -- 악세서리 추가
+    -- 5. 커스텀 악세서리 추가
     if data.Accessories then
         for _, accData in ipairs(data.Accessories) do
-            local target = character:FindFirstChild(accData.part)
+            local target = getAttachmentPart(character, accData.part)
             if target then
-                local acc = Instance.new("Accessory")
-                acc.Name = accData.name
-                acc:SetAttribute("IsCustomAvatar", true)
-                acc.Parent = character
-                
-                local handle = Instance.new("Part")
-                handle.Name = "Handle"
-                handle.Size = Vector3.new(1, 1, 1)
-                handle.CanCollide, handle.Anchored, handle.Massless = false, false, true
-                handle.Parent = acc
-                
-                local mesh = Instance.new("SpecialMesh")
-                mesh.MeshId = accData.meshId
-                mesh.TextureId = accData.textureId
-                if accData.scale then mesh.Scale = accData.scale end
-                mesh.Parent = handle
-                
-                local weld = Instance.new("Weld")
-                weld.Name = "AccessoryWeld"
-                weld.Part0, weld.Part1 = handle, target
-                weld.C0, weld.C1 = accData.c0, accData.c1
-                weld.Parent = handle
+                local acc = character:FindFirstChild(accData.name)
+                if not (acc and acc:GetAttribute("IsCustomAvatar")) then
+                    acc = Instance.new("Accessory")
+                    acc.Name = accData.name
+                    acc:SetAttribute("IsCustomAvatar", true)
+                    acc.Parent = character
+                    
+                    local handle = Instance.new("Part")
+                    handle.Name = "Handle"
+                    handle.Size = Vector3.new(1, 1, 1)
+                    handle.CanCollide, handle.Anchored, handle.Massless = false, false, true
+                    
+                    local mesh = Instance.new("SpecialMesh")
+                    mesh.MeshId = accData.meshId
+                    mesh.TextureId = accData.textureId
+                    if accData.scale then mesh.Scale = accData.scale end
+                    mesh.Parent = handle
+                    
+                    local weld = Instance.new("Weld")
+                    weld.Name = "AccessoryWeld"
+                    weld.Part0, weld.Part1 = handle, target
+                    weld.C0, weld.C1 = accData.c0, accData.c1
+                    weld.Parent = handle
+                    
+                    handle.Parent = acc
+                end
             end
         end
     end
+
+    -- 6. 포스필드 깜빡임 (0.25초)
+    local affectedParts = {}
+    for _, obj in ipairs(character:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            affectedParts[obj] = obj.Material
+            obj.Material = Enum.Material.ForceField
+        end
+    end
+
+    task.delay(0.25, function()
+        if not character or not character.Parent then return end
+        for part, originalMaterial in pairs(affectedParts) do
+            if part and part.Parent then
+                part.Material = originalMaterial
+            end
+        end
+    end)
 end
 
 local function RestoreAvatarChanger(character)
-    if not Settings.AvatarChanger.originalState or not character then return end
-    local state = Settings.AvatarChanger.originalState
+    if not character then return end
 
-    -- 모든 커스텀 악세서리 제거
+    -- 1. 커스텀 악세서리 제거
     for _, obj in ipairs(character:GetChildren()) do
         if obj:IsA("Accessory") and obj:GetAttribute("IsCustomAvatar") then
             obj:Destroy()
         end
     end
 
-    -- BodyColors 복구
-    local bodyColors = character:FindFirstChildOfClass("BodyColors")
-    if bodyColors and state.BodyColors then
-        bodyColors.HeadColor3 = state.BodyColors.HeadColor3
-        bodyColors.LeftArmColor3 = state.BodyColors.LeftArmColor3
-        bodyColors.RightArmColor3 = state.BodyColors.RightArmColor3
-        bodyColors.LeftLegColor3 = state.BodyColors.LeftLegColor3
-        bodyColors.RightLegColor3 = state.BodyColors.RightLegColor3
-        bodyColors.TorsoColor3 = state.BodyColors.TorsoColor3
-    end
-
-    -- 옷 복구
-    local pants = character:FindFirstChildOfClass("Pants")
-    if pants then pants.PantsTemplate = state.Pants or "" end
-    local shirt = character:FindFirstChildOfClass("Shirt")
-    if shirt then shirt.ShirtTemplate = state.Shirt or "" end
-
-    -- 머리 복구
-    local head = character:FindFirstChild("Head")
-    if head then
-        local mesh = head:FindFirstChildOfClass("SpecialMesh") or head:FindFirstChildOfClass("Mesh")
-        if mesh then
-            mesh.MeshId = state.HeadMesh.MeshId
-            mesh.TextureId = state.HeadMesh.TextureId
+    -- 2. 기존 악세서리 투명화 해제
+    for _, obj in ipairs(character:GetChildren()) do
+        if obj:IsA("Accessory") then
+            local handle = obj:FindFirstChild("Handle")
+            if handle and handle:IsA("BasePart") then
+                handle.Transparency = 0
+            end
         end
     end
 
-    -- 악세서리 복구
-    if state.AccessoriesFolder then
-        for _, obj in ipairs(state.AccessoriesFolder:GetChildren()) do
-            obj.Parent = character
+    -- 3. 토글 킬 때 저장했던 원본 정보로 복구
+    local backup = Settings.AvatarChanger.persistentBackup
+    if backup then
+        -- 바디 컬러 복구
+        local bc = character:FindFirstChildOfClass("BodyColors")
+        if bc and backup.BodyColors then
+            bc.HeadColor3 = backup.BodyColors.HeadColor3
+            bc.LeftArmColor3 = backup.BodyColors.LeftArmColor3
+            bc.RightArmColor3 = backup.BodyColors.RightArmColor3
+            bc.LeftLegColor3 = backup.BodyColors.LeftLegColor3
+            bc.RightLegColor3 = backup.BodyColors.RightLegColor3
+            bc.TorsoColor3 = backup.BodyColors.TorsoColor3
         end
-        pcall(function() state.AccessoriesFolder:Destroy() end)
+        
+        -- 옷 복구
+        local p = character:FindFirstChildOfClass("Pants")
+        if p then p.PantsTemplate = backup.Pants or "" end
+        local s = character:FindFirstChildOfClass("Shirt")
+        if s then s.ShirtTemplate = backup.Shirt or "" end
     end
-    
-    Settings.AvatarChanger.originalState = nil
 end
 
 -- =============================
@@ -5253,7 +5246,7 @@ SBTab.Button({
 })
 
 -- ================= 솔스 탭 =================
-local SolTab = UI.New({ Title = "Sol's RNG", Icon = "egg" })
+local SolTab = UI.New({ Title = "솔스", Icon = "egg" })
 
 SolTab.Label({ Text = "기능성" })
 
@@ -5354,6 +5347,35 @@ FUNNYTab.Toggle({
     Callback = function(v)
         Settings.AvatarChanger.enabled = v
         if v then
+            -- [토글 킬 때 백업] 현재 캐릭터의 상태를 영구 백업 변수에 저장
+            local char = LocalPlayer.Character
+            if char then
+                local backup = {
+                    BodyColors = nil,
+                    Pants = nil,
+                    Shirt = nil
+                }
+                
+                local bc = char:FindFirstChildOfClass("BodyColors")
+                if bc then
+                    backup.BodyColors = {
+                        HeadColor3 = bc.HeadColor3,
+                        LeftArmColor3 = bc.LeftArmColor3,
+                        RightArmColor3 = bc.RightArmColor3,
+                        LeftLegColor3 = bc.LeftLegColor3,
+                        RightLegColor3 = bc.RightLegColor3,
+                        TorsoColor3 = bc.TorsoColor3,
+                    }
+                end
+                
+                local p = char:FindFirstChildOfClass("Pants")
+                if p then backup.Pants = p.PantsTemplate end
+                
+                local s = char:FindFirstChildOfClass("Shirt")
+                if s then backup.Shirt = s.ShirtTemplate end
+                
+                Settings.AvatarChanger.persistentBackup = backup
+            end
             ApplyAvatarChanger(LocalPlayer.Character, Settings.AvatarChanger.pattern)
         else
             RestoreAvatarChanger(LocalPlayer.Character)
@@ -5543,18 +5565,13 @@ EtcTab.Button({
 })
 
 LocalPlayer.CharacterAdded:Connect(function(char)
-    -- 캐릭터가 새로 생성될 때마다 원본 외형 정보를 초기화하여 새로운 캐릭터의 외형을 캡처할 수 있게 합니다.
-    Settings.AvatarChanger.originalState = nil
-    
     if Settings.AvatarChanger.enabled then
-        -- 캐릭터의 원래 외형(악세서리 등)이 완전히 로드될 때까지 기다린 후 변경을 적용합니다.
-        pcall(function()
-            if not LocalPlayer:HasAppearanceLoaded() then
-                LocalPlayer.CharacterAppearanceLoaded:Wait()
-            end
-        end)
-        task.wait(0.5) -- 안정성을 위한 추가 대기
-        ApplyAvatarChanger(char, Settings.AvatarChanger.pattern)
+        -- 캐릭터 생성 직후 안정화 대기
+        local humanoid = char:WaitForChild("Humanoid", 5)
+        if humanoid then
+            task.wait(0.5)
+            ApplyAvatarChanger(char, Settings.AvatarChanger.pattern)
+        end
     end
 end)
 
