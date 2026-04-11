@@ -5616,16 +5616,31 @@ EtcTab.Button({
     end
 })
 
-LocalPlayer.CharacterAdded:Connect(function(char)
+local function InitCharacter(char)
+    if not char then return end
     if Settings.AvatarChanger.enabled then
-        -- 캐릭터 생성 직후 안정화 대기
-        local humanoid = char:WaitForChild("Humanoid", 5)
+        -- 캐릭터가 완전히 로딩될 때까지 대기 (외형 포함)
+        pcall(function()
+            if not LocalPlayer:HasAppearanceLoaded() then
+                LocalPlayer.CharacterAppearanceLoaded:Wait()
+            end
+        end)
+        
+        local humanoid = char:WaitForChild("Humanoid", 10)
         if humanoid then
-            task.wait(0.5)
+            task.wait(1) -- 로딩 완료 후 최종 안정화 대기 시간 추가
             ApplyAvatarChanger(char, Settings.AvatarChanger.pattern)
         end
     end
-end)
+end
+
+-- 스크립트 시작 시 이미 캐릭터가 있는 경우 처리
+if LocalPlayer.Character then
+    task.spawn(InitCharacter, LocalPlayer.Character)
+end
+
+-- 캐릭터가 다시 생성될 때마다 처리
+LocalPlayer.CharacterAdded:Connect(InitCharacter)
 
 EtcTab.Button({
     Text = "Infinite Yield",
