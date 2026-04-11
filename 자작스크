@@ -3776,6 +3776,10 @@ pcall(function()
         if decoded and type(decoded) == "table" then
             ConfigSystem.SavedStates = decoded
             ConfigSystem.AutoLoad = (decoded["_AUTO_LOAD_ENABLED"] == nil) and true or decoded["_AUTO_LOAD_ENABLED"]
+            
+            -- [중요] UI 생성 전 Settings 테이블에 핵심 설정 미리 반영 (레이스 컨디션 방지)
+            if decoded["아바타 코드 입력"] then Settings.AvatarChanger.pattern = decoded["아바타 코드 입력"] end
+            if decoded["아바타 변경 ON/OFF"] ~= nil then Settings.AvatarChanger.enabled = decoded["아바타 변경 ON/OFF"] end
         end
     end
 end)
@@ -3868,14 +3872,14 @@ UI.New = function(...)
             -- 콜백을 자동으로 실행하지 않는 경우를 대비하여 수동으로 설정을 시도합니다.
             if hasSyncedValue then
                 task.spawn(function()
-                    task.wait(0.1) -- UI 초기화 대기
+                    task.wait(0.5) -- UI 초기화 대기 시간 증가 (더 안정적인 반영을 위함)
                     pcall(function()
                         if compName == "TextField" and compObj and compObj.SetText then
                             compObj:SetText(syncedValue) -- 실제 입력칸 텍스트 설정
                         elseif compName == "Toggle" and compObj and compObj.SetState then
                             compObj:SetState(syncedValue) -- 토글 상태 설정
                         end
-                        -- 내부 변수 동기화를 위해 콜백 수동 호출
+                        -- 내부 변수 동기화를 위해 콜백 수동 호출 (사전 로딩이 안된 경우 대비)
                         if originalCallback then
                             originalCallback(syncedValue)
                         end
