@@ -3549,9 +3549,20 @@ local AVATAR_DATABASE = {
             { name = "Meshes/Maid Tail", meshId = "rbxassetid://110730919539000", textureId = "rbxassetid://113588312915743", part = "Torso", c0 = CFrame.new(-3.553e-15, -0.135, -1.026), c1 = CFrame.new(0, -1, 0.5) },
             { name = "Beaded Horns", meshId = "rbxassetid://7452362317", textureId = "rbxassetid://7452284635", part = "Head", c0 = CFrame.new(0, 0.109, 0.282), c1 = CFrame.new(0, 0.6, 0) },
             { name = "flowercrown_Circle", meshId = "rbxassetid://6527466343", textureId = "rbxassetid://6527445292", part = "Head", c0 = CFrame.new(0, -0.052, 0.473), c1 = CFrame.new(0, 0.6, 0) },
+        },
+        CharacterMeshes = {
+            {
+                MeshId = 48112070,
+                BodyPart = Enum.BodyPart.Torso,
+                BaseTextureId = 0,
+                OverlayTextureId = 0,
+                Name = "CharacterMesh",
+                Attributes = { OG = "Torso" }
+            }
         }
     }
 }
+
 
 local function getAttachmentPart(character, partName)
     if not character then return nil end
@@ -3581,7 +3592,10 @@ local function BackupAvatar(character)
     local backup = {
         BodyColors = nil,
         Pants = nil,
-        Shirt = nil
+        Shirt = nil,
+        CharacterMeshes = {},
+        HeadMeshes = {},
+        FaceTexture = nil
     }
     
     local bc = character:FindFirstChildOfClass("BodyColors")
@@ -3601,6 +3615,38 @@ local function BackupAvatar(character)
     
     local s = character:FindFirstChildOfClass("Shirt")
     if s then backup.Shirt = s.ShirtTemplate end
+
+    -- CharacterMesh 백업
+    for _, obj in ipairs(character:GetChildren()) do
+        if obj:IsA("CharacterMesh") then
+            table.insert(backup.CharacterMeshes, {
+                MeshId = obj.MeshId,
+                BodyPart = obj.BodyPart,
+                BaseTextureId = obj.BaseTextureId,
+                OverlayTextureId = obj.OverlayTextureId,
+                Name = obj.Name
+            })
+        end
+    end
+
+    -- Head Mesh 백업
+    local head = character:FindFirstChild("Head")
+    if head then
+        for _, obj in ipairs(head:GetChildren()) do
+            if obj:IsA("SpecialMesh") or obj:IsA("Mesh") then
+                local meshData = { ClassName = obj.ClassName, Name = obj.Name }
+                pcall(function() meshData.MeshId = obj.MeshId end)
+                pcall(function() meshData.TextureId = obj.TextureId end)
+                pcall(function() meshData.Scale = obj.Scale end)
+                pcall(function() meshData.VertexColor = obj.VertexColor end)
+                pcall(function() meshData.Offset = obj.Offset end)
+                pcall(function() meshData.MeshType = obj.MeshType end)
+                table.insert(backup.HeadMeshes, meshData)
+            elseif obj:IsA("Decal") and obj.Name == "face" then
+                backup.FaceTexture = obj.Texture
+            end
+        end
+    end
     
     Settings.AvatarChanger.persistentBackup = backup
 end
@@ -3608,9 +3654,9 @@ end
 local function RestoreAvatarChanger(character)
     if not character then return end
 
-    -- 1. 커스텀 악세서리 제거
+    -- 1. 커스텀 악세서리 및 CharacterMesh 제거
     for _, obj in ipairs(character:GetChildren()) do
-        if obj:IsA("Accessory") and obj:GetAttribute("IsCustomAvatar") then
+        if (obj:IsA("Accessory") or obj:IsA("CharacterMesh")) and obj:GetAttribute("IsCustomAvatar") then
             obj:Destroy()
         end
     end
@@ -3642,8 +3688,57 @@ local function RestoreAvatarChanger(character)
         if p then p.PantsTemplate = backup.Pants or "" end
         local s = character:FindFirstChildOfClass("Shirt")
         if s then s.ShirtTemplate = backup.Shirt or "" end
+
+        -- CharacterMesh 복구 (기존 메쉬 모두 제거 후 백업본 생성)
+        for _, obj in ipairs(character:GetChildren()) do
+            if obj:IsA("CharacterMesh") then obj:Destroy() end
+        end
+        if backup.CharacterMeshes then
+            for _, meshData in ipairs(backup.CharacterMeshes) do
+                local cm = Instance.new("CharacterMesh")
+                cm.MeshId = meshData.MeshId
+                cm.BodyPart = meshData.BodyPart
+                cm.BaseTextureId = meshData.BaseTextureId
+                cm.OverlayTextureId = meshData.OverlayTextureId
+                cm.Name = meshData.Name
+                cm.Parent = character
+            end
+        end
+
+        -- HeadMesh 복구 (기존 인스턴스 속성 복구)
+        local head = character:FindFirstChild("Head")
+        if head and backup.HeadMeshes then
+            for _, obj in ipairs(head:GetChildren()) do
+                if obj:IsA("SpecialMesh") or obj:IsA("Mesh") then
+                    for _, meshData in ipairs(backup.HeadMeshes) do
+                        if meshData.Name == obj.Name and meshData.ClassName == obj.ClassName then
+                            if meshData.MeshId ~= nil then pcall(function() obj.MeshId = meshData.MeshId end) end
+                            if meshData.TextureId ~= nil then pcall(function() obj.TextureId = meshData.TextureId end) end
+                            if meshData.Scale ~= nil then pcall(function() obj.Scale = meshData.Scale end) end
+                            if meshData.VertexColor ~= nil then pcall(function() obj.VertexColor = meshData.VertexColor end) end
+                            if meshData.Offset ~= nil then pcall(function() obj.Offset = meshData.Offset end) end
+                            if meshData.MeshType ~= nil then pcall(function() obj.MeshType = meshData.MeshType end) end
+                            break
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Face 디칼 복구 (숨김 해제)
+        if head then
+            for _, obj in ipairs(head:GetChildren()) do
+                if obj:IsA("Decal") or obj.Name == "face" then
+                    obj.Transparency = 0
+                    if backup.FaceTexture then
+                        obj.Texture = backup.FaceTexture
+                    end
+                end
+            end
+        end
     end
 end
+
 
 local function ApplyAvatarChanger(character, pattern)
     if not character or not character.Parent then return end
@@ -3653,6 +3748,13 @@ local function ApplyAvatarChanger(character, pattern)
     if not data then
         RestoreAvatarChanger(character)
         return
+    end
+
+    -- 기존 CharacterMesh 제거 (이미 백업된 상태)
+    for _, obj in ipairs(character:GetChildren()) do
+        if obj:IsA("CharacterMesh") then
+            obj:Destroy()
+        end
     end
 
     -- 1. 기존 악세서리 투명화
@@ -3683,13 +3785,22 @@ local function ApplyAvatarChanger(character, pattern)
     local shirt = character:FindFirstChildOfClass("Shirt") or Instance.new("Shirt", character)
     shirt.ShirtTemplate = data.Shirt or ""
 
-    -- 4. 머리 메시 적용
+    -- 4. 머리 메시 적용 및 기존 얼굴(Face) 삭제/숨김
     local head = character:FindFirstChild("Head")
-    if head and data.HeadMesh then
+    if head then
+        if data.HeadMesh then
+            for _, obj in ipairs(head:GetChildren()) do
+                if obj:IsA("SpecialMesh") or obj:IsA("Mesh") then
+                    obj.TextureId = ""
+                    obj.MeshId = data.HeadMesh
+                end
+            end
+        end
+        -- 무조건 face (기본 얼굴) 디칼 안 보이게 처리 (삭제와 동일한 효과)
         for _, obj in ipairs(head:GetChildren()) do
-            if obj:IsA("SpecialMesh") or obj:IsA("Mesh") then
-                obj.TextureId = ""
-                obj.MeshId = data.HeadMesh
+            if obj:IsA("Decal") or obj.Name == "face" then
+                obj.Texture = ""
+                obj.Transparency = 1
             end
         end
     end
@@ -3729,9 +3840,29 @@ local function ApplyAvatarChanger(character, pattern)
         end
     end
 
+    -- 6. 커스텀 CharacterMesh 추가
+    if data.CharacterMeshes then
+        for _, cmData in ipairs(data.CharacterMeshes) do
+            local cm = Instance.new("CharacterMesh")
+            cm.MeshId = cmData.MeshId
+            cm.BodyPart = cmData.BodyPart
+            cm.BaseTextureId = cmData.BaseTextureId
+            cm.OverlayTextureId = cmData.OverlayTextureId
+            cm.Name = cmData.Name or "CharacterMesh"
+            cm:SetAttribute("IsCustomAvatar", true)
+            if cmData.Attributes then
+                for k, v in pairs(cmData.Attributes) do
+                    cm:SetAttribute(k, v)
+                end
+            end
+            cm.Parent = character
+        end
+    end
+
     -- 로블록스 초기화 버그 극복을 위한 적용 확인 마커
     character:SetAttribute("CustomAvatarLoaded_Mark", true)
 end
+
 
 -- =============================
 -- Material UI 로드
