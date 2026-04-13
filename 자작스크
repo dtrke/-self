@@ -3651,8 +3651,17 @@ local function BackupAvatar(character)
     Settings.AvatarChanger.persistentBackup = backup
 end
 
+local AvatarChangerConns = {}
+local function ClearAvatarChangerConns()
+    for _, conn in ipairs(AvatarChangerConns) do
+        if conn and typeof(conn) == "RBXScriptConnection" then conn:Disconnect() end
+    end
+    table.clear(AvatarChangerConns)
+end
+
 local function RestoreAvatarChanger(character)
     if not character then return end
+    ClearAvatarChangerConns()
 
     -- 1. 커스텀 악세서리 및 CharacterMesh 제거
     for _, obj in ipairs(character:GetChildren()) do
@@ -3749,6 +3758,8 @@ local function ApplyAvatarChanger(character, pattern)
         RestoreAvatarChanger(character)
         return
     end
+
+    ClearAvatarChangerConns()
 
     -- 기존 CharacterMesh 제거 (이미 백업된 상태)
     for _, obj in ipairs(character:GetChildren()) do
@@ -3861,6 +3872,163 @@ local function ApplyAvatarChanger(character, pattern)
 
     -- 로블록스 초기화 버그 극복을 위한 적용 확인 마커
     character:SetAttribute("CustomAvatarLoaded_Mark", true)
+
+    -- [신규 기능] 아바타 상태 유지 (투명화, 색상, 옷, 메쉬 고정) 및 변경된 원본 상태 기억
+    local backup = Settings.AvatarChanger.persistentBackup
+
+    local function applyBodyColors(bc)
+        if not data.BodyColors then return end
+        if bc.HeadColor3 ~= data.BodyColors.HeadColor then
+            if backup and backup.BodyColors then backup.BodyColors.HeadColor3 = bc.HeadColor3 end
+            bc.HeadColor3 = data.BodyColors.HeadColor 
+        end
+        if bc.LeftArmColor3 ~= data.BodyColors.LeftArmColor then 
+            if backup and backup.BodyColors then backup.BodyColors.LeftArmColor3 = bc.LeftArmColor3 end
+            bc.LeftArmColor3 = data.BodyColors.LeftArmColor 
+        end
+        if bc.RightArmColor3 ~= data.BodyColors.RightArmColor then 
+            if backup and backup.BodyColors then backup.BodyColors.RightArmColor3 = bc.RightArmColor3 end
+            bc.RightArmColor3 = data.BodyColors.RightArmColor 
+        end
+        if bc.LeftLegColor3 ~= data.BodyColors.LeftLegColor then 
+            if backup and backup.BodyColors then backup.BodyColors.LeftLegColor3 = bc.LeftLegColor3 end
+            bc.LeftLegColor3 = data.BodyColors.LeftLegColor 
+        end
+        if bc.RightLegColor3 ~= data.BodyColors.RightLegColor then 
+            if backup and backup.BodyColors then backup.BodyColors.RightLegColor3 = bc.RightLegColor3 end
+            bc.RightLegColor3 = data.BodyColors.RightLegColor 
+        end
+        if bc.TorsoColor3 ~= data.BodyColors.TorsoColor then 
+            if backup and backup.BodyColors then backup.BodyColors.TorsoColor3 = bc.TorsoColor3 end
+            bc.TorsoColor3 = data.BodyColors.TorsoColor 
+        end
+    end
+
+    local function applyClothes()
+        local pants = character:FindFirstChildOfClass("Pants")
+        if pants and data.Pants and pants.PantsTemplate ~= data.Pants then 
+            if backup then backup.Pants = pants.PantsTemplate end
+            pants.PantsTemplate = data.Pants 
+        end
+        local shirt = character:FindFirstChildOfClass("Shirt")
+        if shirt and data.Shirt and shirt.ShirtTemplate ~= data.Shirt then 
+            if backup then backup.Shirt = shirt.ShirtTemplate end
+            shirt.ShirtTemplate = data.Shirt 
+        end
+    end
+
+    local function recordExternalCharacterMesh(obj)
+        if backup and backup.CharacterMeshes then
+            local replaced = false
+            for i, meshData in ipairs(backup.CharacterMeshes) do
+                if meshData.BodyPart == obj.BodyPart then
+                    backup.CharacterMeshes[i] = {
+                        MeshId = obj.MeshId,
+                        BodyPart = obj.BodyPart,
+                        BaseTextureId = obj.BaseTextureId,
+                        OverlayTextureId = obj.OverlayTextureId,
+                        Name = obj.Name
+                    }
+                    replaced = true
+                    break
+                end
+            end
+            if not replaced then
+                table.insert(backup.CharacterMeshes, {
+                    MeshId = obj.MeshId,
+                    BodyPart = obj.BodyPart,
+                    BaseTextureId = obj.BaseTextureId,
+                    OverlayTextureId = obj.OverlayTextureId,
+                    Name = obj.Name
+                })
+            end
+        end
+    end
+
+    local function enforceCustomMeshes()
+        if not data.CharacterMeshes then return end
+        for _, obj in ipairs(character:GetChildren()) do
+            if obj:IsA("CharacterMesh") and not obj:GetAttribute("IsCustomAvatar") then
+                recordExternalCharacterMesh(obj)
+                obj:Destroy()
+            end
+        end
+        for _, cmData in ipairs(data.CharacterMeshes) do
+            local found = false
+            for _, obj in ipairs(character:GetChildren()) do
+                if obj:IsA("CharacterMesh") and obj:GetAttribute("IsCustomAvatar") and obj.MeshId == cmData.MeshId then
+                    found = true
+                    break
+                end
+            end
+            if not found then
+                local cm = Instance.new("CharacterMesh")
+                cm.MeshId = cmData.MeshId
+                cm.BodyPart = cmData.BodyPart
+                cm.BaseTextureId = cmData.BaseTextureId
+                cm.OverlayTextureId = cmData.OverlayTextureId
+                cm.Name = cmData.Name or "CharacterMesh"
+                cm:SetAttribute("IsCustomAvatar", true)
+                if cmData.Attributes then
+                    for k, v in pairs(cmData.Attributes) do cm:SetAttribute(k, v) end
+                end
+                cm.Parent = character
+            end
+        end
+    end
+
+    table.insert(AvatarChangerConns, character.ChildAdded:Connect(function(obj)
+        if obj:IsA("Accessory") and not obj:GetAttribute("IsCustomAvatar") then
+            -- 새로 생긴 악세서리 즉시 투명화 (원래 존재하므로 끄면 0으로 복원됨)
+            task.defer(function()
+                local handle = obj:WaitForChild("Handle", 1)
+                if handle and handle:IsA("BasePart") then handle.Transparency = 1 end
+            end)
+        elseif obj:IsA("BodyColors") then
+            if backup then
+                backup.BodyColors = {
+                    HeadColor3 = obj.HeadColor3, LeftArmColor3 = obj.LeftArmColor3,
+                    RightArmColor3 = obj.RightArmColor3, LeftLegColor3 = obj.LeftLegColor3,
+                    RightLegColor3 = obj.RightLegColor3, TorsoColor3 = obj.TorsoColor3
+                }
+            end
+            task.defer(function()
+                applyBodyColors(obj)
+                table.insert(AvatarChangerConns, obj.Changed:Connect(function() applyBodyColors(obj) end))
+            end)
+        elseif obj:IsA("Pants") then
+            if backup then backup.Pants = obj.PantsTemplate end
+            task.defer(function()
+                applyClothes()
+                table.insert(AvatarChangerConns, obj.Changed:Connect(applyClothes))
+            end)
+        elseif obj:IsA("Shirt") then
+            if backup then backup.Shirt = obj.ShirtTemplate end
+            task.defer(function()
+                applyClothes()
+                table.insert(AvatarChangerConns, obj.Changed:Connect(applyClothes))
+            end)
+        elseif obj:IsA("CharacterMesh") then
+            if not obj:GetAttribute("IsCustomAvatar") then recordExternalCharacterMesh(obj) end
+            task.defer(enforceCustomMeshes)
+        end
+    end))
+
+    table.insert(AvatarChangerConns, character.ChildRemoved:Connect(function(obj)
+        if obj:IsA("CharacterMesh") and obj:GetAttribute("IsCustomAvatar") then
+            task.defer(enforceCustomMeshes)
+        end
+    end))
+
+    -- 기존 객체들의 속성 변경 감지
+    local existingBc = character:FindFirstChildOfClass("BodyColors")
+    if existingBc then table.insert(AvatarChangerConns, existingBc.Changed:Connect(function() applyBodyColors(existingBc) end)) end
+    
+    local existingPants = character:FindFirstChildOfClass("Pants")
+    if existingPants then table.insert(AvatarChangerConns, existingPants.Changed:Connect(applyClothes)) end
+    
+    local existingShirt = character:FindFirstChildOfClass("Shirt")
+    if existingShirt then table.insert(AvatarChangerConns, existingShirt.Changed:Connect(applyClothes)) end
 end
 
 
