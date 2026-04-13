@@ -4347,7 +4347,7 @@ PageALL.TextField({
 PageALL.Label({ Text = "에임 보정기" })
 
 PageALL.Toggle({
-    Text = "에임 보정기 VV5 활성화",
+    Text = "에임 보정기 VV5",
     Enabled = false,
     Callback = function(v)
         Settings.Aim.masterEnabled = v
