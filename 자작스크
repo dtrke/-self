@@ -198,6 +198,9 @@ local Settings = {
         enabled = true -- 기본적으로 자동 실행 활성화 (원하지 않으면 토글로 끌 수 있음)
     },
 
+    -- [통합] 웹후크 설정
+    Webhook = "",
+
     -- 솔스 (Egg Bot) 추가
     SolEgg = {
         enabled = false,
@@ -210,14 +213,12 @@ local Settings = {
         failCount = 0, -- 영구 실패한 횟수
         collectedStatus = {}, -- [이름] = 갯수
         excludedTargets = setmetatable({}, { __mode = "k" }),
-        webhook = "",
         webhookEnabled = false
     },
 
     -- 스크린샷 (Webhook) 추가
     Screenshot = {
-        enabled = false,
-        webhook = ""
+        enabled = false
     },
 
     -- 아바타 체인저 추가
@@ -3015,8 +3016,8 @@ local notifiedSpawn = setmetatable({}, { __mode = "k" })
 -- [NEW] Send Spawn Webhook
 local function sendEggSpawnWebhook(eggName)
     local settings = Settings.SolEgg
-    if not settings.webhookEnabled or settings.webhook == "" then return end
-    if not settings.webhook:find("discord.com/api/webhooks") then return end
+    if not settings.webhookEnabled or Settings.Webhook == "" then return end
+    if not Settings.Webhook:find("discord.com/api/webhooks") then return end
 
     local http_request = request or (syn and syn.request) or (http and http.request) or http_request
     if not http_request then return end
@@ -3042,7 +3043,7 @@ local function sendEggSpawnWebhook(eggName)
         }
 
         http_request({
-            Url = settings.webhook,
+            Url = Settings.Webhook,
             Method = "POST",
             Headers = { ["Content-Type"] = "application/json" },
             Body = game:GetService("HttpService"):JSONEncode({ 
@@ -3056,8 +3057,8 @@ end
 -- [NEW] Send Failure Webhook
 local function sendEggFailureWebhook(eggName, reason)
     local settings = Settings.SolEgg
-    if not settings.webhookEnabled or settings.webhook == "" then return end
-    if not settings.webhook:find("discord.com/api/webhooks") then return end
+    if not settings.webhookEnabled or Settings.Webhook == "" then return end
+    if not Settings.Webhook:find("discord.com/api/webhooks") then return end
 
     local http_request = request or (syn and syn.request) or (http and http.request) or http_request
     if not http_request then return end
@@ -3080,7 +3081,7 @@ local function sendEggFailureWebhook(eggName, reason)
         }
 
         http_request({
-            Url = settings.webhook,
+            Url = Settings.Webhook,
             Method = "POST",
             Headers = { ["Content-Type"] = "application/json" },
             Body = game:GetService("HttpService"):JSONEncode({ 
@@ -3092,8 +3093,8 @@ end
 
 local function sendEggCollectionWebhook(eggName)
     local settings = Settings.SolEgg
-    if not settings.webhookEnabled or settings.webhook == "" then return end
-    if not settings.webhook:find("discord.com/api/webhooks") then return end
+    if not settings.webhookEnabled or Settings.Webhook == "" then return end
+    if not Settings.Webhook:find("discord.com/api/webhooks") then return end
 
     local http_request = request or (syn and syn.request) or (http and http.request) or http_request
     if not http_request then return end
@@ -3151,7 +3152,7 @@ local function sendEggCollectionWebhook(eggName)
         }
 
         http_request({
-            Url = settings.webhook,
+            Url = Settings.Webhook,
             Method = "POST",
             Headers = { ["Content-Type"] = "application/json" },
             Body = game:GetService("HttpService"):JSONEncode({ 
@@ -4074,8 +4075,7 @@ pcall(function()
         if decoded and type(decoded) == "table" then
             ConfigSystem.PermanentStates = decoded
             -- Settings 테이블에 즉시 반영 (UI 생성 전)
-            if decoded["에그 알림 웹후크 URL"] then Settings.SolEgg.webhook = decoded["에그 알림 웹후크 URL"] end
-            if decoded["웹후크 URL"] then Settings.Screenshot.webhook = decoded["웹후크 URL"] end
+            if decoded["통합 웹후크 URL"] then Settings.Webhook = decoded["통합 웹후크 URL"] end
         end
     end
 end)
@@ -4159,7 +4159,7 @@ UI.New = function(...)
                 local cName = rawName:gsub("^%s*(.-)%s*$", "%1") -- 공백 제거
                 if cName == "" then return originalComp(options) end
                 
-                local isPermanent = (cName == "에그 알림 웹후크 URL" or cName == "웹후크 URL")
+                local isPermanent = (cName == "통합 웹후크 URL")
                 local hasSyncedValue = false
                 local syncedValue = nil
                 
@@ -4761,33 +4761,6 @@ PageALL.Button({
     end
 })
 
-PageALL.Label({ Text = "[[ SCRIPT CONTROL ]]" })
-
-PageALL.Toggle({
-    Text = "스크립트 자동 실행",
-    Enabled = Settings.Persistence.enabled,
-    Callback = function(v)
-        Settings.Persistence.enabled = v
-        UpdatePersistence()
-        SaveConfig()
-        
-        Rayfield:Notify({
-            Title = "시스템 설정 변경",
-            Content = v and "스크립트 자동 실행이 활성화되었습니다. 이제 텔레포트 시 스크립트가 유지됩니다." or "스크립트 자동 실행이 비활성화되었습니다. (로더 파일 삭제됨)",
-            Duration = 3,
-            Image = 4483362458
-        })
-    end
-})
-
-PageALL.Toggle({
-    Text = "기존 설정값을 새로운 서버에서 자동으로 불러오기",
-    Enabled = ConfigSystem.AutoLoad,
-    Callback = function(v)
-        ConfigSystem.AutoLoad = v
-        SaveConfig()
-    end
-})
 
 PageALL.Label({ Text = "[[ UNIVERSAL FLING MANAGER ]]" })
 
@@ -5689,24 +5662,6 @@ SolTab.Toggle({
     end
 })
 
-SolTab.Toggle({
-    Text = "에그 획득 디스코드 알림",
-    Enabled = Settings.SolEgg.webhookEnabled,
-    Callback = function(v)
-        Settings.SolEgg.webhookEnabled = v
-    end
-})
-
-SolTab.Label({ Text = "웹후크 셋팅" })
-
-SolTab.TextField({
-    Text = "웹후크 URL",
-    Default = Settings.SolEgg.webhook,
-    Type = "Default",
-    Callback = function(v)
-        Settings.SolEgg.webhook = v
-    end
-})
 
 -- ================= 기타 게임들 탭 =================
 local OtherGameTab = UI.New({ Title = "기타 게임들", Icon = "gamepad-2" })
@@ -5913,7 +5868,7 @@ EtcTab.Label({ Text = "디스코드 웹후크" })
 -- 스크린샷 기능 (Webhook)
 -- =============================
 local function sendStatusToDiscord()
-    local webhook = Settings.Screenshot.webhook
+    local webhook = Settings.Webhook
     if webhook == "" or not webhook:find("discord.com/api/webhooks") then
         print("[Webhook Error] 유효한 디스코드 웹후크 URL을 입력해주세요.")
         return
@@ -6008,21 +5963,6 @@ local function sendStatusToDiscord()
     end
 end
 
-EtcTab.Toggle({
-    Text = "1분마다 상태 및 스크린샷 전송",
-    Enabled = Settings.Screenshot.enabled,
-    Callback = function(v)
-        Settings.Screenshot.enabled = v
-    end
-})
-
-EtcTab.TextField({
-    Text = "웹후크 URL",
-    Default = Settings.Screenshot.webhook,
-    Callback = function(v)
-        Settings.Screenshot.webhook = v
-    end
-})
 
 EtcTab.Button({
     Text = "즉시 상태/스크린샷 보내기",
@@ -6117,6 +6057,63 @@ EtcTab.Button({
 local PERTab = UI.New({ Title = "영구", Icon = "map" })
 
 PERTab.Label({ Text = "이 탭에 있는 토글들은 영구히 유지됩니다." })
+
+PERTab.Label({ Text = "자작 스크립트" })
+
+PERTab.Toggle({
+    Text = "스크립트 자동 실행",
+    Enabled = Settings.Persistence.enabled,
+    Callback = function(v)
+        Settings.Persistence.enabled = v
+        UpdatePersistence()
+        SaveConfig()
+        
+        Rayfield:Notify({
+            Title = "시스템 설정 변경",
+            Content = v and "스크립트 자동 실행이 활성화되었습니다. 이제 텔레포트 시 스크립트가 유지됩니다." or "스크립트 자동 실행이 비활성화되었습니다. (로더 파일 삭제됨)",
+            Duration = 3,
+            Image = 4483362458
+        })
+    end
+})
+
+PERTab.Toggle({
+    Text = "기존 설정값을 새로운 서버에서 자동으로 불러오기",
+    Enabled = ConfigSystem.AutoLoad,
+    Callback = function(v)
+        ConfigSystem.AutoLoad = v
+        SaveConfig()
+    end
+})
+
+PERTab.Label({ Text = "솔스" })
+
+PERTab.Toggle({
+    Text = "에그 획득 디스코드 알림",
+    Enabled = Settings.SolEgg.webhookEnabled,
+    Callback = function(v)
+        Settings.SolEgg.webhookEnabled = v
+    end
+})
+
+PERTab.Label({ Text = "디스코드" })
+
+PERTab.Toggle({
+    Text = "1분마다 상태 및 스크린샷 전송",
+    Enabled = Settings.Screenshot.enabled,
+    Callback = function(v)
+        Settings.Screenshot.enabled = v
+    end
+})
+
+PERTab.TextField({
+    Text = "통합 웹후크 URL",
+    Default = Settings.Webhook,
+    Type = "Default",
+    Callback = function(v)
+        Settings.Webhook = v
+    end
+})
 
 -- =============================
 -- 스크린샷 자동 전송 루프
