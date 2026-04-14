@@ -6175,6 +6175,32 @@ moonFrame.ZIndex = 1
 local moonAspect = Instance.new("UIAspectRatioConstraint", moonFrame)
 moonAspect.AspectRatio = 1 -- 정비율 유지
 
+-- [NEW] 달 중앙에 회전하는 사각형 장식 2개 (외곽선만 남김)
+local function createRotatingSquare(parent, name, sizeScale, color, order)
+    local sq = Instance.new("Frame", parent)
+    sq.Name = name
+    sq.Size = UDim2.new(sizeScale, 0, sizeScale, 0)
+    sq.Position = UDim2.new(0.5, 0, 0.5, 0)
+    sq.AnchorPoint = Vector2.new(0.5, 0.5)
+    sq.BackgroundTransparency = 1 -- 배경 완전 투명 (테두리만 남김)
+    sq.BorderSizePixel = 0
+    sq.ZIndex = order
+    local stroke = Instance.new("UIStroke", sq)
+    stroke.Color = color
+    stroke.Thickness = 2
+    stroke.Transparency = 0.2
+    local aspect = Instance.new("UIAspectRatioConstraint", sq)
+    aspect.AspectRatio = 1
+    return sq
+end
+
+local bigSquare = createRotatingSquare(moonFrame, "BigRotSquare", 0.304, Color3.new(1, 1, 1), 0) -- 하얀색 (1.1배 확대)
+local smallSquare = createRotatingSquare(moonFrame, "SmallRotSquare", 0.238, Color3.new(0, 0, 0), 1) -- 검정색
+
+-- 사각형 기본 크기 상수 (동적 크기 계산용)
+local bigSquareBase = 0.304
+local smallSquareBase = 0.238
+
 
 local timelineProgress = Instance.new("Frame", timelineBox)
 timelineProgress.Size = UDim2.new(0, 0, 1, 0)
@@ -6393,9 +6419,23 @@ Services.RunService.RenderStepped:Connect(function(dt)
             -- [NEW] 달 색상 순환 (비주얼라이저보다 1.5배 느리게: 3/1.5 = 2)
             local moonGray = math.clamp(0.4 + 0.6 * math.cos(VisualizerTime * 2), 0, 1)
             moonFrame.ImageColor3 = Color3.new(moonGray, moonGray, moonGray)
+            
+            -- [NEW] 사각형 회전 (맥스 스피드 7배 상향)
+            bigSquare.Rotation = (VisualizerTime * 245) % 360
+            smallSquare.Rotation = -(VisualizerTime * 595) % 360
+            
+            -- [NEW] 사각형 동적 크기 (소리가 클수록 커짐, 최대 2.5배)
+            local sqScale = 1 + (pulseNormalized * 1.5)
+            bigSquare.Size = UDim2.new(bigSquareBase * sqScale, 0, bigSquareBase * sqScale, 0)
+            smallSquare.Size = UDim2.new(smallSquareBase * sqScale, 0, smallSquareBase * sqScale, 0)
         else
             moonFrame.Size = UDim2.new(0.24, 0, 0.24, 0)
             moonFrame.ImageColor3 = Color3.new(0.8, 0.8, 0.8)
+            
+            bigSquare.Rotation = (VisualizerTime * 105) % 360 -- 기본 속도 (7배)
+            smallSquare.Rotation = -(VisualizerTime * 210) % 360
+            bigSquare.Size = UDim2.new(bigSquareBase, 0, bigSquareBase, 0)
+            smallSquare.Size = UDim2.new(smallSquareBase, 0, smallSquareBase, 0)
         end
     end
 
