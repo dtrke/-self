@@ -5823,7 +5823,7 @@ end
 local FunnyMusics = {
     "LifeIsKinetics", "Rebelo", "NoMercy", "Education", "Gadeulian", "BreakLoose", 
     "RainShower", "AlephZero", "YouAreMine", "Enough", "PororosDisappearance",
-    "VoidsideSwordfight", "AlteredObsidian", "Kamemushi"
+    "VoidsideSwordfight", "AlteredObsidian", "Kamemushi", "WhatOhio"
 }
 
 local function PlayFunnyMusic()
