@@ -5844,7 +5844,7 @@ end
 
 local function PlayFunnyMusic()
     for _, child in pairs(game.CoreGui:GetChildren()) do
-        if child:IsA("Sound") and (child.Name == "LifeIsKinetics" or child.Name == "Rebelo" or child.Name == "NoMercy" or child.Name == "Edu" or child.Name == "Gadeulian" or child.Name == "BreakLoose" or child.Name == "RainShower" or child.Name == "AlephZero") then
+        if child:IsA("Sound") and (child.Name == "LifeIsKinetics" or child.Name == "Rebelo" or child.Name == "NoMercy" or child.Name == "Edu" or child.Name == "Gadeulian" or child.Name == "BreakLoose" or child.Name == "RainShower" or child.Name == "AlephZero" or child.Name == "CarpenterBrut") then
             child:Pause()
         end
     end
@@ -5861,7 +5861,7 @@ end
 
 FUNNYTab.Dropdown({
     Text = "음악 선택",
-    Options = {"LifeIsKinetics", "Rebelo", "NoMercy", "Edu", "Gadeulian", "BreakLoose", "RainShower", "AlephZero"},
+    Options = {"LifeIsKinetics", "Rebelo", "NoMercy", "Edu", "Gadeulian", "BreakLoose", "RainShower", "AlephZero", "CarpenterBrut"},
     Callback = function(value)
         getgenv().CurrentFunnyMusic = value
         notif:SendNotification('SkyBlueInfo', 'Music Selected: ' .. value, 3)
@@ -5888,7 +5888,7 @@ FUNNYTab.Slider({
     Callback = function(value)
         getgenv().FunnyMusicVolume = value / 100
         for _, child in pairs(game.CoreGui:GetChildren()) do
-            if child:IsA("Sound") and (child.Name == "LifeIsKinetics" or child.Name == "Rebelo" or child.Name == "NoMercy" or child.Name == "Edu" or child.Name == "Gadeulian" or child.Name == "BreakLoose" or child.Name == "RainShower" or child.Name == "AlephZero") then
+            if child:IsA("Sound") and (child.Name == "LifeIsKinetics" or child.Name == "Rebelo" or child.Name == "NoMercy" or child.Name == "Edu" or child.Name == "Gadeulian" or child.Name == "BreakLoose" or child.Name == "RainShower" or child.Name == "AlephZero" or child.Name == "CarpenterBrut") then
                 child.Volume = getgenv().FunnyMusicVolume
             end
         end
