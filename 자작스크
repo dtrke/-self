@@ -5797,9 +5797,15 @@ local function EnsureMusicFile(Name)
     return snd
 end
 
+local FunnyMusics = {
+    "LifeIsKinetics", "Rebelo", "NoMercy", "Edu", "Gadeulian", "BreakLoose", 
+    "RainShower", "AlephZero", "CarpenterBrut", "Enough", "PororosDisappearance",
+    "VoidsideSwordfight", "AlteredObsidian", "Kamemushi"
+}
+
 local function PlayFunnyMusic()
     for _, child in pairs(game.CoreGui:GetChildren()) do
-        if child:IsA("Sound") and (child.Name == "LifeIsKinetics" or child.Name == "Rebelo" or child.Name == "NoMercy" or child.Name == "Edu" or child.Name == "Gadeulian" or child.Name == "BreakLoose" or child.Name == "RainShower" or child.Name == "AlephZero" or child.Name == "CarpenterBrut" or child.Name == "Enough" or child.Name == "PororosDisappearance") then
+        if child:IsA("Sound") and table.find(FunnyMusics, child.Name) then
             child:Pause()
         end
     end
@@ -5816,7 +5822,7 @@ end
 
 FUNNYTab.Dropdown({
     Text = "음악 선택",
-    Options = {"LifeIsKinetics", "Rebelo", "NoMercy", "Edu", "Gadeulian", "BreakLoose", "RainShower", "AlephZero", "CarpenterBrut", "Enough", "PororosDisappearance"},
+    Options = FunnyMusics,
     Callback = function(value)
         getgenv().CurrentFunnyMusic = value
         notif:SendNotification('SkyBlueInfo', 'Music Selected: ' .. value, 3)
@@ -5843,7 +5849,7 @@ FUNNYTab.Slider({
     Callback = function(value)
         getgenv().FunnyMusicVolume = value / 100
         for _, child in pairs(game.CoreGui:GetChildren()) do
-            if child:IsA("Sound") and (child.Name == "LifeIsKinetics" or child.Name == "Rebelo" or child.Name == "NoMercy" or child.Name == "Edu" or child.Name == "Gadeulian" or child.Name == "BreakLoose" or child.Name == "RainShower" or child.Name == "AlephZero" or child.Name == "CarpenterBrut" or child.Name == "Enough" or child.Name == "PororosDisappearance") then
+            if child:IsA("Sound") and table.find(FunnyMusics, child.Name) then
                 child.Volume = getgenv().FunnyMusicVolume
             end
         end
@@ -6340,6 +6346,7 @@ local function GetCurrentPlayingSound()
     return nil
 end
 
+MusicVisualizer.MotionAlpha = 0
 local VisualizerTime = 0
 local lastCamLook = Camera.CFrame.LookVector
 local lastCamPos = Camera.CFrame.Position -- 캐릭터 움직임 감지를 위한 위치 추적 추가
@@ -6397,10 +6404,52 @@ Services.RunService.RenderStepped:Connect(function(dt)
         timelineShakeY = math.random(-100, 100) / 100 * shakeIntensity
     end
     
+    local targetAlpha = (sound and sound.IsPlaying) and 1 or 0
+    -- 더욱 부드러운 프레임 독립적 보간 (dt 사용)
+    local lerpSpeed = (targetAlpha == 1) and 10 or 6 -- 나타날 때 조금 더 빠르게, 사라질 때 조금 더 여유있게
+    MusicVisualizer.MotionAlpha = MusicVisualizer.MotionAlpha + (targetAlpha - MusicVisualizer.MotionAlpha) * math.clamp(dt * lerpSpeed, 0, 1)
+    
+    local motion = MusicVisualizer.MotionAlpha
+    -- [Refinement] Cubic Easing (motion^3) 적용 - 0에 가까워질수록 급격히 작아져서 '툭' 사라지는 느낌 방지
+    local m3 = math.pow(motion, 3) 
+
+    -- 투명도 제어 (invMotion: 0(나타남)~1(사라짐))
+    local invM = 1 - motion
+    
+    timelineBox.BackgroundTransparency = 0.5 + (0.5 * invM)
+    timelineProgress.BackgroundTransparency = 0.3 + (0.7 * invM)
+    musicTitle.TextTransparency = invM
+    musicTitle.TextStrokeTransparency = 0.5 + (0.5 * invM)
+    
+    -- 브라켓 투명도 제어
+    for _, child in ipairs(timelineBox:GetChildren()) do
+        if child:IsA("Frame") and child.ZIndex == 1 then -- Brackets are added locally
+            child.BackgroundTransparency = 0.4 + (0.6 * invM)
+            local h = child:FindFirstChildOfClass("Frame")
+            if h then 
+                h.BackgroundTransparency = child.BackgroundTransparency
+                for _, f in ipairs(child:GetChildren()) do
+                    if f:IsA("Frame") then f.BackgroundTransparency = child.BackgroundTransparency end
+                end
+            end
+        end
+    end
+
+    -- 타임라인 바 위치 (제자리에서 나타나도록 오프셋 제거)
     timelineBox.Position = UDim2.new(0.5, swayX + timelineShakeX, 0.83, swayY + timelineShakeY)
     
     -- [NEW] 달 오브젝트 위치/크기 업데이트 (진동 1.5배 약하게, 펄스 동기화)
     if moonFrame then
+        moonFrame.ImageTransparency = 0.4 + (0.6 * invM)
+        
+        -- 사각형 스트로크 투명도 제어
+        if bigSquare:FindFirstChildOfClass("UIStroke") then
+            bigSquare:FindFirstChildOfClass("UIStroke").Transparency = 0.2 + (0.8 * invM)
+        end
+        if smallSquare:FindFirstChildOfClass("UIStroke") then
+            smallSquare:FindFirstChildOfClass("UIStroke").Transparency = 0.2 + (0.8 * invM)
+        end
+
         local moonShakeX = timelineShakeX / 1.5
         local moonShakeY = timelineShakeY / 1.5
         -- 타임라인 기준 정중앙 정렬을 해제하고 시각적으로 더 높이 띄웁니다. (Y = 0.65)
@@ -6410,11 +6459,11 @@ Services.RunService.RenderStepped:Connect(function(dt)
         if sound and sound.IsPlaying then
             local loudness = sound.PlaybackLoudness or 0
             local pulseNormalized = math.clamp(loudness / 500, 0, 1)
-            local moonSizeScale = 1 + (pulseNormalized * 0.08) -- 달은 약간 덜 커지게
+            local moonSizeScale = (1 + (pulseNormalized * 0.08)) * m3
             moonFrame.Size = UDim2.new(0.24 * moonSizeScale, 0, 0.24 * moonSizeScale, 0)
             
-            -- [NEW] 달 색상 순환 (비주얼라이저보다 1.5배 느리게: 3/1.5 = 2)
-            local moonGray = math.clamp(0.4 + 0.6 * math.cos(VisualizerTime * 2), 0, 1)
+            -- [NEW] 달 색상 (소리 크기에 비례, 무음 시 완전 검은색)
+            local moonGray = math.clamp(pulseNormalized * 0.7, 0, 0.7)
             moonFrame.ImageColor3 = Color3.new(moonGray, moonGray, moonGray)
             
             -- [NEW] 사각형 회전 (맥스 스피드 7배 상향)
@@ -6423,16 +6472,16 @@ Services.RunService.RenderStepped:Connect(function(dt)
             
             -- [NEW] 사각형 동적 크기 (소리가 클수록 커짐, 최대 2.5배)
             local sqScale = 1 + (pulseNormalized * 1.5)
-            bigSquare.Size = UDim2.new(bigSquareBase * sqScale, 0, bigSquareBase * sqScale, 0)
-            smallSquare.Size = UDim2.new(smallSquareBase * sqScale, 0, smallSquareBase * sqScale, 0)
+            bigSquare.Size = UDim2.new(bigSquareBase * sqScale * m3, 0, bigSquareBase * sqScale * m3, 0)
+            smallSquare.Size = UDim2.new(smallSquareBase * sqScale * m3, 0, smallSquareBase * sqScale * m3, 0)
         else
-            moonFrame.Size = UDim2.new(0.24, 0, 0.24, 0)
-            moonFrame.ImageColor3 = Color3.new(0.8, 0.8, 0.8)
+            moonFrame.Size = UDim2.new(0.24 * m3, 0, 0.24 * m3, 0)
+            moonFrame.ImageColor3 = Color3.new(0, 0, 0) -- 무음 시 완전 검은색
             
             bigSquare.Rotation = (VisualizerTime * 105) % 360 -- 기본 속도 (7배)
             smallSquare.Rotation = -(VisualizerTime * 210) % 360
-            bigSquare.Size = UDim2.new(bigSquareBase, 0, bigSquareBase, 0)
-            smallSquare.Size = UDim2.new(smallSquareBase, 0, smallSquareBase, 0)
+            bigSquare.Size = UDim2.new(bigSquareBase * m3, 0, bigSquareBase * m3, 0)
+            smallSquare.Size = UDim2.new(smallSquareBase * m3, 0, smallSquareBase * m3, 0)
         end
     end
 
@@ -6442,55 +6491,75 @@ Services.RunService.RenderStepped:Connect(function(dt)
     if sound and sound.IsPlaying then
         local loudness = sound.PlaybackLoudness or 0
         local pulseNormalized = math.clamp(loudness / 500, 0, 1)
-        local sizeScale = 1 + (pulseNormalized * 0.12) -- 최대 12% 확대
+        local sizeScale = (1 + (pulseNormalized * 0.12)) * m3
         timelineBox.Size = UDim2.new(0.36 * sizeScale, 0, 0.013 * sizeScale, 0)
     else
-        timelineBox.Size = UDim2.new(0.4, 0, 0.015, 0)
+        timelineBox.Size = UDim2.new(0.36 * m3, 0, 0.013 * m3, 0)
     end
 
-    if sound and sound.IsPlaying then
+    if motion > 0.001 then
         MusicVisualizer.Gui.Enabled = true
-        
-        -- [NEW] 음악 제목 업데이트
-        musicTitle.Text = FormatMusicTitle(sound.Name)
-        
-        -- 드래그 중이 아닐 때만 사운드 진행도에 따라 타임라인 업데이트
-        if not isDraggingTimeline then
-            local progress = math.clamp(sound.TimePosition / sound.TimeLength, 0, 1)
-            timelineProgress.Size = UDim2.new(progress, 0, 1, 0)
+        if sound and sound.IsPlaying then
+            -- [NEW] 음악 제목 업데이트
+            musicTitle.Text = FormatMusicTitle(sound.Name)
+            
+            -- 드래그 중이 아닐 때만 사운드 진행도에 따라 타임라인 업데이트
+            if not isDraggingTimeline then
+                local progress = math.clamp(sound.TimePosition / sound.TimeLength, 0, 1)
+                timelineProgress.Size = UDim2.new(progress, 0, 1, 0)
+            end
+            
+            local loudness = sound.PlaybackLoudness or 0
+            local normalized = math.clamp(loudness / 500, 0.05, 1)
+            
+            -- [RESTORED] 비주얼라이저 흐름 속도는 원래대로 복구 (0.5 ~ 3.0)
+            local speedMultiplier = 0.5 + (normalized * 2.5)
+            VisualizerTime = VisualizerTime + (dt * speedMultiplier)
+            
+            for i = 1, numBars do
+                local factor = (i - 1) / (numBars - 1) 
+                local wave = math.sin((VisualizerTime * 15) - (i * 0.3)) * 0.05
+                
+                -- [RESTORED] 컴프레서 제거 및 고정 고감도(1.35x) 복구
+                local targetScale = math.clamp(normalized * 1.35 * (0.55 - factor * 0.25) + wave, 0.01, 1.35)
+                
+                local curL = leftBars[i].Size.X.Scale
+                -- m3를 직접 곱하여 retraction을 MotionAlpha와 완벽히 동기화
+                local newL = curL + (targetScale * m3 - curL) * 0.25
+                leftBars[i].Size = UDim2.new(newL, 0, leftBars[i].Size.Y.Scale, 0)
+                
+                local curR = rightBars[i].Size.X.Scale
+                local newR = curR + (targetScale * m3 - curR) * 0.25
+                rightBars[i].Size = UDim2.new(newR, 0, rightBars[i].Size.Y.Scale, 0)
+                
+                -- [MODIFIED] 색상 순환 속도 1.5배 상향 (2 -> 3)
+                local grayVal = math.clamp(0.4 + 0.7 * math.cos(VisualizerTime * 3 - (i/numBars) * 6.25), 0, 1)
+                local dynamicColor = Color3.new(grayVal, grayVal, grayVal)
+                
+                leftBars[i].BackgroundColor3 = dynamicColor
+                rightBars[i].BackgroundColor3 = dynamicColor
+                
+                -- 바 투명도 제어 (기본 0.75)
+                leftBars[i].BackgroundTransparency = 0.75 + (0.25 * invM)
+                rightBars[i].BackgroundTransparency = 0.75 + (0.25 * invM)
+            end
+            -- 타임라인 색상도 일관성 있게 흑백으로 공유
+            timelineProgress.BackgroundColor3 = leftBars[1].BackgroundColor3
+        else
+            -- 사운드가 없더라도 motion(m3)이 살아있으면 바를 MotionAlpha 속도에 맞춰 줄여줌
+            for i = 1, numBars do
+                local curL = leftBars[i].Size.X.Scale
+                local newL = curL + (0 - curL) * 0.25
+                leftBars[i].Size = UDim2.new(newL, 0, leftBars[i].Size.Y.Scale, 0)
+                
+                local curR = rightBars[i].Size.X.Scale
+                local newR = curR + (0 - curR) * 0.25
+                rightBars[i].Size = UDim2.new(newR, 0, rightBars[i].Size.Y.Scale, 0)
+
+                leftBars[i].BackgroundTransparency = 0.75 + (0.25 * invM)
+                rightBars[i].BackgroundTransparency = 0.75 + (0.25 * invM)
+            end
         end
-        
-        local loudness = sound.PlaybackLoudness or 0
-        local normalized = math.clamp(loudness / 500, 0.05, 1)
-        
-        -- [RESTORED] 비주얼라이저 흐름 속도는 원래대로 복구 (0.5 ~ 3.0)
-        local speedMultiplier = 0.5 + (normalized * 2.5)
-        VisualizerTime = VisualizerTime + (dt * speedMultiplier)
-        
-        for i = 1, numBars do
-            local factor = (i - 1) / (numBars - 1) 
-            local wave = math.sin((VisualizerTime * 15) - (i * 0.3)) * 0.05
-            
-            -- [RESTORED] 컴프레서 제거 및 고정 고감도(1.35x) 복구
-            local targetScale = math.clamp(normalized * 1.35 * (0.55 - factor * 0.25) + wave, 0.01, 1.35)
-            
-            local curL = leftBars[i].Size.X.Scale
-            local newL = curL + (targetScale - curL) * 0.25
-            leftBars[i].Size = UDim2.new(newL, 0, leftBars[i].Size.Y.Scale, 0)
-            
-            local curR = rightBars[i].Size.X.Scale
-            local newR = curR + (targetScale - curR) * 0.25
-            rightBars[i].Size = UDim2.new(newR, 0, rightBars[i].Size.Y.Scale, 0)
-            
-            -- [MODIFIED] 색상 순환 속도 1.5배 상향 (2 -> 3)
-            local grayVal = math.clamp(0.4 + 0.7 * math.cos(VisualizerTime * 3 - (i/numBars) * 6.25), 0, 1)
-            local dynamicColor = Color3.new(grayVal, grayVal, grayVal)
-            
-            leftBars[i].BackgroundColor3 = dynamicColor
-            rightBars[i].BackgroundColor3 = dynamicColor
-        end
-        -- 타임라인 색상도 일관성 있게 흑백으로 공유
-        timelineProgress.BackgroundColor3 = leftBars[1].BackgroundColor3
     else
         MusicVisualizer.Gui.Enabled = false
     end
