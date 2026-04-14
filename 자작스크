@@ -6152,11 +6152,29 @@ end
 -- 중앙 하단 타임라인 구조 (반투명)
 local timelineBox = Instance.new("Frame", MusicVisualizer.Gui)
 timelineBox.Size = UDim2.new(0.36, 0, 0.013, 0) -- 전체 크기 1.1배 축소 (0.4 -> 0.36, 0.015 -> 0.013)
-timelineBox.Position = UDim2.new(0.5, 0, 0.78, 0) -- 위치 추가 상향 조정 (0.85 -> 0.78)
+timelineBox.Position = UDim2.new(0.5, 0, 0.83, 0) -- 위치 하향 복구 (0.78 -> 0.83)
 timelineBox.AnchorPoint = Vector2.new(0.5, 1)
 timelineBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 timelineBox.BackgroundTransparency = 0.5
 timelineBox.BorderSizePixel = 0
+timelineBox.ZIndex = 2 -- 달보다 앞으로 배치
+
+-- [NEW] 타임라인 뒤 배경 달 (Moon) - 지정된 데칼 아이디 적용
+local moonFrame = Instance.new("ImageLabel", MusicVisualizer.Gui)
+moonFrame.Name = "MusicMoon"
+-- 데칼 웹페이지 ID를 인게임에서 직접 쓸 때 안 보이는 현상 해결을 위해 rbxthumb 사용
+moonFrame.Image = "rbxthumb://type=Asset&id=8922788427&w=420&h=420" 
+moonFrame.Size = UDim2.new(0.24, 0, 0.24, 0) -- 크기 2배 유지
+moonFrame.Position = UDim2.new(0.5, 0, 0.65, 0) -- 타임라인 정중앙에서 더 위쪽으로 상향
+moonFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+moonFrame.BackgroundTransparency = 1
+moonFrame.ImageTransparency = 0.4 -- 기존 0.8이 너무 투명해서 안 보일 수 있으므로 0.4로 가시성 확보
+moonFrame.BorderSizePixel = 0
+moonFrame.ZIndex = 1
+
+local moonAspect = Instance.new("UIAspectRatioConstraint", moonFrame)
+moonAspect.AspectRatio = 1 -- 정비율 유지
+
 
 local timelineProgress = Instance.new("Frame", timelineBox)
 timelineProgress.Size = UDim2.new(0, 0, 1, 0)
@@ -6356,7 +6374,31 @@ Services.RunService.RenderStepped:Connect(function(dt)
         timelineShakeY = math.random(-100, 100) / 100 * shakeIntensity
     end
     
-    timelineBox.Position = UDim2.new(0.5, swayX + timelineShakeX, 0.78, swayY + timelineShakeY)
+    timelineBox.Position = UDim2.new(0.5, swayX + timelineShakeX, 0.83, swayY + timelineShakeY)
+    
+    -- [NEW] 달 오브젝트 위치/크기 업데이트 (진동 1.5배 약하게, 펄스 동기화)
+    if moonFrame then
+        local moonShakeX = timelineShakeX / 1.5
+        local moonShakeY = timelineShakeY / 1.5
+        -- 타임라인 기준 정중앙 정렬을 해제하고 시각적으로 더 높이 띄웁니다. (Y = 0.65)
+        local moonY = 0.73
+        moonFrame.Position = UDim2.new(0.5, swayX + moonShakeX, moonY, swayY + moonShakeY)
+        
+        if sound and sound.IsPlaying then
+            local loudness = sound.PlaybackLoudness or 0
+            local pulseNormalized = math.clamp(loudness / 500, 0, 1)
+            local moonSizeScale = 1 + (pulseNormalized * 0.08) -- 달은 약간 덜 커지게
+            moonFrame.Size = UDim2.new(0.24 * moonSizeScale, 0, 0.24 * moonSizeScale, 0)
+            
+            -- [NEW] 달 색상 순환 (비주얼라이저보다 1.5배 느리게: 3/1.5 = 2)
+            local moonGray = math.clamp(0.4 + 0.6 * math.cos(VisualizerTime * 2), 0, 1)
+            moonFrame.ImageColor3 = Color3.new(moonGray, moonGray, moonGray)
+        else
+            moonFrame.Size = UDim2.new(0.24, 0, 0.24, 0)
+            moonFrame.ImageColor3 = Color3.new(0.8, 0.8, 0.8)
+        end
+    end
+
     
     -- [NEW] 소리 크기에 따른 타임라인 크기 동적 스케일링 (Pulse Effect)
     -- normalized 변수가 아래에서 선언되므로, 여기서 직접 참조하거나 아래에서 처리
