@@ -213,7 +213,8 @@ local Settings = {
         failCount = 0, -- 영구 실패한 횟수
         collectedStatus = {}, -- [이름] = 갯수
         excludedTargets = setmetatable({}, { __mode = "k" }),
-        webhookEnabled = false
+        webhookEnabled = false,
+        musicSync = false -- [NEW] 음악 비주얼라이저 동기화 여부
     },
 
     -- 스크린샷 (Webhook) 추가
@@ -5651,6 +5652,14 @@ SolTab.Toggle({
     end
 })
 
+SolTab.Toggle({
+    Text = "[ Funny ] Music - 동기화",
+    Enabled = Settings.SolEgg.musicSync,
+    Callback = function(v)
+        Settings.SolEgg.musicSync = v
+    end
+})
+
 SolTab.Label({ Text = "에그 자동 수집 [ 이벤트 ]" })
 
 SolTab.Toggle({
@@ -5797,11 +5806,9 @@ local function EnsureMusicFile(Name)
     return snd
 end
 
--- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT --
-
 local FunnyMusics = {
-    "LifeIsKinetics", "Rebelo", "NoMercy", "Education", "Gadeulian", "BreakLoose", 
-    "RainShower", "AlephZero", "YouAreMine", "Enough", "PororosDisappearance",
+    "LifeIsKinetics", "Rebelo", "NoMercy", "Edu", "Gadeulian", "BreakLoose", 
+    "RainShower", "AlephZero", "CarpenterBrut", "Enough", "PororosDisappearance",
     "VoidsideSwordfight", "AlteredObsidian", "Kamemushi"
 }
 
@@ -6339,6 +6346,24 @@ end
 
 -- 현재 플레이중인 사운드 감지
 local function GetCurrentPlayingSound()
+    -- [NEW] 1순위: 솔스 탭의 음악 동기화 기능 (HRP 내 BGM 사운드 감시)
+    if Settings.SolEgg.musicSync then
+        local char = LocalPlayer.Character or (workspace:FindFirstChild(LocalPlayer.Name))
+        if char then
+            -- [ADVANCED] 캐릭터 기본 효과음을 제외한 모든 음악 파일 자동 감지
+            local excluded = {"Climbing", "Died", "FreeFalling", "GettingUp", "Jumping", "Landing", "Running", "Splash", "Swimming"}
+            for _, child in ipairs(char:GetDescendants()) do
+                if child:IsA("Sound") and child.IsPlaying and child.TimeLength > 0 then
+                    if not table.find(excluded, child.Name) then
+                        child.Volume = 1 -- 음악 볼륨 1 고정
+                        return child
+                    end
+                end
+            end
+        end
+    end
+
+    -- 2순위: 기존 Funny 음악 기능
     if getgenv and getgenv().FunnyMusicPlaying and getgenv().CurrentFunnyMusic and getgenv().CurrentFunnyMusic ~= "" then
         local funnySound = game:GetService("CoreGui"):FindFirstChild(getgenv().CurrentFunnyMusic)
         if funnySound and funnySound:IsA("Sound") and funnySound.IsPlaying and funnySound.TimeLength > 0 then
@@ -6357,6 +6382,21 @@ local currentSway = Vector2.new(0, 0)
 -- 비주얼라이저 및 타임라인 실시간 렌더링
 Services.RunService.RenderStepped:Connect(function(dt)
     local sound = GetCurrentPlayingSound()
+    
+    -- [NEW] 동기화 모드 시 파티클 이미터 색상 감지
+    local syncColor = nil
+    if Settings.SolEgg.musicSync then
+        local char = LocalPlayer.Character or (workspace:FindFirstChild(LocalPlayer.Name))
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            for _, descendant in ipairs(hrp:GetDescendants()) do
+                if descendant:IsA("ParticleEmitter") then
+                    syncColor = descendant.Color.Keypoints[1].Value
+                    break
+                end
+            end
+        end
+    end
     
     -- 카메라/캐릭터 움직임 물리 효과 (현실적인 스웨이)
     local currentLook = Camera.CFrame.LookVector
@@ -6418,10 +6458,16 @@ Services.RunService.RenderStepped:Connect(function(dt)
     -- 투명도 제어 (invMotion: 0(나타남)~1(사라짐))
     local invM = 1 - motion
     
+    -- [MODIFIED] 타임라인 투명도 개선 (더 밝게)
     timelineBox.BackgroundTransparency = 0.5 + (0.5 * invM)
-    timelineProgress.BackgroundTransparency = 0.3 + (0.7 * invM)
-    musicTitle.TextTransparency = invM
+    timelineProgress.BackgroundTransparency = 0.15 + (0.85 * invM) -- 0.3 -> 0.15로 밝기 개선
+    
+    -- [MODIFIED] 동기화 모드일 때 제목 숨김
+    musicTitle.TextTransparency = Settings.SolEgg.musicSync and 1 or invM
     musicTitle.TextStrokeTransparency = 0.5 + (0.5 * invM)
+    
+    -- [NEW] 동기화 색상 감지 (기존 그라데이션 대신 단색 적용)
+    local targetUIBaseColor = syncColor or leftBars[1].BackgroundColor3
     
     -- 브라켓 투명도 제어
     for _, child in ipairs(timelineBox:GetChildren()) do
@@ -6444,12 +6490,17 @@ Services.RunService.RenderStepped:Connect(function(dt)
     if moonFrame then
         moonFrame.ImageTransparency = 0.4 + (0.6 * invM)
         
-        -- 사각형 스트로크 투명도 제어
+        -- [MODIFIED] 달 색상 동기화 (파티클 색상 적용)
+        local baseMoonColor = syncColor or Color3.new(1, 1, 1)
+        
+        -- 사각형 스트로크 투명도 및 색상 제어
         if bigSquare:FindFirstChildOfClass("UIStroke") then
             bigSquare:FindFirstChildOfClass("UIStroke").Transparency = 0.2 + (0.8 * invM)
+            bigSquare:FindFirstChildOfClass("UIStroke").Color = syncColor or Color3.new(1, 1, 1)
         end
         if smallSquare:FindFirstChildOfClass("UIStroke") then
             smallSquare:FindFirstChildOfClass("UIStroke").Transparency = 0.2 + (0.8 * invM)
+            smallSquare:FindFirstChildOfClass("UIStroke").Color = syncColor or Color3.new(0, 0, 0)
         end
 
         local moonShakeX = timelineShakeX / 1.5
@@ -6464,9 +6515,9 @@ Services.RunService.RenderStepped:Connect(function(dt)
             local moonSizeScale = (1 + (pulseNormalized * 0.08)) * m3
             moonFrame.Size = UDim2.new(0.24 * moonSizeScale, 0, 0.24 * moonSizeScale, 0)
             
-            -- [NEW] 달 색상 (소리 크기에 비례, 무음 시 완전 검은색)
-            local moonGray = math.clamp(pulseNormalized * 0.7, 0, 0.7)
-            moonFrame.ImageColor3 = Color3.new(moonGray, moonGray, moonGray)
+            -- [MODIFIED] 달 색상 (소리 크기에 비례하여 밝아짐, 파티클 색상 반영)
+            local brightness = math.clamp(pulseNormalized * 0.8, 0.1, 1)
+            moonFrame.ImageColor3 = baseMoonColor:Lerp(Color3.new(0,0,0), 1 - brightness)
             
             -- [NEW] 사각형 회전 (맥스 스피드 7배 상향)
             bigSquare.Rotation = (VisualizerTime * 245) % 360
@@ -6478,7 +6529,8 @@ Services.RunService.RenderStepped:Connect(function(dt)
             smallSquare.Size = UDim2.new(smallSquareBase * sqScale * m3, 0, smallSquareBase * sqScale * m3, 0)
         else
             moonFrame.Size = UDim2.new(0.24 * m3, 0, 0.24 * m3, 0)
-            moonFrame.ImageColor3 = Color3.new(0, 0, 0) -- 무음 시 완전 검은색
+            -- [MODIFIED] 무음 시 달 색상 (어둡게 유지)
+            moonFrame.ImageColor3 = baseMoonColor:Lerp(Color3.new(0,0,0), 0.9)
             
             bigSquare.Rotation = (VisualizerTime * 105) % 360 -- 기본 속도 (7배)
             smallSquare.Rotation = -(VisualizerTime * 210) % 360
@@ -6534,12 +6586,23 @@ Services.RunService.RenderStepped:Connect(function(dt)
                 local newR = curR + (targetScale * m3 - curR) * 0.25
                 rightBars[i].Size = UDim2.new(newR, 0, rightBars[i].Size.Y.Scale, 0)
                 
-                -- [MODIFIED] 색상 순환 속도 1.5배 상향 (2 -> 3)
-                local grayVal = math.clamp(0.4 + 0.7 * math.cos(VisualizerTime * 3 - (i/numBars) * 6.25), 0, 1)
-                local dynamicColor = Color3.new(grayVal, grayVal, grayVal)
+                -- [MODIFIED] HSV 기반 명도 변조로 자연스러운 울렁거림(밝기) 표현
+                local cosWave = math.cos(VisualizerTime * 3 - (i/numBars) * 6.25)
+                local grayVal = math.clamp(0.4 + 0.7 * cosWave, 0, 1)
                 
-                leftBars[i].BackgroundColor3 = dynamicColor
-                rightBars[i].BackgroundColor3 = dynamicColor
+                local targetColor
+                if syncColor then
+                    -- 파티클 색상이 있을 경우 채도를 유지하며 명도만 조절 (더 자연스럽고 화사함)
+                    local h, s, v = Color3.toHSV(syncColor)
+                    -- 최소 밝기를 45%로 보장하여 색이 탁해지는 것을 방지
+                    local dynamicV = v * (0.725 + 0.275 * cosWave)
+                    targetColor = Color3.fromHSV(h, s, dynamicV)
+                else
+                    targetColor = Color3.new(grayVal, grayVal, grayVal)
+                end
+                
+                leftBars[i].BackgroundColor3 = targetColor
+                rightBars[i].BackgroundColor3 = targetColor
                 
                 -- 바 투명도 제어 (기본 0.75)
                 leftBars[i].BackgroundTransparency = 0.75 + (0.25 * invM)
