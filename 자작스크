@@ -5797,9 +5797,11 @@ local function EnsureMusicFile(Name)
     return snd
 end
 
+-- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT ---- MUSIC SELECT --
+
 local FunnyMusics = {
-    "LifeIsKinetics", "Rebelo", "NoMercy", "Edu", "Gadeulian", "BreakLoose", 
-    "RainShower", "AlephZero", "CarpenterBrut", "Enough", "PororosDisappearance",
+    "LifeIsKinetics", "Rebelo", "NoMercy", "Education", "Gadeulian", "BreakLoose", 
+    "RainShower", "AlephZero", "YouAreMine", "Enough", "PororosDisappearance",
     "VoidsideSwordfight", "AlteredObsidian", "Kamemushi"
 }
 
