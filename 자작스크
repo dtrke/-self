@@ -4068,6 +4068,15 @@ local ConfigSystem = {
     IsTeleportLoad = (getgenv and getgenv().IS_TELEPORT_LOAD) or false
 }
 
+-- Define permanent items list
+local PERMANENT_ITEMS = {
+    ["스크립트 자동 실행"] = true,
+    ["기존 설정값을 새로운 서버에서 자동으로 불러오기"] = true,
+    ["에그 획득 디스코드 알림"] = true,
+    ["1분마다 상태 및 스크린샷 전송"] = true,
+    ["통합 웹후크 URL"] = true
+}
+
 -- [ 영구 저장 ] 웹후크 등 항상 유지되어야 하는 설정 로드
 pcall(function()
     if isfile and isfile(PERMANENT_FILE) then
@@ -4076,6 +4085,10 @@ pcall(function()
         if decoded and type(decoded) == "table" then
             ConfigSystem.PermanentStates = decoded
             -- Settings 테이블에 즉시 반영 (UI 생성 전)
+            if decoded["스크립트 자동 실행"] ~= nil then Settings.Persistence.enabled = decoded["스크립트 자동 실행"] end
+            if decoded["기존 설정값을 새로운 서버에서 자동으로 불러오기"] ~= nil then ConfigSystem.AutoLoad = decoded["기존 설정값을 새로운 서버에서 자동으로 불러오기"] end
+            if decoded["에그 획득 디스코드 알림"] ~= nil then Settings.SolEgg.webhookEnabled = decoded["에그 획득 디스코드 알림"] end
+            if decoded["1분마다 상태 및 스크린샷 전송"] ~= nil then Settings.Screenshot.enabled = decoded["1분마다 상태 및 스크린샷 전송"] end
             if decoded["통합 웹후크 URL"] then Settings.Webhook = decoded["통합 웹후크 URL"] end
         end
     end
@@ -4100,7 +4113,6 @@ end)
 local function SaveConfig()
     pcall(function()
         -- 세션 설정 저장
-        ConfigSystem.SavedStates["_AUTO_LOAD_ENABLED"] = ConfigSystem.AutoLoad
         if writefile then
             writefile(CONFIG_FILE, HttpService:JSONEncode(ConfigSystem.SavedStates))
         end
@@ -4160,7 +4172,7 @@ UI.New = function(...)
                 local cName = rawName:gsub("^%s*(.-)%s*$", "%1") -- 공백 제거
                 if cName == "" then return originalComp(options) end
                 
-                local isPermanent = (cName == "통합 웹후크 URL")
+                local isPermanent = PERMANENT_ITEMS[cName] or false
                 local hasSyncedValue = false
                 local syncedValue = nil
                 
