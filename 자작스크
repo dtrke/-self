@@ -3566,7 +3566,41 @@ local AVATAR_DATABASE = {
                 Attributes = { OG = "Torso" }
             }
         }
+    },
+    ["asdf v2 skunk ver"] = {
+        BodyColors = {
+            HeadColor = Color3.fromRGB(159, 41, 32),
+            LeftArmColor = Color3.fromRGB(248, 248, 248),
+            RightArmColor = Color3.fromRGB(248, 248, 248),
+            LeftLegColor = Color3.fromRGB(248, 248, 248),
+            RightLegColor = Color3.fromRGB(248, 248, 248),
+            TorsoColor = Color3.fromRGB(248, 248, 248),
+        },
+        Pants = "rbxassetid://7219538586",
+        Shirt = "http://www.roblox.com/asset/?id=12553106959",
+        HeadMesh = "rbxassetid://18446596298",
+        Accessories = {
+            { name = "Anime Girl Hairstyle", meshId = "rbxassetid://17106624162", textureId = "http://www.roblox.com/asset/?id=12575371214", part = "Head", c0 = CFrame.new(-0.019, 1.178, -0.122), c1 = CFrame.new(0, 0.6, 0) },
+            { name = "BlackC", meshId = "rbxassetid://15835855942", textureId = "rbxassetid://15833604157", part = "Torso", c0 = CFrame.new(-0.009, 0.075, -0.595, -1, 0, 0, 0, 0.866, -0.5, 0, -0.5, -0.866), c1 = CFrame.new(0, 1, 0), scale = Vector3.new(1.2, 1.2, 1.2) },
+            { name = "Bodysuit", meshId = "rbxassetid://96955128294100", textureId = "rbxassetid://72262084510278", part = "Torso", c0 = CFrame.new(0.442, -0.089, -6.249e-05, 0, 0, -1, 0, 1, 0, 1, 0, 0), c1 = CFrame.new(0, 0, -0.5) },
+            { name = "Colorable Eyes Pompous Face - White", meshId = "rbxassetid://77135048348805", textureId = "rbxassetid://138427420765375", part = "Head", c0 = CFrame.new(0, 5.722e-06, 0.011), c1 = CFrame.new(0, 0, 0) },
+            { name = "Meshes/skunktailnew", meshId = "rbxassetid://12764230520", textureId = "rbxassetid://17466171918", part = "Torso", c0 = CFrame.new(0, -0.467, -1.277, 1, 0, 0, 0, 0.998, 0.063, 0, -0.063, 0.998), c1 = CFrame.new(0, 0, 0.5) },
+            { name = "Beaded Horns", meshId = "rbxassetid://7452362317", textureId = "rbxassetid://7452284635", part = "Head", c0 = CFrame.new(0, 0.109, 0.282), c1 = CFrame.new(0, 0.6, 0) },
+            { name = "flowercrown_Circle", meshId = "rbxassetid://6527466343", textureId = "rbxassetid://6527445292", part = "Head", c0 = CFrame.new(0, -0.052, 0.473), c1 = CFrame.new(0, 0.6, 0) },
+        },
+
+        CharacterMeshes = {
+            {
+                MeshId = 48112070,
+                BodyPart = Enum.BodyPart.Torso,
+                BaseTextureId = 0,
+                OverlayTextureId = 0,
+                Name = "CharacterMesh",
+                Attributes = { OG = "Torso" }
+            }
+        }
     }
+
 }
 
 
@@ -3595,10 +3629,17 @@ end
 -- [내부 함수] 현재 캐릭터 상태 백업 (복구용)
 local function BackupAvatar(character)
     if not character then return end
+    
+    -- 이미 커스텀 아바타가 로드된 상태거나 백업이 있다면, 덮어씌우지 않음 (원본 보호)
+    if Settings.AvatarChanger.persistentBackup and character:GetAttribute("CustomAvatarLoaded_Mark") then
+        return
+    end
+
     local backup = {
         BodyColors = nil,
         Pants = nil,
         Shirt = nil,
+        ShirtGraphic = nil, -- [NEW] 티셔츠 백업 추가
         CharacterMeshes = {},
         HeadMeshes = {},
         FaceTexture = nil
@@ -3622,9 +3663,12 @@ local function BackupAvatar(character)
     local s = character:FindFirstChildOfClass("Shirt")
     if s then backup.Shirt = s.ShirtTemplate end
 
+    local sg = character:FindFirstChildOfClass("ShirtGraphic")
+    if sg then backup.ShirtGraphic = sg.Graphic end
+
     -- CharacterMesh 백업
     for _, obj in ipairs(character:GetChildren()) do
-        if obj:IsA("CharacterMesh") then
+        if obj:IsA("CharacterMesh") and not obj:GetAttribute("IsCustomAvatar") then
             table.insert(backup.CharacterMeshes, {
                 MeshId = obj.MeshId,
                 BodyPart = obj.BodyPart,
@@ -3669,9 +3713,9 @@ local function RestoreAvatarChanger(character)
     if not character then return end
     ClearAvatarChangerConns()
 
-    -- 1. 커스텀 악세서리 및 CharacterMesh 제거
+    -- 1. 커스텀 악세서리, Shirt, Pants, ShirtGraphic 및 CharacterMesh 제거
     for _, obj in ipairs(character:GetChildren()) do
-        if (obj:IsA("Accessory") or obj:IsA("CharacterMesh")) and obj:GetAttribute("IsCustomAvatar") then
+        if (obj:IsA("Accessory") or obj:IsA("CharacterMesh") or obj:IsA("Shirt") or obj:IsA("Pants") or obj:IsA("ShirtGraphic")) and obj:GetAttribute("IsCustomAvatar") then
             obj:Destroy()
         end
     end
@@ -3699,10 +3743,13 @@ local function RestoreAvatarChanger(character)
             bc.TorsoColor3 = backup.BodyColors.TorsoColor3
         end
         
+        -- 존재하는 옷 복구
         local p = character:FindFirstChildOfClass("Pants")
         if p then p.PantsTemplate = backup.Pants or "" end
         local s = character:FindFirstChildOfClass("Shirt")
         if s then s.ShirtTemplate = backup.Shirt or "" end
+        local sg = character:FindFirstChildOfClass("ShirtGraphic")
+        if sg then sg.Graphic = backup.ShirtGraphic or "" end
 
         -- CharacterMesh 복구 (기존 메쉬 모두 제거 후 백업본 생성)
         for _, obj in ipairs(character:GetChildren()) do
@@ -3767,9 +3814,9 @@ local function ApplyAvatarChanger(character, pattern)
 
     ClearAvatarChangerConns()
 
-    -- 기존 CharacterMesh 제거 (이미 백업된 상태)
+    -- [FIX] 기존 커스텀 객체들(악세서리, 옷 등) 및 모든 CharacterMesh를 먼저 제거하여 겹침 방지
     for _, obj in ipairs(character:GetChildren()) do
-        if obj:IsA("CharacterMesh") then
+        if obj:GetAttribute("IsCustomAvatar") or obj:IsA("CharacterMesh") then
             obj:Destroy()
         end
     end
@@ -3795,12 +3842,28 @@ local function ApplyAvatarChanger(character, pattern)
         bodyColors.TorsoColor3 = data.BodyColors.TorsoColor
     end
 
-    -- 3. 옷 적용
-    local pants = character:FindFirstChildOfClass("Pants") or Instance.new("Pants", character)
+    -- 3. 옷 적용 (없을 경우 새로 생성 시 IsCustomAvatar 마킹)
+    local pants = character:FindFirstChildOfClass("Pants")
+    if not pants then
+        pants = Instance.new("Pants")
+        pants:SetAttribute("IsCustomAvatar", true)
+        pants.Parent = character
+    end
     pants.PantsTemplate = data.Pants or ""
 
-    local shirt = character:FindFirstChildOfClass("Shirt") or Instance.new("Shirt", character)
+    local shirt = character:FindFirstChildOfClass("Shirt")
+    if not shirt then
+        shirt = Instance.new("Shirt")
+        shirt:SetAttribute("IsCustomAvatar", true)
+        shirt.Parent = character
+    end
     shirt.ShirtTemplate = data.Shirt or ""
+    
+    -- 기존 티셔츠가 있다면 비우기 (아바타를 가릴 수 있음)
+    local shirtGraphic = character:FindFirstChildOfClass("ShirtGraphic")
+    if shirtGraphic then
+        shirtGraphic.Graphic = ""
+    end
 
     -- 4. 머리 메시 적용 및 기존 얼굴(Face) 삭제/숨김
     local head = character:FindFirstChild("Head")
@@ -3813,7 +3876,6 @@ local function ApplyAvatarChanger(character, pattern)
                 end
             end
         end
-        -- 무조건 face (기본 얼굴) 디칼 안 보이게 처리 (삭제와 동일한 효과)
         for _, obj in ipairs(head:GetChildren()) do
             if obj:IsA("Decal") or obj.Name == "face" then
                 obj.Texture = ""
@@ -3911,15 +3973,17 @@ local function ApplyAvatarChanger(character, pattern)
     end
 
     local function applyClothes()
-        local pants = character:FindFirstChildOfClass("Pants")
-        if pants and data.Pants and pants.PantsTemplate ~= data.Pants then 
-            if backup then backup.Pants = pants.PantsTemplate end
-            pants.PantsTemplate = data.Pants 
-        end
-        local shirt = character:FindFirstChildOfClass("Shirt")
-        if shirt and data.Shirt and shirt.ShirtTemplate ~= data.Shirt then 
-            if backup then backup.Shirt = shirt.ShirtTemplate end
-            shirt.ShirtTemplate = data.Shirt 
+        for _, obj in ipairs(character:GetChildren()) do
+            if obj:IsA("Pants") and data.Pants and obj.PantsTemplate ~= data.Pants then
+                if backup and not obj:GetAttribute("IsCustomAvatar") then backup.Pants = obj.PantsTemplate end
+                obj.PantsTemplate = data.Pants
+            elseif obj:IsA("Shirt") and data.Shirt and obj.ShirtTemplate ~= data.Shirt then
+                if backup and not obj:GetAttribute("IsCustomAvatar") then backup.Shirt = obj.ShirtTemplate end
+                obj.ShirtTemplate = data.Shirt
+            elseif obj:IsA("ShirtGraphic") then
+                if backup and not obj:GetAttribute("IsCustomAvatar") then backup.ShirtGraphic = obj.Graphic end
+                obj.Graphic = ""
+            end
         end
     end
 
@@ -3985,37 +4049,21 @@ local function ApplyAvatarChanger(character, pattern)
 
     table.insert(AvatarChangerConns, character.ChildAdded:Connect(function(obj)
         if obj:IsA("Accessory") and not obj:GetAttribute("IsCustomAvatar") then
-            -- 새로 생긴 악세서리 즉시 투명화 (원래 존재하므로 끄면 0으로 복원됨)
             task.defer(function()
                 local handle = obj:WaitForChild("Handle", 1)
                 if handle and handle:IsA("BasePart") then handle.Transparency = 1 end
             end)
         elseif obj:IsA("BodyColors") then
-            if backup then
-                backup.BodyColors = {
-                    HeadColor3 = obj.HeadColor3, LeftArmColor3 = obj.LeftArmColor3,
-                    RightArmColor3 = obj.RightArmColor3, LeftLegColor3 = obj.LeftLegColor3,
-                    RightLegColor3 = obj.RightLegColor3, TorsoColor3 = obj.TorsoColor3
-                }
-            end
             task.defer(function()
                 applyBodyColors(obj)
                 table.insert(AvatarChangerConns, obj.Changed:Connect(function() applyBodyColors(obj) end))
             end)
-        elseif obj:IsA("Pants") then
-            if backup then backup.Pants = obj.PantsTemplate end
-            task.defer(function()
-                applyClothes()
-                table.insert(AvatarChangerConns, obj.Changed:Connect(applyClothes))
-            end)
-        elseif obj:IsA("Shirt") then
-            if backup then backup.Shirt = obj.ShirtTemplate end
+        elseif obj:IsA("Clothing") or obj:IsA("ShirtGraphic") then
             task.defer(function()
                 applyClothes()
                 table.insert(AvatarChangerConns, obj.Changed:Connect(applyClothes))
             end)
         elseif obj:IsA("CharacterMesh") then
-            if not obj:GetAttribute("IsCustomAvatar") then recordExternalCharacterMesh(obj) end
             task.defer(enforceCustomMeshes)
         end
     end))
@@ -4023,10 +4071,15 @@ local function ApplyAvatarChanger(character, pattern)
     table.insert(AvatarChangerConns, character.ChildRemoved:Connect(function(obj)
         if obj:IsA("CharacterMesh") and obj:GetAttribute("IsCustomAvatar") then
             task.defer(enforceCustomMeshes)
+        elseif (obj:IsA("Shirt") or obj:IsA("Pants")) and obj:GetAttribute("IsCustomAvatar") then
+            task.defer(function()
+                if Settings.AvatarChanger.enabled and character == LocalPlayer.Character then
+                    ApplyAvatarChanger(character, Settings.AvatarChanger.pattern)
+                end
+            end)
         end
     end))
 
-    -- 기존 객체들의 속성 변경 감지
     local existingBc = character:FindFirstChildOfClass("BodyColors")
     if existingBc then table.insert(AvatarChangerConns, existingBc.Changed:Connect(function() applyBodyColors(existingBc) end)) end
     
@@ -4036,6 +4089,16 @@ local function ApplyAvatarChanger(character, pattern)
     local existingShirt = character:FindFirstChildOfClass("Shirt")
     if existingShirt then table.insert(AvatarChangerConns, existingShirt.Changed:Connect(applyClothes)) end
 end
+
+
+-- [GLOBAL] 캐릭터 리스폰 시 아바타 자동 적용 시스템
+LocalPlayer.CharacterAdded:Connect(function(character)
+    if Settings.AvatarChanger.enabled then
+        task.wait(1) -- 캐릭터 로딩 대기
+        BackupAvatar(character)
+        ApplyAvatarChanger(character, Settings.AvatarChanger.pattern)
+    end
+end)
 
 
 -- =============================
@@ -5750,6 +5813,7 @@ FUNNYTab.Toggle({
         Settings.AvatarChanger.enabled = v
         if v then
             if LocalPlayer.Character then
+                -- 이미 커스텀 마크가 있으면 백업을 건너뜀 (이미 위에서 보호 로직 추가됨)
                 BackupAvatar(LocalPlayer.Character)
                 ApplyAvatarChanger(LocalPlayer.Character, Settings.AvatarChanger.pattern)
             end
