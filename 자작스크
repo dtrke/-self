@@ -214,6 +214,7 @@ local Settings = {
         collectedStatus = {}, -- [이름] = 갯수
         excludedTargets = setmetatable({}, { __mode = "k" }),
         webhookEnabled = false,
+        spawnWebhookEnabled = false,
         musicSync = false -- [NEW] 음악 비주얼라이저 동기화 여부
     },
 
@@ -2795,6 +2796,7 @@ end
 
 local function isValidEggCandidate(obj)
 	if not obj or not obj.Parent or obj.Parent ~= workspace then return false end
+	if obj.Name == "AstraldAbuseEggSpawnZone" then return false end
 	if not (obj:IsA("Model") or obj:IsA("BasePart")) then return false end
 	if not nameHasEgg(obj.Name) then return false end
 	
@@ -3017,7 +3019,7 @@ local notifiedSpawn = setmetatable({}, { __mode = "k" })
 -- [NEW] Send Spawn Webhook
 local function sendEggSpawnWebhook(eggName)
     local settings = Settings.SolEgg
-    if not settings.webhookEnabled or Settings.Webhook == "" then return end
+    if not settings.spawnWebhookEnabled or Settings.Webhook == "" then return end
     if not Settings.Webhook:find("discord.com/api/webhooks") then return end
 
     local http_request = request or (syn and syn.request) or (http and http.request) or http_request
@@ -3305,46 +3307,48 @@ end
 
 task.spawn(function()
 	while true do
-		if Settings.SolEgg.enabled then
-            -- [NEW] Rare Egg Spawn Detection (Always active regardless of busy state)
-            for _, obj in ipairs(workspace:GetChildren()) do
-                if isValidEggCandidate(obj) then
-                    if not notifiedSpawn[obj] then
-                        local cleanName = obj.Name:gsub("_", " ")
-                        if not COMMON_EGGS_ORDER[cleanName:lower()] then
-                            notifiedSpawn[obj] = true
-                            sendEggSpawnWebhook(obj.Name)
-                        end
-                    end
-                end
-            end
-
-            if not Settings.SolEgg.busy then
-			local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-			if root then
-				local nearest, dist = nil, math.huge
-				for _, obj in ipairs(workspace:GetChildren()) do
-					if isValidEggCandidate(obj) then
-						local pos = getWorldPosition(obj)
-						if pos then
-							local d = (root.Position - pos).Magnitude
-							if d < dist then dist, nearest = d, obj end
+		-- [NEW] Rare Egg Spawn Detection (Active if bot is enabled OR spawn notification is enabled)
+		if Settings.SolEgg.enabled or Settings.SolEgg.spawnWebhookEnabled then
+			for _, obj in ipairs(workspace:GetChildren()) do
+				if isValidEggCandidate(obj) then
+					if not notifiedSpawn[obj] then
+						local cleanName = obj.Name:gsub("_", " ")
+						if not COMMON_EGGS_ORDER[cleanName:lower()] then
+							notifiedSpawn[obj] = true
+							sendEggSpawnWebhook(obj.Name)
 						end
 					end
 				end
-				if nearest then
-					Settings.SolEgg.busy = true
-					pcall(function() handleEgg(nearest) end)
-					Settings.SolEgg.busy = false
-				else
-					Settings.SolEgg.status = "색적 중..."
-					Settings.SolEgg.targetName = "없음"
-					Settings.SolEgg.distance = 0
-					UpdateEggHUD()
-				end
 			end
 		end
-		elseif not Settings.SolEgg.enabled then
+
+		if Settings.SolEgg.enabled then
+            if not Settings.SolEgg.busy then
+				local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+				if root then
+					local nearest, dist = nil, math.huge
+					for _, obj in ipairs(workspace:GetChildren()) do
+						if isValidEggCandidate(obj) then
+							local pos = getWorldPosition(obj)
+							if pos then
+								local d = (root.Position - pos).Magnitude
+								if d < dist then dist, nearest = d, obj end
+							end
+						end
+					end
+					if nearest then
+						Settings.SolEgg.busy = true
+						pcall(function() handleEgg(nearest) end)
+						Settings.SolEgg.busy = false
+					else
+						Settings.SolEgg.status = "색적 중..."
+						Settings.SolEgg.targetName = "없음"
+						Settings.SolEgg.distance = 0
+						UpdateEggHUD()
+					end
+				end
+			end
+		else
 			eggHUD.Enabled = false
 		end
 		task.wait(SCAN_INTERVAL)
@@ -4073,6 +4077,7 @@ local PERMANENT_ITEMS = {
     ["스크립트 자동 실행"] = true,
     ["기존 설정값을 새로운 서버에서 자동으로 불러오기"] = true,
     ["에그 획득 디스코드 알림"] = true,
+    ["희귀 에그 스폰 웹후크 알림"] = true,
     ["1분마다 상태 및 스크린샷 전송"] = true,
     ["통합 웹후크 URL"] = true
 }
@@ -4088,6 +4093,7 @@ pcall(function()
             if decoded["스크립트 자동 실행"] ~= nil then Settings.Persistence.enabled = decoded["스크립트 자동 실행"] end
             if decoded["기존 설정값을 새로운 서버에서 자동으로 불러오기"] ~= nil then ConfigSystem.AutoLoad = decoded["기존 설정값을 새로운 서버에서 자동으로 불러오기"] end
             if decoded["에그 획득 디스코드 알림"] ~= nil then Settings.SolEgg.webhookEnabled = decoded["에그 획득 디스코드 알림"] end
+            if decoded["희귀 에그 스폰 웹후크 알림"] ~= nil then Settings.SolEgg.spawnWebhookEnabled = decoded["희귀 에그 스폰 웹후크 알림"] end
             if decoded["1분마다 상태 및 스크린샷 전송"] ~= nil then Settings.Screenshot.enabled = decoded["1분마다 상태 및 스크린샷 전송"] end
             if decoded["통합 웹후크 URL"] then Settings.Webhook = decoded["통합 웹후크 URL"] end
         end
@@ -6122,6 +6128,14 @@ PERTab.Toggle({
     Enabled = Settings.SolEgg.webhookEnabled,
     Callback = function(v)
         Settings.SolEgg.webhookEnabled = v
+    end
+})
+
+PERTab.Toggle({
+    Text = "희귀 에그 스폰 웹후크 알림",
+    Enabled = Settings.SolEgg.spawnWebhookEnabled,
+    Callback = function(v)
+        Settings.SolEgg.spawnWebhookEnabled = v
     end
 })
 
