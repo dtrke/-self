@@ -1415,53 +1415,54 @@ Services.RunService.RenderStepped:Connect(function()
     end
 end)
 
--- 에임 실제 적용 (수정됨: 정밀 좌표 및 진단용 콘솔 메시지 추가)
+-- 에임 실제 적용 (레그돌 체크 추가됨)
 Services.RunService.RenderStepped:Connect(function()
-    if isRagdolled then 
-        -- print("Aim Bottled: Ragdoll status blocking.")
-        return 
+    -- 레그돌 상태면 무시
+    if isRagdolled then
+        return
     end
     
+
+    
+    -- 플레이어 락이나 캐릭터 락이 활성화되어 있으면 무시
     if (Settings.PlayerLock.enabled and Settings.PlayerLock.isActive) or 
        (Settings.CharLock.masterToggle and Settings.CharLock.isLocked) then
         return
     end
     
-    if Settings.Aim.enabled then
-        if not AimModule.isCurrentTargetAlive() then
-            -- print("Aim Debug: No alive target.")
-            return
-        end
-        
+    if Settings.Aim.enabled and AimModule.isCurrentTargetAlive() then
         local targetChar = Settings.Aim.currentTarget.Character
         local part = AimModule.getAimPart(targetChar)
         if part then
             local predictedPos = part.Position
+            
             if Settings.Aim.predictionEnabled then
-                predictedPos = predictedPos + (part.AssemblyLinearVelocity * (Settings.Aim.predictionMs / 1000))
+                local velocity = part.AssemblyLinearVelocity
+                predictedPos = predictedPos + (velocity * (Settings.Aim.predictionMs / 1000))
             end
 
-            if Settings.Aim.forced then
-                local screenPos, onScreen = Camera:WorldToScreenPoint(predictedPos)
-                if onScreen then
-                    local mousePos = Services.UserInputService:GetMouseLocation()
-                    local sens = Settings.Aim.forcedSensitivity or 0.5
-                    local moveX = (screenPos.X - mousePos.X) * sens
-                    local moveY = (screenPos.Y - mousePos.Y) * sens
-                    
-                    local finalX = math.round(moveX)
-                    local finalY = math.round(moveY)
+            if Settings.Aim.forced and mousemoverel then
+                local currentLook = Camera.CFrame.LookVector
+                local targetLook = (predictedPos - Camera.CFrame.Position).Unit
+                
+                -- Calculate angles
+                local dotX = currentLook:Dot(targetLook)
+                local currentRight = Camera.CFrame.RightVector
+                local currentUp = Camera.CFrame.UpVector
+                
+                local deltaX = currentRight:Dot(targetLook)
+                local deltaY = currentUp:Dot(targetLook)
+                
+                -- Convert to pixel movement based on FOV and ViewportSize
+                local viewportSize = Camera.ViewportSize
+                local fovRatio = math.tan(math.rad(Camera.FieldOfView / 2))
+                
+                -- The sensitivity multiplier ensures it doesn't snap instantly
+                local sens = Settings.Aim.forcedSensitivity
+                local moveX = (deltaX / fovRatio) * (viewportSize.X / 2) * sens
+                local moveY = -(deltaY / fovRatio) * (viewportSize.X / 2) * sens
 
-                    if mousemoverel then
-                        mousemoverel(finalX, finalY)
-                    elseif Services.VirtualInputManager then
-                        Services.VirtualInputManager:SendMouseMoveEvent(mousePos.X + finalX, mousePos.Y + finalY, workspace)
-                    else
-                        -- print("Aim Debug: No mouse movement function available!")
-                    end
-                else
-                    -- print("Aim Debug: Target off-screen.")
-                end
+                mousemoverel(moveX, moveY)
             else
                 Camera.CFrame = CFrame.new(Camera.CFrame.Position, predictedPos)
             end
@@ -2302,28 +2303,24 @@ function MouseLockModule.start()
             MouseLockModule.targetHighlight.Enabled = true
         end
 
-        -- 화면상 마우스 포인터 이동 (수정됨: 정밀 좌표 및 Fallback 적용)
-        local torsoPos, onScreen = Camera:WorldToScreenPoint(target.Position)
-        if onScreen then
-            local mousePos = Services.UserInputService:GetMouseLocation()
-            local sens = 0.5
-            local moveX = (torsoPos.X - mousePos.X) * sens
-            local moveY = (torsoPos.Y - mousePos.Y) * sens
-            
-            local finalX = math.floor(moveX + (moveX > 0 and 0.5 or -0.5))
-            local finalY = math.floor(moveY + (moveY > 0 and 0.5 or -0.5))
-
-            if mousemoverel then
-                mousemoverel(finalX, finalY)
-            elseif Services.VirtualInputManager then
-                Services.VirtualInputManager:SendMouseMoveEvent(mousePos.X + finalX, mousePos.Y + finalY, workspace)
-            end
-        else
-            -- 화면 밖으로 나가면 (단일 플레이어 모드가 아니면) 재검색
-            if not Settings.MouseLock.singlePlayer then
-                Settings.MouseLock.currentTarget = MouseLockModule.getClosestPlayerToMouse()
+        -- 화면상 마우스 포인터 이동
+        if mousemoverel then
+            local torsoPos, onScreen = Camera:WorldToViewportPoint(target.Position)
+            if onScreen then
+                local currentMouse = Services.UserInputService:GetMouseLocation()
+                local targetScreenPos = Vector2.new(torsoPos.X, torsoPos.Y)
+                local delta = targetScreenPos - currentMouse
+                
+                -- 감도
+                local sens = 0.35
+                mousemoverel(delta.X * sens, delta.Y * sens)
             else
-                if MouseLockModule.targetHighlight then MouseLockModule.targetHighlight.Enabled = false end
+                -- 화면 밖으로 나가면 (단일 플레이어 모드가 아니면) 재검색
+                if not Settings.MouseLock.singlePlayer then
+                    Settings.MouseLock.currentTarget = MouseLockModule.getClosestPlayerToMouse()
+                else
+                    if MouseLockModule.targetHighlight then MouseLockModule.targetHighlight.Enabled = false end
+                end
             end
         end
     end)
