@@ -4837,6 +4837,26 @@ PageALL.Button({
                 CleanupHighlight()
             end
         end)
+
+        DeleteTool.Activated:Connect(function()
+            if currentTarget and currentTarget.Parent then
+                local partToHide = currentTarget
+                table.insert(undoStack, { part = partToHide, parent = partToHide.Parent })
+                partToHide.Parent = nil
+                CleanupHighlight()
+            end
+        end)
+
+        Services.UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if not gameProcessed and input.KeyCode == Enum.KeyCode.Z and DeleteTool.Parent == LocalPlayer.Character then
+                if #undoStack > 0 then
+                    local lastData = table.remove(undoStack)
+                    if lastData.part then
+                        lastData.part.Parent = lastData.parent
+                    end
+                end
+            end
+        end)
     end
 })
 
