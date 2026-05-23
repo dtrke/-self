@@ -228,6 +228,12 @@ local Settings = {
         enabled = false,
         pattern = "",
         originalState = nil
+    },
+
+    -- 음악 비주얼라이저 설정
+    MusicVisualizerSetting = {
+        color = "#FFFFFF",
+        baseColorType = "검은색"
     }
 }
 
@@ -4172,6 +4178,8 @@ pcall(function()
             -- [중요] UI 생성 전 Settings 테이블에 핵심 설정 미리 반영 (레이스 컨디션 방지)
             if decoded["아바타 코드 입력"] then Settings.AvatarChanger.pattern = tostring(decoded["아바타 코드 입력"]) end
             if decoded["아바타 변경 ON/OFF"] ~= nil then Settings.AvatarChanger.enabled = (decoded["아바타 변경 ON/OFF"] == true) end
+            if decoded["비주얼라이저 색상 설정"] then Settings.MusicVisualizerSetting.color = tostring(decoded["비주얼라이저 색상 설정"]) end
+            if decoded["비주얼라이저 그라데이션 배경 (흑백) 설정"] then Settings.MusicVisualizerSetting.baseColorType = tostring(decoded["비주얼라이저 그라데이션 배경 (흑백) 설정"]) end
         end
     end
 end)
@@ -4337,7 +4345,7 @@ UI.New = function(...)
     end
     
     hookComponent("Toggle")
-    hookComponent("Slider")
+    -- hookComponent("Slider") -- 슬라이더 자동 저장/불러오기 제외
     hookComponent("Dropdown")
     hookComponent("TextField")
     hookComponent("Button")
@@ -5911,7 +5919,7 @@ local FunnyMusics = {
     "LifeIsKinetics", "Rebelo", "NoMercy", "Education", "Gadeulian", "BreakLoose", 
     "RainShower", "AlephZero", "YouAreMine", "Enough", "PororosDisappearance",
     "VoidsideSwordfight", "AlteredObsidian", "Kamemushi", "WhatOhio", "WaccaUltraDreamMegamix",
-    "FindYourFlame", "Throwback", "EnjoyingSceneryAlone"
+    "FindYourFlame", "Throwback", "EnjoyingSceneryAlone", "Menu"
 }
 
 local function PlayFunnyMusic()
@@ -5967,6 +5975,21 @@ FUNNYTab.Slider({
     end
 })
 
+FUNNYTab.TextField({
+    Text = "비주얼라이저 색상 설정",
+    Callback = function(value)
+        Settings.MusicVisualizerSetting.color = value
+    end
+})
+
+FUNNYTab.Dropdown({
+    Text = "비주얼라이저 그라데이션 배경 (흑백) 설정",
+    Options = {"검은색", "흰색"},
+    Callback = function(value)
+        Settings.MusicVisualizerSetting.baseColorType = value
+    end
+})
+
 -- ================= 기타 스크 탭 =================
 local EtcTab = UI.New({ Title = "기타 스크", Icon = "boxes" })
 
@@ -5978,6 +6001,7 @@ EtcTab.Button({
         loadstring(game:HttpGet("https://pastebin.com/raw/Bn8KJsAH"))()
     end
 })
+
 
 EtcTab.Label({ Text = "디스코드 웹후크" })
 
@@ -6262,6 +6286,51 @@ end
 -- [NEW] 음악 비주얼라이저 및 타임라인 모듈
 -- =============================
 local MusicVisualizer = {}
+local VisualizerColorMap = {
+    ["하얀색"] = Color3.fromRGB(255, 255, 255),
+    ["빨간색"] = Color3.fromRGB(255, 50, 50),
+    ["주황색"] = Color3.fromRGB(255, 120, 0),
+    ["노란색"] = Color3.fromRGB(255, 220, 0),
+    ["초록색"] = Color3.fromRGB(50, 255, 50),
+    ["파란색"] = Color3.fromRGB(50, 100, 255),
+    ["보라색"] = Color3.fromRGB(150, 50, 255),
+    ["핑크색"] = Color3.fromRGB(255, 100, 200),
+    ["하늘색"] = Color3.fromRGB(100, 200, 255)
+}
+
+local function parseHexColor(hexStr)
+    if not hexStr or type(hexStr) ~= "string" then return nil end
+    hexStr = hexStr:gsub("#", ""):gsub("%s", "")
+    if #hexStr == 6 then
+        local r = tonumber(hexStr:sub(1, 2), 16)
+        local g = tonumber(hexStr:sub(3, 4), 16)
+        local b = tonumber(hexStr:sub(5, 6), 16)
+        if r and g and b then
+            return Color3.fromRGB(r, g, b)
+        end
+    elseif #hexStr == 3 then
+        local r = tonumber(hexStr:sub(1, 1):rep(2), 16)
+        local g = tonumber(hexStr:sub(2, 2):rep(2), 16)
+        local b = tonumber(hexStr:sub(3, 3):rep(2), 16)
+        if r and g and b then
+            return Color3.fromRGB(r, g, b)
+        end
+    end
+    return nil
+end
+
+local function getVisualizerColor(colorStr)
+    if not colorStr then return Color3.new(1, 1, 1) end
+    if VisualizerColorMap[colorStr] then
+        return VisualizerColorMap[colorStr]
+    end
+    local parsed = parseHexColor(colorStr)
+    if parsed then
+        return parsed
+    end
+    return Color3.new(1, 1, 1)
+end
+
 MusicVisualizer.Gui = Instance.new("ScreenGui")
 MusicVisualizer.Gui.Name = "CustomMusicVisualizer"
 MusicVisualizer.Gui.ResetOnSpawn = false
@@ -6600,17 +6669,23 @@ Services.RunService.RenderStepped:Connect(function(dt)
     if moonFrame then
         moonFrame.ImageTransparency = 0.4 + (0.6 * invM)
         
-        -- [MODIFIED] 달 색상 동기화 (파티클 색상 적용)
-        local baseMoonColor = syncColor or Color3.new(1, 1, 1)
+        -- [MODIFIED] 달 색상 동기화 (파티클 색상 및 사용자 선택 색상 적용)
+        local colorName = Settings.MusicVisualizerSetting and Settings.MusicVisualizerSetting.color or "하얀색"
+        local selectedColor = getVisualizerColor(colorName)
+        local baseMoonColor = syncColor or selectedColor
         
         -- 사각형 스트로크 투명도 및 색상 제어
         if bigSquare:FindFirstChildOfClass("UIStroke") then
             bigSquare:FindFirstChildOfClass("UIStroke").Transparency = 0.2 + (0.8 * invM)
-            bigSquare:FindFirstChildOfClass("UIStroke").Color = syncColor or Color3.new(1, 1, 1)
+            bigSquare:FindFirstChildOfClass("UIStroke").Color = baseMoonColor
         end
         if smallSquare:FindFirstChildOfClass("UIStroke") then
+            local smallColor = Color3.new(0, 0, 0)
+            if Settings.MusicVisualizerSetting and Settings.MusicVisualizerSetting.baseColorType == "흰색" then
+                smallColor = Color3.new(1, 1, 1)
+            end
             smallSquare:FindFirstChildOfClass("UIStroke").Transparency = 0.2 + (0.8 * invM)
-            smallSquare:FindFirstChildOfClass("UIStroke").Color = syncColor or Color3.new(0, 0, 0)
+            smallSquare:FindFirstChildOfClass("UIStroke").Color = syncColor or smallColor
         end
 
         local moonShakeX = timelineShakeX / 1.5
@@ -6696,20 +6771,24 @@ Services.RunService.RenderStepped:Connect(function(dt)
                 local newR = curR + (targetScale * m3 - curR) * 0.25
                 rightBars[i].Size = UDim2.new(newR, 0, rightBars[i].Size.Y.Scale, 0)
                 
-                -- [MODIFIED] HSV 기반 명도 변조로 자연스러운 울렁거림(밝기) 표현
+                -- [MODIFIED] 색상 설정 및 흑백 설정 기반 그라데이션 보정
                 local cosWave = math.cos(VisualizerTime * 3 - (i/numBars) * 6.25)
-                local grayVal = math.clamp(0.4 + 0.7 * cosWave, 0, 1)
+                local t = math.clamp(0.4 + 0.7 * cosWave, 0, 1)
                 
-                local targetColor
+                local maxColor
                 if syncColor then
-                    -- 파티클 색상이 있을 경우 채도를 유지하며 명도만 조절 (더 자연스럽고 화사함)
-                    local h, s, v = Color3.toHSV(syncColor)
-                    -- 최소 밝기를 45%로 보장하여 색이 탁해지는 것을 방지
-                    local dynamicV = v * (0.725 + 0.275 * cosWave)
-                    targetColor = Color3.fromHSV(h, s, dynamicV)
+                    maxColor = syncColor
                 else
-                    targetColor = Color3.new(grayVal, grayVal, grayVal)
+                    local colorName = Settings.MusicVisualizerSetting and Settings.MusicVisualizerSetting.color or "하얀색"
+                    maxColor = getVisualizerColor(colorName)
                 end
+                
+                local minColor = Color3.new(0, 0, 0)
+                if Settings.MusicVisualizerSetting and Settings.MusicVisualizerSetting.baseColorType == "흰색" then
+                    minColor = Color3.new(1, 1, 1)
+                end
+                
+                local targetColor = minColor:Lerp(maxColor, t)
                 
                 leftBars[i].BackgroundColor3 = targetColor
                 rightBars[i].BackgroundColor3 = targetColor
