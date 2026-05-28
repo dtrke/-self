@@ -5186,26 +5186,155 @@ AllSettingTab.Slider({
     end
 })
 
+-- ================= SV (Skyven) 탭 =================
+local SVTab = UI.New({ Title = "SV", Icon = "swords" })
 
+SVTab.Label({ Text = "먹이_EAT" })
 
--- ================= TSB 탭 =================
-local TSBTab = UI.New({ Title = "TSB", Icon = "swords" })
+SVTab.Label({ Text = "오토_AUTO" })
 
-TSBTab.Label({ Text = "Tech" })
+SVTab.Label({ Text = "ESP" })
 
-TSBTab.Button({
-    Text = "M1 리셋 스크립트",
+SVTab.Label({ Text = "맵_MAP" })
+
+SVTab.Button({
+    Text = "맵 전부 해금하기",
     Callback = function()
-        loadstring(game:HttpGet("https://pastebin.com/raw/Rm32av76"))()
+        task.spawn(function()
+            local islands = workspace:FindFirstChild("Islands")
+            if not islands then
+                warn("Islands 폴더를 찾을 수 없습니다.")
+                return
+            end
+
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+
+            local originalCFrame = hrp.CFrame
+
+            local platform = Instance.new("Part")
+            platform.Size = Vector3.new(10, 1, 10)
+            platform.Anchored = true
+            platform.Transparency = 1
+            platform.CanCollide = true
+            platform.Parent = workspace
+
+            local RunService = game:GetService("RunService")
+            
+            -- 안티치트 우회용 분할 순간이동
+            local function bypassTeleport(targetCFrame)
+                local currentCharacter = LocalPlayer.Character
+                local currentHrp = currentCharacter and currentCharacter:FindFirstChild("HumanoidRootPart")
+                if not currentHrp then return end
+                
+                local maxStep = 50 -- 한 프레임당 최대 50스터드 이동
+                local startCFrame = currentHrp.CFrame
+                local dist = (startCFrame.Position - targetCFrame.Position).Magnitude
+                
+                local oldAnchored = currentHrp.Anchored
+                currentHrp.Anchored = true
+                
+                local conn = RunService.Stepped:Connect(function()
+                    if platform and platform.Parent then
+                        platform.CFrame = currentHrp.CFrame - Vector3.new(0, 3.5, 0)
+                    end
+                end)
+
+                if dist > maxStep then
+                    local steps = math.ceil(dist / maxStep)
+                    for i = 1, steps do
+                        if not currentCharacter or not currentHrp or not currentHrp.Parent then break end
+                        local alpha = i / steps
+                        currentHrp.CFrame = startCFrame:Lerp(targetCFrame, alpha)
+                        RunService.Heartbeat:Wait()
+                    end
+                end
+                
+                if currentHrp and currentHrp.Parent then
+                    currentHrp.CFrame = targetCFrame
+                    currentHrp.Anchored = oldAnchored
+                end
+                conn:Disconnect()
+            end
+
+            local function getTargetCFrame(model)
+                local baseParts = model:FindFirstChild("BaseParts")
+                
+                if baseParts then
+                    for _, v in ipairs(baseParts:GetDescendants()) do
+                        if (v:IsA("Model") or v:IsA("BasePart")) and v:GetPivot() ~= CFrame.new() then
+                            return v:GetPivot()
+                        end
+                    end
+                end
+                
+                for _, v in ipairs(model:GetDescendants()) do
+                    if v ~= baseParts and (v:IsA("Model") or v:IsA("BasePart")) and v:GetPivot() ~= CFrame.new() then
+                        return v:GetPivot()
+                    end
+                end
+                
+                if baseParts then
+                    for _, v in ipairs(baseParts:GetDescendants()) do
+                        if v:IsA("Model") or v:IsA("BasePart") then
+                            return v:GetPivot()
+                        end
+                    end
+                end
+                
+                return model:GetPivot()
+            end
+
+            while true do
+                local currentCharacter = LocalPlayer.Character
+                local currentHrp = currentCharacter and currentCharacter:FindFirstChild("HumanoidRootPart")
+                
+                -- 만약 캐릭터가 죽었거나 없으면 잠시 대기했다가 다시 찾음
+                if not currentHrp then 
+                    task.wait(0.5)
+                    continue 
+                end
+                
+                local found = false
+                
+                for _, obj in ipairs(islands:GetChildren()) do
+                    -- 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1 은 CFrame.new() 와 동일함
+                    if obj:IsA("Model") and obj:GetPivot() == CFrame.new() then
+                        found = true
+                        
+                        -- WorldPivot이 바뀔 때까지 지속적으로 텔레포트 시도
+                        while obj.Parent and obj:GetPivot() == CFrame.new() do
+                            local cChar = LocalPlayer.Character
+                            local cHrp = cChar and cChar:FindFirstChild("HumanoidRootPart")
+                            if not cHrp then 
+                                task.wait(0.5)
+                                continue 
+                            end
+                            
+                            local tCFrame = getTargetCFrame(obj)
+                            bypassTeleport(tCFrame + Vector3.new(0, 3, 0))
+                            task.wait(0.2)
+                        end
+                    end
+                end
+                
+                -- 조건에 맞는 모델이 없으면 무한루프 종료
+                if not found then break end
+                task.wait(0.5)
+            end
+
+            -- 원래 위치로 복귀 (최신 캐릭터 정보로)
+            bypassTeleport(originalCFrame)
+            
+            if platform then
+                platform:Destroy()
+            end
+        end)
     end
 })
 
-TSBTab.Button({
-    Text = "쓰레기통 스크립트",
-    Callback = function()
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/yes1nt/yes/refs/heads/main/Trashcan%20Man"))()
-    end
-})
+SVTab.Label({ Text = "기타_OTHERS" })
 
 -- ================= SGR 탭 =================
 local SGRTab = UI.New({ Title = "SGR", Icon = "map" })
@@ -5803,6 +5932,22 @@ SolTab.Toggle({
 
 -- ================= 기타 게임들 탭 =================
 local OtherGameTab = UI.New({ Title = "기타 게임들", Icon = "gamepad-2" })
+
+OtherGameTab.Label({ Text = "TSB" })
+
+OtherGameTab.Button({
+    Text = "M1 리셋 스크립트",
+    Callback = function()
+        loadstring(game:HttpGet("https://pastebin.com/raw/Rm32av76"))()
+    end
+})
+
+OtherGameTab.Button({
+    Text = "쓰레기통 스크립트",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/yes1nt/yes/refs/heads/main/Trashcan%20Man"))()
+    end
+})
 
 OtherGameTab.Label({ Text = ">[ 죽음의 배달 ]<" })
 OtherGameTab.Button({
