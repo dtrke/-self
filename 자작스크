@@ -215,7 +215,8 @@ local Settings = {
         excludedTargets = setmetatable({}, { __mode = "k" }),
         webhookEnabled = false,
         spawnWebhookEnabled = false,
-        musicSync = false -- [NEW] 음악 비주얼라이저 동기화 여부
+        musicSync = false, -- [NEW] 음악 비주얼라이저 동기화 여부
+        autoStunEscape = false -- [NEW] 보스 스턴 키 자동 토글
     },
 
     -- 스크린샷 (Webhook) 추가
@@ -6518,7 +6519,18 @@ SBTab.Button({
 })
 
 -- ================= 솔스 탭 =================
+
 local SolTab = UI.New({ Title = "SOL's", Icon = "egg" })
+
+SolTab.Label({ Text = "BOSS_보스" })
+
+SolTab.Toggle({
+    Text = "보스 스턴 키 자동",
+    Enabled = Settings.SolEgg.autoStunEscape,
+    Callback = function(v)
+        Settings.SolEgg.autoStunEscape = v
+    end
+})
 
 SolTab.Label({ Text = "기능성" })
 
@@ -7604,5 +7616,42 @@ Services.RunService.RenderStepped:Connect(function(dt)
         end
     else
         MusicVisualizer.Gui.Enabled = false
+    end
+end)
+
+-- ==========================================
+-- 보스 스턴 키 자동 탈출 (StunEscape Auto Keypresser)
+-- ==========================================
+task.spawn(function()
+    local vim = Services.VirtualInputManager
+    while true do
+        task.wait(0.025)
+        if Settings.SolEgg.autoStunEscape then
+            local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+            local stunEscape = playerGui and playerGui:FindFirstChild("StunEscape")
+            if stunEscape and stunEscape.Enabled then
+                local pcFrame = stunEscape:FindFirstChild("PCFrame")
+                local frame = pcFrame and pcFrame:FindFirstChild("Frame")
+                if frame then
+                    for _, childName in ipairs({"1", "2", "3", "4", "5"}) do
+                        local buttonFrame = frame:FindFirstChild(childName)
+                        local imageGroup = buttonFrame and buttonFrame:FindFirstChild("ImageGroup")
+                        local textLabel = imageGroup and imageGroup:FindFirstChildOfClass("TextLabel")
+                        if textLabel and textLabel.Text ~= "" then
+                            local rawText = textLabel.Text
+                            local letter = rawText:match("%a")
+                            if letter then
+                                local keyCode = Enum.KeyCode[letter:upper()]
+                                if keyCode then
+                                    vim:SendKeyEvent(true, keyCode, false, game)
+                                    task.wait(0.01)
+                                    vim:SendKeyEvent(false, keyCode, false, game)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
     end
 end)
