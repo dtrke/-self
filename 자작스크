@@ -5813,7 +5813,7 @@ SVTab.Toggle({
                                 task.wait(1)
                                 break
                             end
-                            task.wait(0.5)
+                            task.wait(0.75)
                             if survivalEnabled then
                                 pressKey(Enum.KeyCode.V)
                             end
