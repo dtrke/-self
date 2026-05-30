@@ -5189,9 +5189,406 @@ AllSettingTab.Slider({
 -- ================= SV (Skyven) 탭 =================
 local SVTab = UI.New({ Title = "SV", Icon = "swords" })
 
-SVTab.Label({ Text = "먹이_EAT" })
+SVTab.Label({ Text = "가져오기_TAKE" })
+
+local selectedFood = "Worms"
+local foodBlacklist = {}
+local selectedMaterial = "Branch"
+local materialBlacklist = {}
+local survivalEnabled = false
+
+SVTab.Button({
+    Text = "먹이 가져오기",
+    Callback = function()
+        task.spawn(function()
+            local itemsFolder = workspace:FindFirstChild("Items")
+            if not itemsFolder then
+                warn("Items 폴더(또는 모델)를 찾을 수 없습니다.")
+                return
+            end
+            
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            
+            -- 가장 가까운 지정 먹이 탐색
+            local closestItem = nil
+            local minDistance = math.huge
+            for _, item in ipairs(itemsFolder:GetChildren()) do
+                if item:IsA("Model") and item.Name == selectedFood and not foodBlacklist[item] then
+                    local itemPivot = item:GetPivot()
+                    local dist = (hrp.Position - itemPivot.Position).Magnitude
+                    -- 25스터드 이내의 것은 무시
+                    if dist < minDistance and dist >= 25 then
+                        minDistance = dist
+                        closestItem = item
+                    end
+                end
+            end
+            
+            if not closestItem then
+                warn("가까운 " .. selectedFood .. "을(를) 찾을 수 없습니다.")
+                return
+            end
+            
+            -- 로딩 스크린 생성
+            local loadingGui = Instance.new("ScreenGui")
+            loadingGui.Name = "FoodLoadingScreen"
+            loadingGui.IgnoreGuiInset = true
+            loadingGui.ResetOnSpawn = false
+            local coreGui = game:GetService("CoreGui")
+            if coreGui then
+                loadingGui.Parent = coreGui
+            else
+                loadingGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+            end
+            
+            local TweenService = game:GetService("TweenService")
+            local bgFrame = Instance.new("Frame")
+            bgFrame.Size = UDim2.new(1, 0, 1, 0)
+            bgFrame.BackgroundColor3 = Color3.new(0, 0, 0)
+            bgFrame.BackgroundTransparency = 1
+            bgFrame.Parent = loadingGui
+            
+            local textLabel = Instance.new("TextLabel")
+            textLabel.Size = UDim2.new(1, 0, 1, 0)
+            textLabel.BackgroundTransparency = 1
+            textLabel.Text = "Working..."
+            textLabel.TextColor3 = Color3.new(1, 1, 1)
+            textLabel.TextTransparency = 1
+            textLabel.Font = Enum.Font.SourceSansBold
+            textLabel.TextScaled = true
+            textLabel.Parent = bgFrame
+            
+            local textSizeConstraint = Instance.new("UITextSizeConstraint")
+            textSizeConstraint.MaxTextSize = 80
+            textSizeConstraint.Parent = textLabel
+            
+            local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+            TweenService:Create(bgFrame, tweenInfo, {BackgroundTransparency = 0}):Play()
+            TweenService:Create(textLabel, tweenInfo, {TextTransparency = 0}):Play()
+            task.wait(0.5)
+            local originalCFrame = hrp.CFrame
+            local vim = game:GetService("VirtualInputManager")
+            local RunService = game:GetService("RunService")
+            
+            local function bypassTeleport(targetCFrame)
+                local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if not currentHrp then return end
+                
+                local dist = (currentHrp.Position - targetCFrame.Position).Magnitude
+                currentHrp.Anchored = true
+                if dist > 50 then
+                    local steps = math.ceil(dist / 50)
+                    local startCF = currentHrp.CFrame
+                    for i = 1, steps do
+                        if not currentHrp.Parent then break end
+                        currentHrp.CFrame = startCF:Lerp(targetCFrame, i / steps)
+                        RunService.Heartbeat:Wait()
+                    end
+                end
+                if currentHrp.Parent then
+                    currentHrp.CFrame = targetCFrame
+                    currentHrp.Anchored = false
+                end
+            end
+            
+            -- 선택한 먹이의 위치로 순간이동
+            bypassTeleport(closestItem:GetPivot())
+            
+            -- 도착 후 0.25초 대기
+            task.wait(0.25)
+            
+            local disappeared = false
+            -- 최초 1회 누르고, 안 사라졌으면 0.2초 간격으로 최대 3회 재시도 (총 4회)
+            for i = 1, 4 do
+                vim:SendKeyEvent(true, Enum.KeyCode.X, false, game)
+                task.wait(0.05)
+                vim:SendKeyEvent(false, Enum.KeyCode.X, false, game)
+                
+                task.wait(0.2)
+                if not closestItem.Parent then
+                    disappeared = true
+                    break
+                end
+            end
+            
+            if not disappeared then
+                foodBlacklist[closestItem] = true
+            end
+            
+            -- 0.5초에서 다시 0.1초로 복구
+            task.wait(0.1)
+            
+            -- 원래 자리로 복귀
+            if LocalPlayer.Character == char then
+                bypassTeleport(originalCFrame + Vector3.new(0, 3, 0))
+            end
+            
+            -- 복귀 후 0.25초 대기하고 X키 누르기
+            task.wait(0.25)
+            vim:SendKeyEvent(true, Enum.KeyCode.X, false, game)
+            task.wait(0.05)
+            vim:SendKeyEvent(false, Enum.KeyCode.X, false, game)
+            
+            -- 로딩 스크린 페이드 아웃
+            local ti = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+            TweenService:Create(bgFrame, ti, {BackgroundTransparency = 1}):Play()
+            TweenService:Create(textLabel, ti, {TextTransparency = 1}):Play()
+            task.wait(0.5)
+            
+            if loadingGui then loadingGui:Destroy() end
+
+        end)
+    end
+})
+
+SVTab.Dropdown({
+    Text = "먹이 종류",
+    Options = {"Worms", "Nuts", "Acorn"},
+    Def = "Worms",
+    Callback = function(value)
+        selectedFood = value
+    end
+})
+
+SVTab.Button({
+    Text = "재료 가져오기",
+    Callback = function()
+        task.spawn(function()
+            local itemsFolder = workspace:FindFirstChild("Items")
+            if not itemsFolder then
+                warn("Items 폴더(또는 모델)를 찾을 수 없습니다.")
+                return
+            end
+            
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            
+            -- 가장 가까운 지정 재료 탐색
+            local closestItem = nil
+            local minDistance = math.huge
+            for _, item in ipairs(itemsFolder:GetChildren()) do
+                if item:IsA("Model") and item.Name == selectedMaterial and not materialBlacklist[item] then
+                    local itemPivot = item:GetPivot()
+                    local dist = (hrp.Position - itemPivot.Position).Magnitude
+                    -- 25스터드 이내의 것은 무시
+                    if dist < minDistance and dist >= 25 then
+                        minDistance = dist
+                        closestItem = item
+                    end
+                end
+            end
+            
+            if not closestItem then
+                warn("가까운 " .. selectedMaterial .. "을(를) 찾을 수 없습니다.")
+                return
+            end
+            
+            -- 로딩 스크린 생성
+            local loadingGui = Instance.new("ScreenGui")
+            loadingGui.Name = "MaterialLoadingScreen"
+            loadingGui.IgnoreGuiInset = true
+            loadingGui.ResetOnSpawn = false
+            local coreGui = game:GetService("CoreGui")
+            if coreGui then
+                loadingGui.Parent = coreGui
+            else
+                loadingGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+            end
+            
+            local TweenService = game:GetService("TweenService")
+            local bgFrame = Instance.new("Frame")
+            bgFrame.Size = UDim2.new(1, 0, 1, 0)
+            bgFrame.BackgroundColor3 = Color3.new(0, 0, 0)
+            bgFrame.BackgroundTransparency = 1
+            bgFrame.Parent = loadingGui
+            
+            local textLabel = Instance.new("TextLabel")
+            textLabel.Size = UDim2.new(1, 0, 1, 0)
+            textLabel.BackgroundTransparency = 1
+            textLabel.Text = "Working..."
+            textLabel.TextColor3 = Color3.new(1, 1, 1)
+            textLabel.TextTransparency = 1
+            textLabel.Font = Enum.Font.SourceSansBold
+            textLabel.TextScaled = true
+            textLabel.Parent = bgFrame
+            
+            local textSizeConstraint = Instance.new("UITextSizeConstraint")
+            textSizeConstraint.MaxTextSize = 80
+            textSizeConstraint.Parent = textLabel
+            
+            local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+            TweenService:Create(bgFrame, tweenInfo, {BackgroundTransparency = 0}):Play()
+            TweenService:Create(textLabel, tweenInfo, {TextTransparency = 0}):Play()
+            task.wait(0.5)
+            local originalCFrame = hrp.CFrame
+            local vim = game:GetService("VirtualInputManager")
+            local RunService = game:GetService("RunService")
+            
+            local function bypassTeleport(targetCFrame)
+                local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if not currentHrp then return end
+                
+                local dist = (currentHrp.Position - targetCFrame.Position).Magnitude
+                currentHrp.Anchored = true
+                if dist > 50 then
+                    local steps = math.ceil(dist / 50)
+                    local startCF = currentHrp.CFrame
+                    for i = 1, steps do
+                        if not currentHrp.Parent then break end
+                        currentHrp.CFrame = startCF:Lerp(targetCFrame, i / steps)
+                        RunService.Heartbeat:Wait()
+                    end
+                end
+                if currentHrp.Parent then
+                    currentHrp.CFrame = targetCFrame
+                    currentHrp.Anchored = false
+                end
+            end
+            
+            -- 선택한 재료의 위치로 순간이동
+            bypassTeleport(closestItem:GetPivot())
+            
+            -- 도착 후 0.25초 대기
+            task.wait(0.25)
+            
+            local disappeared = false
+            -- 최초 1회 누르고, 안 사라졌으면 0.2초 간격으로 최대 3회 재시도 (총 4회)
+            for i = 1, 4 do
+                vim:SendKeyEvent(true, Enum.KeyCode.X, false, game)
+                task.wait(0.05)
+                vim:SendKeyEvent(false, Enum.KeyCode.X, false, game)
+                
+                task.wait(0.2)
+                if not closestItem.Parent then
+                    disappeared = true
+                    break
+                end
+            end
+            
+            if not disappeared then
+                materialBlacklist[closestItem] = true
+            end
+            
+            -- 0.5초에서 다시 0.1초로 복구
+            task.wait(0.1)
+            
+            -- 원래 자리로 복귀
+            if LocalPlayer.Character == char then
+                bypassTeleport(originalCFrame + Vector3.new(0, 3, 0))
+            end
+            
+            -- 복귀 후 0.25초 대기하고 X키 누르기
+            task.wait(0.25)
+            vim:SendKeyEvent(true, Enum.KeyCode.X, false, game)
+            task.wait(0.05)
+            vim:SendKeyEvent(false, Enum.KeyCode.X, false, game)
+            
+            -- 로딩 스크린 페이드 아웃
+            local ti = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+            TweenService:Create(bgFrame, ti, {BackgroundTransparency = 1}):Play()
+            TweenService:Create(textLabel, ti, {TextTransparency = 1}):Play()
+            task.wait(0.5)
+            
+            if loadingGui then loadingGui:Destroy() end
+
+        end)
+    end
+})
+
+SVTab.Dropdown({
+    Text = "재료 종류",
+    Options = {"Branch", "Moss", "Bone"},
+    Def = "Branch",
+    Callback = function(value)
+        selectedMaterial = value
+    end
+})
 
 SVTab.Label({ Text = "오토_AUTO" })
+
+SVTab.Toggle({
+    Text = "[[ 생존 ]]",
+    Default = false,
+    Callback = function(Value)
+        survivalEnabled = Value
+        if Value then
+            task.spawn(function()
+                local structures = workspace:FindFirstChild("Structures")
+                if not structures then
+                    return
+                end
+                
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if not hrp then return end
+                
+                local myNest = nil
+                for _, item in ipairs(structures:GetChildren()) do
+                    if item:IsA("Model") and item.Name == "Nest" then
+                        -- Owner 체크 (어트리뷰트 및 Value 오브젝트 모두 대응)
+                        local isOwner = false
+                        local attr = item:GetAttribute("Owner")
+                        if attr then
+                            if typeof(attr) == "Instance" and attr:IsA("Player") then
+                                isOwner = (attr == LocalPlayer)
+                            elseif typeof(attr) == "string" then
+                                isOwner = (attr == LocalPlayer.Name)
+                            end
+                        end
+                        if not isOwner then
+                            local ownerObj = item:FindFirstChild("Owner")
+                            if ownerObj then
+                                if ownerObj:IsA("StringValue") then
+                                    isOwner = (ownerObj.Value == LocalPlayer.Name)
+                                elseif ownerObj:IsA("ObjectValue") then
+                                    isOwner = (ownerObj.Value == LocalPlayer)
+                                end
+                            end
+                        end
+                        
+                        if isOwner then
+                            myNest = item
+                            break
+                        end
+                    end
+                end
+                
+                if not myNest then
+                    return
+                end
+                
+                local RunService = game:GetService("RunService")
+                local targetCFrame = myNest:GetPivot()
+                
+                local function bypassTeleport(targetCF)
+                    local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                    if not currentHrp then return end
+                    
+                    local dist = (currentHrp.Position - targetCF.Position).Magnitude
+                    currentHrp.Anchored = true
+                    if dist > 50 then
+                        local steps = math.ceil(dist / 50)
+                        local startCF = currentHrp.CFrame
+                        for i = 1, steps do
+                            if not currentHrp.Parent or not survivalEnabled then break end
+                            currentHrp.CFrame = startCF:Lerp(targetCF, i / steps)
+                            RunService.Heartbeat:Wait()
+                        end
+                    end
+                    if currentHrp.Parent and survivalEnabled then
+                        currentHrp.CFrame = targetCF
+                        currentHrp.Anchored = false
+                    end
+                end
+                
+                bypassTeleport(targetCFrame)
+            end)
+        end
+    end
+})
 
 SVTab.Label({ Text = "ESP" })
 
@@ -5201,17 +5598,71 @@ SVTab.Button({
     Text = "맵 전부 해금하기",
     Callback = function()
         task.spawn(function()
+            local loadingGui = Instance.new("ScreenGui")
+            loadingGui.Name = "SVMapLoadingScreen"
+            loadingGui.IgnoreGuiInset = true
+            loadingGui.ResetOnSpawn = false
+            -- Safe parent to CoreGui or PlayerGui
+            local coreGui = game:GetService("CoreGui")
+            if coreGui then
+                loadingGui.Parent = coreGui
+            else
+                loadingGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+            end
+            
+            local TweenService = game:GetService("TweenService")
+            
+            local bgFrame = Instance.new("Frame")
+            bgFrame.Size = UDim2.new(1, 0, 1, 0)
+            bgFrame.BackgroundColor3 = Color3.new(0, 0, 0)
+            bgFrame.BackgroundTransparency = 1
+            bgFrame.Parent = loadingGui
+            
+            local textLabel = Instance.new("TextLabel")
+            textLabel.Size = UDim2.new(1, 0, 1, 0)
+            textLabel.BackgroundTransparency = 1
+            textLabel.Text = "Working..."
+            textLabel.TextColor3 = Color3.new(1, 1, 1)
+            textLabel.TextTransparency = 1
+            textLabel.Font = Enum.Font.SourceSansBold
+            textLabel.TextScaled = true
+            textLabel.Parent = bgFrame
+            
+            local textSizeConstraint = Instance.new("UITextSizeConstraint")
+            textSizeConstraint.MaxTextSize = 80
+            textSizeConstraint.Parent = textLabel
+            
+            local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+            TweenService:Create(bgFrame, tweenInfo, {BackgroundTransparency = 0}):Play()
+            TweenService:Create(textLabel, tweenInfo, {TextTransparency = 0}):Play()
+            task.wait(0.5)
+
             local islands = workspace:FindFirstChild("Islands")
             if not islands then
                 warn("Islands 폴더를 찾을 수 없습니다.")
+                loadingGui:Destroy()
                 return
             end
 
             local char = LocalPlayer.Character
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if not hrp then return end
+            if not hrp then 
+                loadingGui:Destroy()
+                return 
+            end
 
             local originalCFrame = hrp.CFrame
+            
+            local isTeleporting = true
+            task.spawn(function()
+                local vim = game:GetService("VirtualInputManager")
+                while isTeleporting do
+                    task.wait(0.5)
+                    vim:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+                    task.wait(0.05)
+                    vim:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+                end
+            end)
 
             local platform = Instance.new("Part")
             platform.Size = Vector3.new(10, 1, 10)
@@ -5232,7 +5683,6 @@ SVTab.Button({
                 local startCFrame = currentHrp.CFrame
                 local dist = (startCFrame.Position - targetCFrame.Position).Magnitude
                 
-                local oldAnchored = currentHrp.Anchored
                 currentHrp.Anchored = true
                 
                 local conn = RunService.Stepped:Connect(function()
@@ -5253,7 +5703,8 @@ SVTab.Button({
                 
                 if currentHrp and currentHrp.Parent then
                     currentHrp.CFrame = targetCFrame
-                    currentHrp.Anchored = oldAnchored
+                    -- 텔레포트가 끝난 뒤 강제로 Anchored를 풉니다 (버그 수정)
+                    currentHrp.Anchored = false
                 end
                 conn:Disconnect()
             end
@@ -5324,17 +5775,186 @@ SVTab.Button({
                 task.wait(0.5)
             end
 
-            -- 원래 위치로 복귀 (최신 캐릭터 정보로)
-            bypassTeleport(originalCFrame)
+            isTeleporting = false
+
+            -- 원래 위치로 복귀 (캐릭터가 죽지 않고 그대로일 때만)
+            if LocalPlayer.Character == char then
+                bypassTeleport(originalCFrame + Vector3.new(0, 3, 0))
+            end
+            
+            -- 복귀 후 만약을 위해 한 번 더 앵커 해제
+            local finalChar = LocalPlayer.Character
+            local finalHrp = finalChar and finalChar:FindFirstChild("HumanoidRootPart")
+            if finalHrp then
+                finalHrp.Anchored = false
+            end
             
             if platform then
                 platform:Destroy()
+            end
+            
+            -- 작업 완료 후 로딩 스크린 제거
+            if loadingGui then
+                local ts = game:GetService("TweenService")
+                local ti = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+                local bg = loadingGui:FindFirstChildOfClass("Frame")
+                if bg then
+                    local txt = bg:FindFirstChildOfClass("TextLabel")
+                    ts:Create(bg, ti, {BackgroundTransparency = 1}):Play()
+                    if txt then
+                        ts:Create(txt, ti, {TextTransparency = 1}):Play()
+                    end
+                    task.wait(0.5)
+                end
+                loadingGui:Destroy()
             end
         end)
     end
 })
 
 SVTab.Label({ Text = "기타_OTHERS" })
+
+local fireflyBlacklist = {}
+
+SVTab.Button({
+    Text = "반딧불이 추가",
+    Callback = function()
+        task.spawn(function()
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            
+            local originalCFrame = hrp.CFrame
+            
+            -- 로딩 스크린 생성
+            local loadingGui = Instance.new("ScreenGui")
+            loadingGui.Name = "FireflyLoadingScreen"
+            loadingGui.IgnoreGuiInset = true
+            loadingGui.ResetOnSpawn = false
+            local coreGui = game:GetService("CoreGui")
+            if coreGui then
+                loadingGui.Parent = coreGui
+            else
+                loadingGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+            end
+            
+            local TweenService = game:GetService("TweenService")
+            local bgFrame = Instance.new("Frame")
+            bgFrame.Size = UDim2.new(1, 0, 1, 0)
+            bgFrame.BackgroundColor3 = Color3.new(0, 0, 0)
+            bgFrame.BackgroundTransparency = 1
+            bgFrame.Parent = loadingGui
+            
+            local textLabel = Instance.new("TextLabel")
+            textLabel.Size = UDim2.new(1, 0, 1, 0)
+            textLabel.BackgroundTransparency = 1
+            textLabel.Text = "Working..."
+            textLabel.TextColor3 = Color3.new(1, 1, 1)
+            textLabel.TextTransparency = 1
+            textLabel.Font = Enum.Font.SourceSansBold
+            textLabel.TextScaled = true
+            textLabel.Parent = bgFrame
+            
+            local textSizeConstraint = Instance.new("UITextSizeConstraint")
+            textSizeConstraint.MaxTextSize = 80
+            textSizeConstraint.Parent = textLabel
+            
+            local errorLabel = Instance.new("TextLabel")
+            errorLabel.Size = UDim2.new(1, 0, 0, 50)
+            errorLabel.Position = UDim2.new(0, 0, 1, -150)
+            errorLabel.BackgroundTransparency = 1
+            errorLabel.Text = "반딧불이가 소환되지 않았습니다."
+            errorLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+            errorLabel.TextTransparency = 1
+            errorLabel.Font = Enum.Font.SourceSansBold
+            errorLabel.TextScaled = true
+            errorLabel.Parent = bgFrame
+            
+            local errorSizeConstraint = Instance.new("UITextSizeConstraint")
+            errorSizeConstraint.MaxTextSize = 40
+            errorSizeConstraint.Parent = errorLabel
+            
+            local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+            TweenService:Create(bgFrame, tweenInfo, {BackgroundTransparency = 0}):Play()
+            TweenService:Create(textLabel, tweenInfo, {TextTransparency = 0}):Play()
+            task.wait(0.5)
+            
+            local firefliesSwarm = workspace:FindFirstChild("FirefliesSwarm")
+            local closestPart = nil
+            local minDistance = math.huge
+            
+            if firefliesSwarm then
+                for _, part in ipairs(firefliesSwarm:GetChildren()) do
+                    if part:IsA("BasePart") and not fireflyBlacklist[part] then
+                        local dist = (hrp.Position - part.Position).Magnitude
+                        if dist < minDistance then
+                            minDistance = dist
+                            closestPart = part
+                        end
+                    end
+                end
+            end
+            
+            if not closestPart then
+                TweenService:Create(errorLabel, tweenInfo, {TextTransparency = 0}):Play()
+                task.wait(3)
+                TweenService:Create(bgFrame, tweenInfo, {BackgroundTransparency = 1}):Play()
+                TweenService:Create(textLabel, tweenInfo, {TextTransparency = 1}):Play()
+                TweenService:Create(errorLabel, tweenInfo, {TextTransparency = 1}):Play()
+                task.wait(0.5)
+                loadingGui:Destroy()
+                return
+            end
+            
+            local RunService = game:GetService("RunService")
+            local function bypassTeleport(targetCFrame)
+                local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if not currentHrp then return end
+                
+                local dist = (currentHrp.Position - targetCFrame.Position).Magnitude
+                currentHrp.Anchored = true
+                if dist > 50 then
+                    local steps = math.ceil(dist / 50)
+                    local startCF = currentHrp.CFrame
+                    for i = 1, steps do
+                        if not currentHrp.Parent then break end
+                        currentHrp.CFrame = startCF:Lerp(targetCFrame, i / steps)
+                        RunService.Heartbeat:Wait()
+                    end
+                end
+                if currentHrp.Parent then
+                    currentHrp.CFrame = targetCFrame
+                    currentHrp.Anchored = false
+                end
+            end
+            
+            bypassTeleport(closestPart.CFrame)
+            
+            local disappeared = false
+            for i = 1, 30 do -- 3초 대기 (0.1 * 30)
+                task.wait(0.1)
+                if not closestPart.Parent then
+                    disappeared = true
+                    break
+                end
+            end
+            
+            if not disappeared then
+                fireflyBlacklist[closestPart] = true
+            end
+            
+            if LocalPlayer.Character == char then
+                bypassTeleport(originalCFrame + Vector3.new(0, 3, 0))
+            end
+            
+            TweenService:Create(bgFrame, tweenInfo, {BackgroundTransparency = 1}):Play()
+            TweenService:Create(textLabel, tweenInfo, {TextTransparency = 1}):Play()
+            task.wait(0.5)
+            
+            if loadingGui then loadingGui:Destroy() end
+        end)
+    end
+})
 
 -- ================= SGR 탭 =================
 local SGRTab = UI.New({ Title = "SGR", Icon = "map" })
