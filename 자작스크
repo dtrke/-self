@@ -7,7 +7,7 @@ if not success then
     warn("Rayfield library failed to load: " .. tostring(err))
     -- Notify system fallback or dummy
     Rayfield = {
-        Notify = function(_, data) print("Notify Fallback: " .. tostring(data.Content)) end,
+        Notify = function(_, data)  end,
         Destroy = function() end
     }
 end
@@ -5510,6 +5510,8 @@ SVTab.Dropdown({
     end
 })
 
+local babyManagementEnabled = false
+
 SVTab.Label({ Text = "오토_AUTO" })
 
 SVTab.Toggle({
@@ -5518,6 +5520,47 @@ SVTab.Toggle({
     Callback = function(Value)
         survivalEnabled = Value
         if Value then
+            local survivalGui = Instance.new("ScreenGui")
+            survivalGui.Name = "SVSurvivalStatusGui"
+            survivalGui.ResetOnSpawn = false
+            local coreGui = game:GetService("CoreGui")
+            if coreGui then
+                survivalGui.Parent = coreGui
+            else
+                survivalGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+            end
+            
+            local statusLabel = Instance.new("TextLabel")
+            statusLabel.Size = UDim2.new(1, 0, 0, 50)
+            statusLabel.Position = UDim2.new(0, 0, 1, -100)
+            statusLabel.BackgroundTransparency = 1
+            statusLabel.Text = "생존 - 실행 중"
+            statusLabel.TextColor3 = Color3.fromRGB(150, 255, 150)
+            statusLabel.TextStrokeTransparency = 0
+            statusLabel.TextSize = 24
+            statusLabel.Font = Enum.Font.GothamBold
+            statusLabel.Parent = survivalGui
+            
+            task.spawn(function()
+                while survivalEnabled and survivalGui.Parent do
+                    for i = 0, 1, 0.05 do
+                        if not survivalEnabled then break end
+                        statusLabel.TextTransparency = i
+                        statusLabel.TextStrokeTransparency = i
+                        task.wait(0.05)
+                    end
+                    for i = 1, 0, -0.05 do
+                        if not survivalEnabled then break end
+                        statusLabel.TextTransparency = i
+                        statusLabel.TextStrokeTransparency = i
+                        task.wait(0.05)
+                    end
+                end
+                if survivalGui then
+                    survivalGui:Destroy()
+                end
+            end)
+
             task.spawn(function()
                 local RunService = game:GetService("RunService")
                 local vim = game:GetService("VirtualInputManager")
@@ -5583,25 +5626,21 @@ SVTab.Toggle({
                 end
                 
                 local function walkToWithPromptCheck(targetPosition)
-                    print("[갈증 디버그] walkToWithPromptCheck 시작")
                     local char = LocalPlayer.Character
                     local currentHrp = char and char:FindFirstChild("HumanoidRootPart")
                     local hum = char and char:FindFirstChild("Humanoid")
                     
                     if not currentHrp or not hum then 
-                        print("[갈증 디버그] HumanoidRootPart 또는 Humanoid를 찾을 수 없어 이동 취소")
                         return false 
                     end
                     
                     local dist = (currentHrp.Position - targetPosition).Magnitude
-                    print("[갈증 디버그] 목표 좌표와의 거리: " .. tostring(dist))
                     
                     local pGui = LocalPlayer:FindFirstChild("PlayerGui")
                     local pGuiPrompts = pGui and pGui:FindFirstChild("PromptsGui")
                     local wPrompt = pGuiPrompts and pGuiPrompts:FindFirstChild("WaterSourcePrompt")
                     local pFrame = wPrompt and wPrompt:FindFirstChild("Frame")
                     local initialSize = pFrame and pFrame.Size
-                    print("[갈증 디버그] 초기 프롬프트 존재 여부: " .. tostring(pFrame ~= nil) .. ", 초기 크기: " .. tostring(initialSize))
                     
                     local promptChanged = false
                     
@@ -5612,7 +5651,6 @@ SVTab.Toggle({
                     
                     while tick() - startTime < timeLimit do
                         if not currentHrp.Parent or not survivalEnabled or hum.Health <= 0 then 
-                            print("[갈증 디버그] 이동 중 캐릭터 사망 또는 생존 꺼짐")
                             break 
                         end
                         
@@ -5624,11 +5662,9 @@ SVTab.Toggle({
                         
                         if currentFrame then
                             if initialSize and currentFrame.Size ~= initialSize then
-                                print("[갈증 디버그] 이동 중 프롬프트 크기 변화 감지! (이전: " .. tostring(initialSize) .. " -> 현재: " .. tostring(currentFrame.Size) .. ")")
                                 promptChanged = true
                                 break
                             elseif (not initialSize) and currentFrame.Size.X.Scale > 0 then
-                                print("[갈증 디버그] 프롬프트 처음 감지됨 및 크기 확인! (현재: " .. tostring(currentFrame.Size) .. ")")
                                 promptChanged = true
                                 break
                             end
@@ -5662,7 +5698,6 @@ SVTab.Toggle({
                         hum:MoveTo(currentHrp.Position) -- 이동 멈춤
                     end
                     
-                    print("[갈증 디버그] walkToWithPromptCheck 종료 - 결과 (프롬프트 변화여부): " .. tostring(promptChanged))
                     return promptChanged
                 end
                 
@@ -5683,19 +5718,84 @@ SVTab.Toggle({
                         if item:IsA("Model") and item.Name == "Worms" and not foodBlacklist[item] then
                             local itemPivot = item:GetPivot()
                             local dist = (hrp.Position - itemPivot.Position).Magnitude
-                            if dist < minDistance and dist >= 25 then
+                            if dist < minDistance then
                                 minDistance = dist
                                 closestItem = item
                             end
                         end
                     end
                     
+                    local originalCFrame = hrp.CFrame
                     if not closestItem then
-                        warn("가까운 Worms을(를) 찾을 수 없습니다.")
+                        warn("맵에 Worms가 존재하지 않습니다. 임의의 섬으로 텔레포트합니다.")
+                        local islands = workspace:FindFirstChild("Islands")
+                        if islands then
+                            local validIslands = {}
+                            for _, obj in ipairs(islands:GetChildren()) do
+                                if obj:IsA("Model") and string.find(string.lower(obj.Name), "island") then
+                                    local islandPos = obj:GetPivot().Position
+                                    if obj:GetPivot() == CFrame.new() then
+                                        local baseParts = obj:FindFirstChild("BaseParts")
+                                        if baseParts then
+                                            for _, v in ipairs(baseParts:GetDescendants()) do
+                                                if (v:IsA("Model") or v:IsA("BasePart")) and v:GetPivot() ~= CFrame.new() then
+                                                    islandPos = v:GetPivot().Position
+                                                    break
+                                                end
+                                            end
+                                        end
+                                    end
+                                    local dist = (hrp.Position - islandPos).Magnitude
+                                    table.insert(validIslands, {island = obj, dist = dist})
+                                end
+                            end
+                            
+                            if #validIslands > 0 then
+                                table.sort(validIslands, function(a, b) return a.dist < b.dist end)
+                                
+                                local topIslands = {}
+                                for i = 1, math.min(10, #validIslands) do
+                                    table.insert(topIslands, validIslands[i].island)
+                                end
+                                
+                                local currentHrp = char:FindFirstChild("HumanoidRootPart")
+                                if currentHrp then
+                                    bypassTeleport(CFrame.new(0, currentHrp.Position.Y, 0))
+                                    task.wait(0.25)
+                                end
+                                
+                                for _, targetIsland in ipairs(topIslands) do
+                                    if not survivalEnabled or LocalPlayer.Character ~= char then break end
+                                    local baseParts = targetIsland:FindFirstChild("BaseParts")
+                                    if baseParts then
+                                        local models = {}
+                                        for _, v in ipairs(baseParts:GetDescendants()) do
+                                            if v:IsA("Model") and v:GetPivot() ~= CFrame.new() then
+                                                table.insert(models, v)
+                                            end
+                                        end
+                                        if #models > 0 then
+                                            local randomModel = models[math.random(1, #models)]
+                                            bypassTeleport(randomModel:GetPivot() + Vector3.new(0, 3, 0))
+                                            task.wait(0.25)
+                                        end
+                                    end
+                                end
+                                
+                                if survivalEnabled and LocalPlayer.Character == char then
+                                    local endHrp = char:FindFirstChild("HumanoidRootPart")
+                                    if endHrp then
+                                        bypassTeleport(CFrame.new(0, endHrp.Position.Y, 0))
+                                        task.wait(0.25)
+                                    end
+                                    bypassTeleport(originalCFrame + Vector3.new(0, 3, 0))
+                                end
+                                task.wait(0.25)
+                            end
+                        end
                         return false
                     end
                     
-                    local originalCFrame = hrp.CFrame
                     bypassTeleport(closestItem:GetPivot())
                     task.wait(0.25)
                     
@@ -5764,6 +5864,34 @@ SVTab.Toggle({
                     return nil
                 end
                 
+                local function getVal(obj, valName)
+                    local attr = obj:GetAttribute(valName)
+                    if attr ~= nil then return attr end
+                    local child = obj:FindFirstChild(valName)
+                    if child and (child:IsA("IntValue") or child:IsA("NumberValue")) then
+                        return child.Value
+                    end
+                    return nil
+                end
+
+                local function checkBabyHunger()
+                    local myNest = findMyNest()
+                    if not myNest then return false end
+                    local primaryPart = myNest:FindFirstChild("PrimaryPart") or myNest.PrimaryPart
+                    if not primaryPart then return false end
+                    for i = 1, 3 do
+                        local slot = primaryPart:FindFirstChild("Slot" .. i)
+                        if slot then
+                            local age = getVal(slot, "Age") or 0
+                            local hunger = getVal(slot, "Hunger") or 100
+                            if age > 0 and hunger <= 25 then
+                                return true
+                            end
+                        end
+                    end
+                    return false
+                end
+                
                 local function setMechanismState(newState)
                     if survivalMechanism == newState then return end
                     
@@ -5787,6 +5915,9 @@ SVTab.Toggle({
                     bypassTeleport(initialNest:GetPivot())
                 end
                 
+                local sleepBugCount = 0
+                local lastInsomniaVal = 0
+                
                 while survivalEnabled do
                     task.wait(0.1)
                     
@@ -5794,8 +5925,36 @@ SVTab.Toggle({
                     local thirstVal = getThirst()
                     local insomniaVal = getInsomnia()
                     
+                    -- 0. [새끼 관리] 매커니즘 (우선순위 0 - 수면 중단 가능)
+                    if babyManagementEnabled and checkBabyHunger() then
+                        setMechanismState("BabyManagement")
+                        if not survivalEnabled then break end
+                        
+                        local myNest = findMyNest()
+                        if myNest then
+                            local nestPivot = myNest:GetPivot()
+                            -- X-2로 순간이동
+                            local targetCFrame = nestPivot * CFrame.new(-1, 0, 0)
+                            bypassTeleport(targetCFrame)
+                            task.wait(0.25)
+                            
+                            -- Nest 쪽을 바라보게 조정
+                            local char = LocalPlayer.Character
+                            local currentHrp = char and char:FindFirstChild("HumanoidRootPart")
+                            if currentHrp then
+                                currentHrp.CFrame = CFrame.lookAt(currentHrp.Position, nestPivot.Position)
+                            end
+                            task.wait(0.25)
+                            
+                            -- Worms 하나 가져오기
+                            local success = grabFood()
+                            task.wait(0.5)
+                        end
+                        
+                        setMechanismState(nil)
+                        
                     -- 1. [먹기] 매커니즘 (우선순위 1)
-                    if hungerVal < 0.5 then
+                    elseif hungerVal < 0.5 then
                         setMechanismState("Eat")
                         if not survivalEnabled then break end
                         
@@ -5813,7 +5972,7 @@ SVTab.Toggle({
                                 task.wait(1)
                                 break
                             end
-                            task.wait(1)
+                            task.wait(0.25)
                             if survivalEnabled then
                                 pressKey(Enum.KeyCode.V)
                             end
@@ -5828,24 +5987,18 @@ SVTab.Toggle({
                         
                     -- 2. [갈증] 매커니즘 (우선순위 1)
                     elseif thirstVal < 0.25 then
-                        print("[갈증 디버그] 갈증 상태 감지! (현재 수치: " .. tostring(thirstVal) .. ") - 매커니즘 시작")
                         setMechanismState("Thirst")
                         if not survivalEnabled then 
-                            print("[갈증 디버그] 생존 비활성화로 갈증 메커니즘 강제 탈출")
                             break 
                         end
                         
-                        print("[갈증 디버그] 내 둥지 찾는 중...")
                         local myNest = findMyNest()
                         if myNest then
-                            print("[갈증 디버그] 내 둥지 찾음: " .. tostring(myNest:GetFullName()) .. " - 원래 위치 저장 및 둥지로 순간이동")
                             local originalCFrame = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.CFrame
                             
                             bypassTeleport(myNest:GetPivot())
-                            print("[갈증 디버그] 둥지 순간이동 완료. 0.5초 대기...")
                             task.wait(0.5)
                             
-                            print("[갈증 디버그] 가장 가까운 Water 파트 탐색 중...")
                             local closestWater = nil
                             local minWaterDist = math.huge
                             local islandsFolder = workspace:FindFirstChild("Islands") or workspace:FindFirstChild("Workspace") -- 호환성을 위해 둘 다 확인
@@ -5868,36 +6021,28 @@ SVTab.Toggle({
                                     end
                                 end
                             else
-                                print("[갈증 디버그] workspaceFolder 또는 HumanoidRootPart가 존재하지 않음!")
                             end
                             
                             if closestWater then
-                                print("[갈증 디버그] 발견된 가장 가까운 Water 파트: " .. tostring(closestWater:GetFullName()) .. " (거리: " .. tostring(minWaterDist) .. ") - 이동 시도")
                                 local promptTriggered = walkToWithPromptCheck(closestWater.Position)
                                 if promptTriggered then
-                                    print("[갈증 디버그] 프롬프트 활성화 감지됨! 물 마시기(V키 입력) 루프 시작")
                                     while survivalEnabled and getThirst() <= 0.94 do
-                                        print("[갈증 디버그] V키 연타 중... 현재 수치: " .. tostring(getThirst()))
                                         pressKey(Enum.KeyCode.V)
                                         task.wait(0.1)
                                     end
-                                    print("[갈증 디버그] 물 마시기 완료! 현재 수치: " .. tostring(getThirst()))
                                 else
                                     warn("[갈증 디버그] WaterSourcePrompt 가 전혀 변경되지 않았거나 이동 중 프롬프트를 감지하지 못했습니다.")
                                 end
                             else
-                                print("[갈증 디버그] 맵 내에서 Water 파트를 단 하나도 찾지 못했습니다!")
                             end
                             
                             if LocalPlayer.Character and originalCFrame and survivalEnabled then
-                                print("[갈증 디버그] 원래 위치로 복귀 텔레포트 시도")
                                 bypassTeleport(originalCFrame + Vector3.new(0, 3, 0))
                             end
                         else
                             warn("[갈증 디버그] 둥지를 찾을 수 없어 갈증 기능을 실행할 수 없습니다.")
                         end
                         
-                        print("[갈증 디버그] 갈증 메커니즘 완전 종료 및 상태 초기화")
                         setMechanismState(nil)
                         
                     -- 3. [수면] 매커니즘 (우선순위 2 - 중단 가능)
@@ -5921,6 +6066,40 @@ SVTab.Toggle({
                     -- 4. 자연 수면 완료 감시
                     elseif survivalSleeping and insomniaVal > 0.95 then
                         setMechanismState(nil)
+                        sleepBugCount = 0
+                    elseif survivalSleeping and sleepBugCount < 2 then
+                        if lastInsomniaVal > 0 and (lastInsomniaVal - insomniaVal) >= 0.05 then
+                            warn("수면 버그 감지: Nest로 텔레포트 및 Z키 재입력")
+                            sleepBugCount = sleepBugCount + 1
+                            local myNest = findMyNest()
+                            if myNest then
+                                bypassTeleport(myNest:GetPivot())
+                                task.wait(1)
+                                if survivalEnabled then
+                                    pressKey(Enum.KeyCode.Z)
+                                end
+                            end
+                        end
+                    end
+                    
+                    if survivalSleeping then
+                        lastInsomniaVal = insomniaVal
+                    else
+                        lastInsomniaVal = 0
+                        if survivalMechanism ~= "Sleep" then
+                            sleepBugCount = 0
+                        end
+                    end
+                    
+                    if babyManagementEnabled and not checkBabyHunger() and survivalMechanism == nil then
+                        local myNest = findMyNest()
+                        if myNest then
+                            local char = LocalPlayer.Character
+                            local currentHrp = char and char:FindFirstChild("HumanoidRootPart")
+                            if currentHrp and (currentHrp.Position - myNest:GetPivot().Position).Magnitude > 10 then
+                                bypassTeleport(myNest:GetPivot())
+                            end
+                        end
                     end
                 end
                 
@@ -5944,6 +6123,14 @@ SVTab.Toggle({
                 end)
             end
         end
+    end
+})
+
+SVTab.Toggle({
+    Text = "새끼 관리",
+    Default = false,
+    Callback = function(Value)
+        babyManagementEnabled = Value
     end
 })
 
@@ -7255,7 +7442,6 @@ EtcTab.Label({ Text = "디스코드 웹후크" })
 local function sendStatusToDiscord()
     local webhook = Settings.Webhook
     if webhook == "" or not webhook:find("discord.com/api/webhooks") then
-        print("[Webhook Error] 유효한 디스코드 웹후크 URL을 입력해주세요.")
         return
     end
 
@@ -7284,7 +7470,6 @@ local function sendStatusToDiscord()
         
         local http_request = request or (syn and syn.request) or (http and http.request) or http_request
         if not http_request then
-            print("[Error] HTTP 요청(request) 함수를 지원하지 않는 실행기입니다.")
             return
         end
 
@@ -7328,7 +7513,6 @@ local function sendStatusToDiscord()
                 Headers = { ["Content-Type"] = "multipart/form-data; boundary=" .. boundary },
                 Body = body
             })
-            print("[Screenshot] 사진 및 상태 전송 완료!")
         else
             -- 사진이 없는 경우 (Solara 등, 텍스트 임베드만 전송)
             http_request({
@@ -7340,11 +7524,9 @@ local function sendStatusToDiscord()
                     embeds = { embed }
                 })
             })
-            print("[Status] 상태 정보 전송 완료! (캡쳐 미지원)")
         end
     end)
     if not success then
-        print("[Error] 전송 오류: " .. tostring(result))
     end
 end
 
