@@ -5933,8 +5933,8 @@ SVTab.Toggle({
                         local myNest = findMyNest()
                         if myNest then
                             local nestPivot = myNest:GetPivot()
-                            -- X-1.25로 순간이동
-                            local targetCFrame = nestPivot * CFrame.new(-1.25, 0, 0)
+                            -- X-1로 순간이동
+                            local targetCFrame = nestPivot * CFrame.new(-1, 0, 0)
                             bypassTeleport(targetCFrame)
                             task.wait(0.25)
                             
