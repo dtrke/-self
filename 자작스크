@@ -3570,41 +3570,7 @@ local AVATAR_DATABASE = {
                 Attributes = { OG = "Torso" }
             }
         }
-    },
-    ["asdf v2 skunk ver"] = {
-        BodyColors = {
-            HeadColor = Color3.fromRGB(159, 41, 32),
-            LeftArmColor = Color3.fromRGB(248, 248, 248),
-            RightArmColor = Color3.fromRGB(248, 248, 248),
-            LeftLegColor = Color3.fromRGB(248, 248, 248),
-            RightLegColor = Color3.fromRGB(248, 248, 248),
-            TorsoColor = Color3.fromRGB(248, 248, 248),
-        },
-        Pants = "rbxassetid://7219538586",
-        Shirt = "http://www.roblox.com/asset/?id=12553106959",
-        HeadMesh = "rbxassetid://18446596298",
-        Accessories = {
-            { name = "Anime Girl Hairstyle", meshId = "rbxassetid://17106624162", textureId = "http://www.roblox.com/asset/?id=12575371214", part = "Head", c0 = CFrame.new(-0.019, 1.178, -0.122), c1 = CFrame.new(0, 0.6, 0) },
-            { name = "BlackC", meshId = "rbxassetid://15835855942", textureId = "rbxassetid://15833604157", part = "Torso", c0 = CFrame.new(-0.009, 0.075, -0.595, -1, 0, 0, 0, 0.866, -0.5, 0, -0.5, -0.866), c1 = CFrame.new(0, 1, 0), scale = Vector3.new(1.2, 1.2, 1.2) },
-            { name = "Bodysuit", meshId = "rbxassetid://96955128294100", textureId = "rbxassetid://72262084510278", part = "Torso", c0 = CFrame.new(0.442, -0.089, -6.249e-05, 0, 0, -1, 0, 1, 0, 1, 0, 0), c1 = CFrame.new(0, 0, -0.5) },
-            { name = "Colorable Eyes Pompous Face - White", meshId = "rbxassetid://77135048348805", textureId = "rbxassetid://138427420765375", part = "Head", c0 = CFrame.new(0, 5.722e-06, 0.011), c1 = CFrame.new(0, 0, 0) },
-            { name = "Meshes/skunktailnew", meshId = "rbxassetid://12764230520", textureId = "rbxassetid://17466171918", part = "Torso", c0 = CFrame.new(0, -0.467, -1.277, 1, 0, 0, 0, 0.998, 0.063, 0, -0.063, 0.998), c1 = CFrame.new(0, 0, 0.5) },
-            { name = "Beaded Horns", meshId = "rbxassetid://7452362317", textureId = "rbxassetid://7452284635", part = "Head", c0 = CFrame.new(0, 0.109, 0.282), c1 = CFrame.new(0, 0.6, 0) },
-            { name = "flowercrown_Circle", meshId = "rbxassetid://6527466343", textureId = "rbxassetid://6527445292", part = "Head", c0 = CFrame.new(0, -0.052, 0.473), c1 = CFrame.new(0, 0.6, 0) },
-        },
-
-        CharacterMeshes = {
-            {
-                MeshId = 48112070,
-                BodyPart = Enum.BodyPart.Torso,
-                BaseTextureId = 0,
-                OverlayTextureId = 0,
-                Name = "CharacterMesh",
-                Attributes = { OG = "Torso" }
-            }
-        }
     }
-
 }
 
 
