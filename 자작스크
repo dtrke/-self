@@ -7036,7 +7036,7 @@ SolTab.Toggle({
                     
                     local desc = "> ### Biome " .. (actionType == "started" and "Started" or "Ended") .. " - " .. biomeNameUpper
                     if actionType == "started" then
-                        desc = desc .. "\n> **Started:** <t:" .. tostring(os.time()) .. ":R>"
+                        desc = desc .. "\n> \n> **Started:** <t:" .. tostring(os.time()) .. ":R>"
                     end
                     
                     local embed = {
@@ -7053,16 +7053,16 @@ SolTab.Toggle({
                                 ["name"] = "Uptime",
                                 ["value"] = uptimeText,
                                 ["inline"] = true
-                            },
-                            {
-                                ["name"] = "Players",
-                                ["value"] = tostring(#game:GetService("Players"):GetPlayers()) .. " / " .. tostring(game:GetService("Players").MaxPlayers),
-                                ["inline"] = true
                             }
                         }
                     }
                     
                     if actionType == "started" then
+                        table.insert(embed.fields, {
+                            ["name"] = "Players",
+                            ["value"] = tostring(#game:GetService("Players"):GetPlayers()) .. " / " .. tostring(game:GetService("Players").MaxPlayers),
+                            ["inline"] = true
+                        })
                         local psLink = Settings.PrivateServerLink or "None"
                         if psLink == "" then psLink = "None" end
                         
@@ -7104,27 +7104,42 @@ SolTab.Toggle({
                                         local msgId = resData.id
                                         currentBiomeMessageId = msgId
                                         
-                                        task.spawn(function()
-                                            while currentBiomeMessageId == msgId do
-                                                task.wait(5)
-                                                if currentBiomeMessageId ~= msgId then break end
-                                                
-                                                pcall(function()
-                                                    local pCount = tostring(#game:GetService("Players"):GetPlayers())
-                                                    local mCount = tostring(game:GetService("Players").MaxPlayers)
-                                                    payload.embeds[1].fields[3].value = pCount .. " / " .. mCount
+                                        if actionType == "started" then
+                                            task.spawn(function()
+                                                while true do
+                                                    task.wait(1)
+                                                    if currentBiomeMessageId ~= msgId then
+                                                        pcall(function()
+                                                            payload.embeds[1].fields[3].value = "NILL"
+                                                            requestFunc({
+                                                                Url = webhookUrl .. "/messages/" .. msgId,
+                                                                Method = "PATCH",
+                                                                Headers = {
+                                                                    ["Content-Type"] = "application/json"
+                                                                },
+                                                                Body = HttpService:JSONEncode(payload)
+                                                            })
+                                                        end)
+                                                        break
+                                                    end
                                                     
-                                                    requestFunc({
-                                                        Url = webhookUrl .. "/messages/" .. msgId,
-                                                        Method = "PATCH",
-                                                        Headers = {
-                                                            ["Content-Type"] = "application/json"
-                                                        },
-                                                        Body = HttpService:JSONEncode(payload)
-                                                    })
-                                                end)
-                                            end
-                                        end)
+                                                    pcall(function()
+                                                        local pCount = tostring(#game:GetService("Players"):GetPlayers())
+                                                        local mCount = tostring(game:GetService("Players").MaxPlayers)
+                                                        payload.embeds[1].fields[3].value = pCount .. " / " .. mCount
+                                                        
+                                                        requestFunc({
+                                                            Url = webhookUrl .. "/messages/" .. msgId,
+                                                            Method = "PATCH",
+                                                            Headers = {
+                                                                ["Content-Type"] = "application/json"
+                                                            },
+                                                            Body = HttpService:JSONEncode(payload)
+                                                        })
+                                                    end)
+                                                end
+                                            end)
+                                        end
                                     end
                                 end
                             end
