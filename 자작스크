@@ -6964,7 +6964,177 @@ SolTab.Toggle({
     end
 })
 
-SolTab.Label({ Text = "기능성" })
+SolTab.Label({ Text = "오토" })
+
+local biomeMacroConnection = nil
+
+SolTab.Toggle({
+    Text = "바이옴 매크로",
+    Enabled = false,
+    Callback = function(v)
+        if v then
+            if not biomeMacroConnection then
+                local Players = game:GetService("Players")
+                local LocalPlayer = Players.LocalPlayer
+                
+                local function findTargetScrollingFrame()
+                    local mainInterface = LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("MainInterface")
+                    
+                    for _, frame in pairs(mainInterface:GetChildren()) do
+                        if frame:IsA("Frame") then
+                            local textLabel = frame:FindFirstChildWhichIsA("TextLabel")
+                            if textLabel and textLabel.Text == "Private Server" then
+                                local f1 = frame:FindFirstChildWhichIsA("Frame")
+                                if f1 then
+                                    local f2 = f1:FindFirstChildWhichIsA("Frame")
+                                    if f2 then
+                                        local f3 = f2:FindFirstChildWhichIsA("Frame")
+                                        if f3 then
+                                            for _, f4 in pairs(f3:GetChildren()) do
+                                                if f4:IsA("Frame") and math.abs(f4.Position.X.Scale - 0.675) < 0.01 and f4.Position.Y.Scale == 0 then
+                                                    local scrollingFrame = f4:FindFirstChildWhichIsA("ScrollingFrame")
+                                                    if scrollingFrame then
+                                                        return scrollingFrame
+                                                    end
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    return nil
+                end
+                
+                local scrollingFrame = findTargetScrollingFrame()
+                if not scrollingFrame then
+                    warn("Biome Macro: Could not find target ScrollingFrame.")
+                    return
+                end
+                
+                local function sendDiscordWebhook(biomeNameRaw, actionType, uptimeText)
+                    local webhookUrl = Settings.Webhook
+                    if not webhookUrl or webhookUrl == "" then return end
+                    
+                    local biomeNameUpper = biomeNameRaw:upper()
+                    local rareBiomes = {
+                        ["GLITCHED"] = true, ["DREAMSPACE"] = true, 
+                        ["CYBERSPACE"] = true, ["SINGULARITY"] = true
+                    }
+                    local isRare = rareBiomes[biomeNameUpper] or false
+                    
+                    local contentMsg = ""
+                    if actionType == "started" and isRare then
+                        contentMsg = "@everyone"
+                    end
+                    
+                    local desc = "### Biome " .. (actionType == "started" and "Started" or "Ended") .. " - " .. biomeNameUpper
+                    if actionType == "started" then
+                        desc = desc .. "\n**Started:** <t:" .. tostring(os.time()) .. ":R>"
+                    end
+                    
+                    local embed = {
+                        ["description"] = desc,
+                        ["color"] = 16777215,
+                        ["fields"] = {
+                            {
+                                ["name"] = "Player",
+                                ["value"] = LocalPlayer.Name,
+                                ["inline"] = true
+                            },
+                            {
+                                ["name"] = "Uptime",
+                                ["value"] = uptimeText,
+                                ["inline"] = true
+                            }
+                        }
+                    }
+                    
+                    if actionType == "started" then
+                        local psLink = Settings.PrivateServerLink or "None"
+                        if psLink == "" then psLink = "None" end
+                        
+                        table.insert(embed.fields, {
+                            ["name"] = "Private Server Link",
+                            ["value"] = psLink,
+                            ["inline"] = false
+                        })
+                        
+                        local imageUrl = "https://raw.githubusercontent.com/dtrke/SolsRNG/refs/heads/main/" .. biomeNameUpper .. ".png"
+                        embed["thumbnail"] = {
+                            ["url"] = imageUrl
+                        }
+                    end
+                    
+                    local payload = {
+                        ["content"] = contentMsg,
+                        ["embeds"] = {embed}
+                    }
+                    
+                    local HttpService = game:GetService("HttpService")
+                    local payloadJson = HttpService:JSONEncode(payload)
+                    
+                    task.spawn(function()
+                        pcall(function()
+                            local requestFunc = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+                            if requestFunc then
+                                requestFunc({
+                                    Url = webhookUrl,
+                                    Method = "POST",
+                                    Headers = {
+                                        ["Content-Type"] = "application/json"
+                                    },
+                                    Body = payloadJson
+                                })
+                            end
+                        end)
+                    end)
+                end
+                
+                local targetBiomes = {
+                    "WINDY", "SNOWY", "RAINY", "SANDSTORM", "HELL", 
+                    "STARFALL", "HEAVEN", "CORRUPTION", "NULL",
+                    "GLITCHED", "DREAMSPACE", "CYBERSPACE", "SINGULARITY"
+                }
+                
+                local function isValidBiome(biomeStr)
+                    local cleanBiome = biomeStr:upper():gsub(" ", "")
+                    for _, tb in ipairs(targetBiomes) do
+                        if cleanBiome == tb then
+                            return cleanBiome
+                        end
+                    end
+                    return nil
+                end
+
+                biomeMacroConnection = scrollingFrame.ChildAdded:Connect(function(child)
+                    if child:IsA("TextLabel") then
+                        task.wait(0.2)
+                        local text = child.Text
+                        if text:lower():find("biome") and (text:lower():find("started") or text:lower():find("ended")) then
+                            local timeStr = text:match("%[(%d+:%d+)%]") or "Unknown"
+                            local biomeRaw = text:match('"(.-)"')
+                            
+                            local action = text:lower():find("started") and "started" or "ended"
+                            if biomeRaw then
+                                local validBiome = isValidBiome(biomeRaw)
+                                if validBiome then
+                                    sendDiscordWebhook(validBiome, action, timeStr)
+                                end
+                            end
+                        end
+                    end
+                end)
+            end
+        else
+            if biomeMacroConnection then
+                biomeMacroConnection:Disconnect()
+                biomeMacroConnection = nil
+            end
+        end
+    end
+})
 
 SolTab.Toggle({
     Text = "오토 아이템 사용 (바이옴)",
@@ -6974,6 +7144,8 @@ SolTab.Toggle({
     end
 })
 
+SolTab.Label({ Text = "기타" })
+
 SolTab.Toggle({
     Text = "[ Funny ] Music - 동기화",
     Enabled = Settings.SolEgg.musicSync,
@@ -6981,8 +7153,6 @@ SolTab.Toggle({
         Settings.SolEgg.musicSync = v
     end
 })
-
-
 
 -- ================= 기타 게임들 탭 =================
 local OtherGameTab = UI.New({ Title = "기타 게임들", Icon = "gamepad-2" })
@@ -7442,6 +7612,15 @@ PERTab.Toggle({
 })
 
 PERTab.Label({ Text = "솔스" })
+
+PERTab.TextField({
+    Text = "브섭 링크",
+    Default = Settings.PrivateServerLink or "",
+    Type = "Default",
+    Callback = function(v)
+        Settings.PrivateServerLink = v
+    end
+})
 
 PERTab.Label({ Text = "디스코드" })
 
