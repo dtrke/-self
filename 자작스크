@@ -7143,7 +7143,7 @@ SolTab.Toggle({
                                                 task.spawn(function()
                                                     local lastPCount = -1
                                                     while true do
-                                                        task.wait(1)
+                                                        task.wait(2.5) -- 디스코드 Rate Limit(요청 제한) 방지를 위해 2.5초로 여유를 둠
                                                         if currentBiomeSession ~= mySession then
                                                             pcall(function()
                                                                 payload.embeds[1].fields[3].value = "NILL"
