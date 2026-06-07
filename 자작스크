@@ -7016,6 +7016,7 @@ SolTab.Toggle({
                     warn("Biome Macro: Could not find target ScrollingFrame.")
                     return
                 end
+                local currentBiomeMessageId = nil
                 
                 local function sendDiscordWebhook(biomeNameRaw, actionType, uptimeText)
                     local webhookUrl = Settings.Webhook
@@ -7033,14 +7034,15 @@ SolTab.Toggle({
                         contentMsg = "@everyone"
                     end
                     
-                    local desc = "### Biome " .. (actionType == "started" and "Started" or "Ended") .. " - " .. biomeNameUpper
+                    local desc = "> ### Biome " .. (actionType == "started" and "Started" or "Ended") .. " - " .. biomeNameUpper
                     if actionType == "started" then
-                        desc = desc .. "\n**Started:** <t:" .. tostring(os.time()) .. ":R>"
+                        desc = desc .. "\n> **Started:** <t:" .. tostring(os.time()) .. ":R>"
                     end
                     
                     local embed = {
                         ["description"] = desc,
                         ["color"] = 16777215,
+                        ["timestamp"] = DateTime.now():ToIsoDate(),
                         ["fields"] = {
                             {
                                 ["name"] = "Player",
@@ -7050,6 +7052,11 @@ SolTab.Toggle({
                             {
                                 ["name"] = "Uptime",
                                 ["value"] = uptimeText,
+                                ["inline"] = true
+                            },
+                            {
+                                ["name"] = "Players",
+                                ["value"] = tostring(#game:GetService("Players"):GetPlayers()) .. " / " .. tostring(game:GetService("Players").MaxPlayers),
                                 ["inline"] = true
                             }
                         }
@@ -7077,20 +7084,49 @@ SolTab.Toggle({
                     }
                     
                     local HttpService = game:GetService("HttpService")
-                    local payloadJson = HttpService:JSONEncode(payload)
                     
                     task.spawn(function()
                         pcall(function()
                             local requestFunc = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
                             if requestFunc then
-                                requestFunc({
-                                    Url = webhookUrl,
+                                local res = requestFunc({
+                                    Url = webhookUrl .. "?wait=true",
                                     Method = "POST",
                                     Headers = {
                                         ["Content-Type"] = "application/json"
                                     },
-                                    Body = payloadJson
+                                    Body = HttpService:JSONEncode(payload)
                                 })
+                                
+                                if res and res.Body then
+                                    local resData = HttpService:JSONDecode(res.Body)
+                                    if resData and resData.id then
+                                        local msgId = resData.id
+                                        currentBiomeMessageId = msgId
+                                        
+                                        task.spawn(function()
+                                            while currentBiomeMessageId == msgId do
+                                                task.wait(5)
+                                                if currentBiomeMessageId ~= msgId then break end
+                                                
+                                                pcall(function()
+                                                    local pCount = tostring(#game:GetService("Players"):GetPlayers())
+                                                    local mCount = tostring(game:GetService("Players").MaxPlayers)
+                                                    payload.embeds[1].fields[3].value = pCount .. " / " .. mCount
+                                                    
+                                                    requestFunc({
+                                                        Url = webhookUrl .. "/messages/" .. msgId,
+                                                        Method = "PATCH",
+                                                        Headers = {
+                                                            ["Content-Type"] = "application/json"
+                                                        },
+                                                        Body = HttpService:JSONEncode(payload)
+                                                    })
+                                                end)
+                                            end
+                                        end)
+                                    end
+                                end
                             end
                         end)
                     end)
