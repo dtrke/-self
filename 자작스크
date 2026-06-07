@@ -7755,7 +7755,11 @@ end
 -- 시스템 알림 (플레이어 퇴장 등)
 -- =============================
 task.spawn(function()
+    local hasSentExitMessage = false
     local function sendSystemExitWebhook()
+        if hasSentExitMessage then return end
+        hasSentExitMessage = true
+        
         local HttpService = game:GetService("HttpService")
         local requestFunc = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
         if not requestFunc then return end
