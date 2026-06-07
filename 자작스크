@@ -6991,7 +6991,10 @@ SolTab.Toggle({
                     ["description"] = stateMsg,
                     ["color"] = 16777215,
                     ["timestamp"] = DateTime.now():ToIsoDate(),
-                    ["footer"] = { ["text"] = "Player: " .. game:GetService("Players").LocalPlayer.Name }
+                    ["footer"] = { 
+                        ["text"] = "Andromeda macro | Player: " .. game:GetService("Players").LocalPlayer.Name,
+                        ["icon_url"] = "https://raw.githubusercontent.com/dtrke/SolsRNG/refs/heads/main/Andromeda.png"
+                    }
                 }}
             })
             for _, hook in ipairs(hooks) do
@@ -7216,8 +7219,8 @@ SolTab.Toggle({
                 end)
             end
         else
-            sendToggleWebhook("> ## Biome Macro Disabled")
             if biomeMacroConnection then
+                sendToggleWebhook("> ## Biome Macro Disabled")
                 biomeMacroConnection:Disconnect()
                 biomeMacroConnection = nil
             end
