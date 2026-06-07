@@ -7619,6 +7619,7 @@ PERTab.TextField({
     Type = "Default",
     Callback = function(v)
         Settings.PrivateServerLink = v
+        if SaveConfig then SaveConfig() end
     end
 })
 
@@ -7629,6 +7630,7 @@ PERTab.Toggle({
     Enabled = Settings.Screenshot.enabled,
     Callback = function(v)
         Settings.Screenshot.enabled = v
+        if SaveConfig then SaveConfig() end
     end
 })
 
@@ -7638,6 +7640,7 @@ PERTab.TextField({
     Type = "Default",
     Callback = function(v)
         Settings.Webhook = v
+        if SaveConfig then SaveConfig() end
     end
 })
 
