@@ -7760,6 +7760,7 @@ end
 task.spawn(function()
     local hasSentExitMessage = false
     local function sendSystemExitWebhook()
+        if not biomeMacroConnection then return end
         if hasSentExitMessage then return end
         hasSentExitMessage = true
         
