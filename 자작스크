@@ -7080,7 +7080,7 @@ SolTab.Toggle({
                         ["timestamp"] = DateTime.now():ToIsoDate(),
                         ["fields"] = {
                             {
-                                ["name"] = "Player",
+                                ["name"] = "PS owner",
                                 ["value"] = LocalPlayer.Name,
                                 ["inline"] = true
                             },
