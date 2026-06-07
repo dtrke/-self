@@ -234,7 +234,16 @@ local Settings = {
     -- 음악 비주얼라이저 설정
     MusicVisualizerSetting = {
         color = "#FFFFFF",
-        baseColorType = "검은색"
+        baseColorType = "검은색",
+        MotionAlpha = 0,
+        VisualizerTime = 0,
+        isDraggingTimeline = false,
+        leftBars = {},
+        rightBars = {},
+        lastCamLook = nil,
+        lastCamPos = nil,
+        currentSway = Vector3.new(0, 0),
+        Gui = nil
     }
 }
 
@@ -3359,6 +3368,43 @@ task.spawn(function()
 	end
 end)
 
+-- ==========================================
+-- 보스 스턴 키 자동 탈출 (StunEscape Auto Keypresser)
+-- ==========================================
+task.spawn(function()
+    local vim = Services.VirtualInputManager
+    while true do
+        task.wait(0.05)
+        if Settings.SolEgg.autoStunEscape then
+            local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+            local stunEscape = playerGui and playerGui:FindFirstChild("StunEscape")
+            if stunEscape and stunEscape.Enabled then
+                local pcFrame = stunEscape:FindFirstChild("PCFrame")
+                local frame = pcFrame and pcFrame:FindFirstChild("Frame")
+                if frame then
+                    for _, childName in ipairs({"1", "2", "3", "4", "5"}) do
+                        local buttonFrame = frame:FindFirstChild(childName)
+                        local imageGroup = buttonFrame and buttonFrame:FindFirstChild("ImageGroup")
+                        local textLabel = imageGroup and imageGroup:FindFirstChildOfClass("TextLabel")
+                        if textLabel and textLabel.Text ~= "" then
+                            local rawText = textLabel.Text
+                            local letter = rawText:match("%a")
+                            if letter then
+                                local keyCode = Enum.KeyCode[letter:upper()]
+                                if keyCode then
+                                    vim:SendKeyEvent(true, keyCode, false, game)
+                                    task.wait(0.01)
+                                    vim:SendKeyEvent(false, keyCode, false, game)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
 -- =============================
 -- [ 바이옴 아이템 자동 사용 시스템 ]
 -- =============================
@@ -4093,10 +4139,696 @@ LocalPlayer.CharacterAdded:Connect(function(character)
     end
 end)
 
+-- =============================
+-- [절대무적] 아바타 자동 적용 감시 루프
+-- =============================
+-- 로블록스 이벤트(생성, 로딩 완료 등)가 씹히는 게임이나 환경을 완벽히 극복하기 위해,
+-- 백그라운드에서 0.5초마다 캐릭터 상태를 직접 검사합니다.
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        local char = LocalPlayer.Character
+        
+        if Settings.AvatarChanger.enabled and char and char.Parent then
+            -- 캐릭터가 로딩 중인지 꼼꼼히 확인 (Humanoid, Head 존재 여부 등)
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            local head = char:FindFirstChild("Head")
+            
+            if humanoid and head then
+                -- 우리 스크립트가 아바타를 입혔다는 '마커'가 없는 새 캐릭터라면?
+                if not char:GetAttribute("CustomAvatarLoaded_Mark") then
+                    
+                    -- [버그 수정] 특정 게임이나 환경에서 HasAppearanceLoaded()가 영원히 false로 멈추는 현상 발생.
+                    -- 따라서 이 불완전한 로블록스 함수를 빼버리고, 머리와 몸통이 생긴 시점부터 무조건 1초를 기다립니다.
+                    task.wait(1)
+                    
+                    -- 그 1초 사이에 캐릭터가 또 죽지 않았다면 실행
+                    if char == LocalPlayer.Character and char.Parent then
+                        BackupAvatar(char)
+                        ApplyAvatarChanger(char, Settings.AvatarChanger.pattern)
+                    end
+                end
+            end
+        end
+    end
+end)
+
 
 -- =============================
 -- Material UI 로드
 -- =============================
+-- =============================
+-- 스크린샷 기능 (Webhook)
+-- =============================
+local function sendStatusToDiscord()
+    local webhook = Settings.Webhook
+    if webhook == "" or not webhook:find("discord.com/api/webhooks") then
+        return
+    end
+
+    local success, result = pcall(function()
+        -- 1. 데이터 수집
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        
+        local hp = hum and math.floor(hum.Health) or 0
+        local maxHp = hum and math.floor(hum.MaxHealth) or 0
+        local pos = hrp and string.format("%.1f, %.1f, %.1f", hrp.Position.X, hrp.Position.Y, hrp.Position.Z) or "알 수 없음"
+        
+        local gameName = "알 수 없음"
+        pcall(function()
+            gameName = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name
+        end)
+        
+        -- 2. 스크린샷 캡쳐 시도
+        local screenshotData = (getgenv().screenshot and getgenv().screenshot()) 
+                            or (getgenv().capture_screenshot and getgenv().capture_screenshot())
+                            or (getgenv().get_screenshot and getgenv().get_screenshot())
+                            or (getgenv().capture_screen and getgenv().capture_screen())
+                            or (syn and syn.screenshot and syn.screenshot())
+                            or (syn and syn.capture_screenshot and syn.capture_screenshot())
+        
+        local http_request = request or (syn and syn.request) or (http and http.request) or http_request
+        if not http_request then
+            return
+        end
+
+        local executor = (identifyexecutor and identifyexecutor()) or "Unknown"
+
+        -- 3. 디스코드 전송 데이터 구성
+        local embed = {
+            title = "📊 플레이어 상태 보고서",
+            color = screenshotData and 5814783 or 16733525, -- 사진 있으면 파랑, 없으면 빨강
+            thumbnail = {
+                url = string.format("https://www.roblox.com/asset-thumbnail/image?assetId=%d&width=420&height=420&format=png", game.PlaceId)
+            },
+            fields = {
+                { name = "플레이어", value = string.format("%s (@%s)", LocalPlayer.DisplayName, LocalPlayer.Name), inline = true },
+                { name = "체력", value = string.format("%d / %d", hp, maxHp), inline = true },
+                { name = "위치 (XYZ)", value = pos, inline = false },
+                { name = "게임", value = string.format("%s (%d)", gameName, game.PlaceId), inline = true },
+                { name = "서버 ID", value = "```" .. game.JobId .. "```", inline = false }
+            },
+            footer = { text = "자작 스크립트 | " .. os.date("%Y-%m-%d %H:%M:%S") }
+        }
+
+        if screenshotData then
+            -- 사진이 있는 경우 (멀티파트 전송)
+            local boundary = "---------------------------" .. tick()
+            embed.image = { url = "attachment://screenshot.png" }
+            
+            local body = "--" .. boundary .. "\r\n" ..
+                         "Content-Disposition: form-data; name=\"payload_json\"\r\n" ..
+                         "Content-Type: application/json\r\n\r\n" ..
+                         game:GetService("HttpService"):JSONEncode({ embeds = { embed } }) .. "\r\n" ..
+                         "--" .. boundary .. "\r\n" ..
+                         "Content-Disposition: form-data; name=\"file\"; filename=\"screenshot.png\"\r\n" ..
+                         "Content-Type: image/png\r\n\r\n" ..
+                         screenshotData .. "\r\n" ..
+                         "--" .. boundary .. "--\r\n"
+            
+            http_request({
+                Url = webhook,
+                Method = "POST",
+                Headers = { ["Content-Type"] = "multipart/form-data; boundary=" .. boundary },
+                Body = body
+            })
+        else
+            -- 사진이 없는 경우 (Solara 등, 텍스트 임베드만 전송)
+            http_request({
+                Url = webhook,
+                Method = "POST",
+                Headers = { ["Content-Type"] = "application/json" },
+                Body = game:GetService("HttpService"):JSONEncode({
+                    content = executor:find("Solara") and "! Solara는 캡쳐를 지원하지 않아 상태 정보만 전송합니다." or "! 캡쳐 API를 찾을 수 없어 상태 정보만 전송합니다.",
+                    embeds = { embed }
+                })
+            })
+        end
+    end)
+    if not success then
+    end
+end
+
+-- =============================
+-- 스크린샷 자동 전송 루프
+-- =============================
+task.spawn(function()
+    while true do
+        if Settings.Screenshot and Settings.Screenshot.enabled then
+            sendStatusToDiscord()
+        end
+        task.wait(60) -- 1분 대기
+    end
+end)
+
+-- =============================
+-- [NEW] 음악 비주얼라이저 및 타임라인 모듈
+-- =============================
+local MusicVisualizer = {}
+-- Initialize state variables in settings registry
+Settings.MusicVisualizerSetting.lastCamLook = Camera.CFrame.LookVector
+Settings.MusicVisualizerSetting.lastCamPos = Camera.CFrame.Position
+Settings.MusicVisualizerSetting.currentSway = Vector2.new(0, 0)
+Settings.MusicVisualizerSetting.VisualizerTime = 0
+Settings.MusicVisualizerSetting.MotionAlpha = 0
+Settings.MusicVisualizerSetting.leftBars = {}
+Settings.MusicVisualizerSetting.rightBars = {}
+
+local VisualizerColorMap = {
+    ["하얀색"] = Color3.fromRGB(255, 255, 255),
+    ["빨간색"] = Color3.fromRGB(255, 50, 50),
+    ["주황색"] = Color3.fromRGB(255, 120, 0),
+    ["노란색"] = Color3.fromRGB(255, 220, 0),
+    ["초록색"] = Color3.fromRGB(50, 255, 50),
+    ["파란색"] = Color3.fromRGB(50, 100, 255),
+    ["보라색"] = Color3.fromRGB(150, 50, 255),
+    ["핑크색"] = Color3.fromRGB(255, 100, 200),
+    ["하늘색"] = Color3.fromRGB(100, 200, 255)
+}
+
+local function parseHexColor(hexStr)
+    if not hexStr or type(hexStr) ~= "string" then return nil end
+    hexStr = hexStr:gsub("#", ""):gsub("%s", "")
+    if #hexStr == 6 then
+        local r = tonumber(hexStr:sub(1, 2), 16)
+        local g = tonumber(hexStr:sub(3, 4), 16)
+        local b = tonumber(hexStr:sub(5, 6), 16)
+        if r and g and b then
+            return Color3.fromRGB(r, g, b)
+        end
+    elseif #hexStr == 3 then
+        local r = tonumber(hexStr:sub(1, 1):rep(2), 16)
+        local g = tonumber(hexStr:sub(2, 2):rep(2), 16)
+        local b = tonumber(hexStr:sub(3, 3):rep(2), 16)
+        if r and g and b then
+            return Color3.fromRGB(r, g, b)
+        end
+    end
+    return nil
+end
+
+local function getVisualizerColor(colorStr)
+    if not colorStr then return Color3.new(1, 1, 1) end
+    if VisualizerColorMap[colorStr] then
+        return VisualizerColorMap[colorStr]
+    end
+    local parsed = parseHexColor(colorStr)
+    if parsed then
+        return parsed
+    end
+    return Color3.new(1, 1, 1)
+end
+
+Settings.MusicVisualizerSetting.Gui = Instance.new("ScreenGui")
+Settings.MusicVisualizerSetting.Gui.Name = "CustomMusicVisualizer"
+Settings.MusicVisualizerSetting.Gui.ResetOnSpawn = false
+Settings.MusicVisualizerSetting.Gui.IgnoreGuiInset = true -- 상단 여백 비는 현상 수정 (로블록스 기본 탑바 무시)
+local successGui = pcall(function() Settings.MusicVisualizerSetting.Gui.Parent = game:GetService("CoreGui") end)
+if not successGui then 
+    Settings.MusicVisualizerSetting.Gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- 중앙 하단 타임라인 구조 (반투명)
+local timelineBox = Instance.new("Frame", Settings.MusicVisualizerSetting.Gui)
+timelineBox.Size = UDim2.new(0.36, 0, 0.013, 0) -- 전체 크기 1.1배 축소 (0.4 -> 0.36, 0.015 -> 0.013)
+timelineBox.Position = UDim2.new(0.5, 0, 0.83, 0) -- 위치 하향 복구 (0.78 -> 0.83)
+timelineBox.AnchorPoint = Vector2.new(0.5, 1)
+timelineBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+timelineBox.BackgroundTransparency = 0.5
+timelineBox.BorderSizePixel = 0
+timelineBox.ZIndex = 2 -- 달보다 앞으로 배치
+
+-- [NEW] 타임라인 뒤 배경 달 (Moon) - 지정된 데칼 아이디 적용
+local moonFrame = Instance.new("ImageLabel", Settings.MusicVisualizerSetting.Gui)
+moonFrame.Name = "MusicMoon"
+-- 데칼 웹페이지 ID를 인게임에서 직접 쓸 때 안 보이는 현상 해결을 위해 rbxthumb 사용
+moonFrame.Image = "rbxthumb://type=Asset&id=8922788427&w=420&h=420" 
+moonFrame.Size = UDim2.new(0.24, 0, 0.24, 0) -- 크기 2배 유지
+moonFrame.Position = UDim2.new(0.5, 0, 0.65, 0) -- 타임라인 정중앙에서 더 위쪽으로 상향
+moonFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+moonFrame.BackgroundTransparency = 1
+moonFrame.ImageTransparency = 0.4 -- 기존 0.8이 너무 투명해서 안 보일 수 있으므로 0.4로 가시성 확보
+moonFrame.BorderSizePixel = 0
+moonFrame.ZIndex = 1
+
+local moonAspect = Instance.new("UIAspectRatioConstraint", moonFrame)
+moonAspect.AspectRatio = 1 -- 정비율 유지
+
+-- [NEW] 달 중앙에 회전하는 사각형 장식 2개 (외곽선만 남김)
+local function createRotatingSquare(parent, name, sizeScale, color, order)
+    local sq = Instance.new("Frame", parent)
+    sq.Name = name
+    sq.Size = UDim2.new(sizeScale, 0, sizeScale, 0)
+    sq.Position = UDim2.new(0.5, 0, 0.5, 0)
+    sq.AnchorPoint = Vector2.new(0.5, 0.5)
+    sq.BackgroundTransparency = 1 -- 배경 완전 투명 (테두리만 남김)
+    sq.BorderSizePixel = 0
+    sq.ZIndex = order
+    local stroke = Instance.new("UIStroke", sq)
+    stroke.Color = color
+    stroke.Thickness = 2
+    stroke.Transparency = 0.2
+    local aspect = Instance.new("UIAspectRatioConstraint", sq)
+    aspect.AspectRatio = 1
+    return sq
+end
+
+local bigSquare = createRotatingSquare(moonFrame, "BigRotSquare", 0.304, Color3.new(1, 1, 1), 0) -- 하얀색 (1.1배 확대)
+local smallSquare = createRotatingSquare(moonFrame, "SmallRotSquare", 0.238, Color3.new(0, 0, 0), 1) -- 검정색
+
+-- 사각형 기본 크기 상수 (동적 크기 계산용)
+local bigSquareBase = 0.304
+local smallSquareBase = 0.238
+
+
+local timelineProgress = Instance.new("Frame", timelineBox)
+timelineProgress.Size = UDim2.new(0, 0, 1, 0)
+timelineProgress.BackgroundColor3 = Color3.fromRGB(180, 180, 180) -- 전체 흑백 테마 반영
+timelineProgress.BackgroundTransparency = 0.3
+timelineProgress.BorderSizePixel = 0
+
+-- [NEW] 음악 제목 표시용 텍스트 레이블 (타임라인 하단)
+local musicTitle = Instance.new("TextLabel", timelineBox)
+musicTitle.Name = "MusicTitle"
+musicTitle.Size = UDim2.new(1, 0, 0, 40) -- 폰트 크기에 맞춰 높이 재조정 (80 -> 40)
+musicTitle.Position = UDim2.new(0.5, 0, 1, 10) -- 타임라인 바에서 10픽셀 아래로 간격 최적화
+musicTitle.AnchorPoint = Vector2.new(0.5, 0)
+musicTitle.BackgroundTransparency = 1
+musicTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+musicTitle.TextSize = 28 -- 2.5배 축소 (70 -> 28)
+musicTitle.Font = Enum.Font.Gotham -- 얇고 세련된 느낌의 일반 Gotham 폰트 적용
+musicTitle.Text = ""
+musicTitle.TextStrokeTransparency = 0.5 -- 가독성 향상
+
+-- [NEW] 제목 포매팅 함수 (PascalCase -> Spaced Word)
+local function FormatMusicTitle(name)
+    if not name then return "" end
+    -- 확장자 제거 (.mp3, .wav 등)
+    local title = name:gsub("%.%w+$", "")
+    -- 첫 대문자가 아닌 뒤의 대문자 앞에 한 칸 띄어쓰기 추가
+    title = title:gsub("([^%s])(%u)", "%1 %2")
+    return title
+end
+
+-- Settings.MusicVisualizerSetting.isDraggingTimeline in settings registry
+local function UpdateSeek(inputPos)
+    local sound = GetCurrentPlayingSound()
+    if sound and sound.TimeLength > 0 then
+        local relX = math.clamp((inputPos.X - timelineBox.AbsolutePosition.X) / timelineBox.AbsoluteSize.X, 0, 1)
+        sound.TimePosition = relX * sound.TimeLength
+    end
+end
+
+timelineBox.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        Settings.MusicVisualizerSetting.isDraggingTimeline = true
+        UpdateSeek(input.Position)
+    end
+end)
+
+Services.UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        Settings.MusicVisualizerSetting.isDraggingTimeline = false
+    end
+end)
+
+Services.UserInputService.InputChanged:Connect(function(input)
+    if Settings.MusicVisualizerSetting.isDraggingTimeline and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        UpdateSeek(input.Position)
+    end
+end)
+
+-- [NEW] 타임라인 장식 (End-Caps / Brackets)
+local function CreateBracket(side)
+    local b = Instance.new("Frame", timelineBox)
+    b.Size = UDim2.new(0, 2, 1, 6)
+    b.Position = UDim2.new(side == "Left" and 0 or 1, side == "Left" and -6 or 6, 0.5, 0)
+    b.AnchorPoint = Vector2.new(side == "Left" and 1 or 0, 0.5)
+    b.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+    b.BackgroundTransparency = 0.4
+    b.BorderSizePixel = 0
+    Instance.new("UICorner", b).CornerRadius = UDim.new(1, 0)
+    
+    local h = Instance.new("Frame", b)
+    h.Size = UDim2.new(0, 6, 0, 2)
+    h.Position = UDim2.new(side == "Left" and 1 or 0, 0, 0, 0)
+    h.AnchorPoint = Vector2.new(side == "Left" and 1 or 0, 0)
+    h.BackgroundColor3 = b.BackgroundColor3
+    h.BackgroundTransparency = b.BackgroundTransparency
+    h.BorderSizePixel = 0
+    
+    local f = h:Clone()
+    f.Parent = b
+    f.Position = UDim2.new(side == "Left" and 1 or 0, 0, 1, 0)
+    f.AnchorPoint = Vector2.new(side == "Left" and 1 or 0, 1)
+end
+CreateBracket("Left")
+CreateBracket("Right")
+
+local corner1 = Instance.new("UICorner", timelineBox)
+corner1.CornerRadius = UDim.new(1, 0)
+local corner2 = Instance.new("UICorner", timelineProgress)
+corner2.CornerRadius = UDim.new(1, 0)
+
+-- 왼쪽 비주얼라이저 부모 (세로 100%)
+local leftContainer = Instance.new("Frame", Settings.MusicVisualizerSetting.Gui)
+leftContainer.Size = UDim2.new(0.25, 0, 1, 0)
+leftContainer.Position = UDim2.new(0, 0, 0.5, 0)
+leftContainer.AnchorPoint = Vector2.new(0, 0.5)
+leftContainer.BackgroundTransparency = 1
+
+-- 오른쪽 비주얼라이저 부모 (세로 100%)
+local rightContainer = Instance.new("Frame", Settings.MusicVisualizerSetting.Gui)
+rightContainer.Size = UDim2.new(0.25, 0, 1, 0)
+rightContainer.Position = UDim2.new(1, 0, 0.5, 0) -- 화면 오른쪽에 딱 붙임
+rightContainer.AnchorPoint = Vector2.new(1, 0.5)
+rightContainer.BackgroundTransparency = 1
+
+local numBars = 40
+-- leftBars in settings registry
+-- rightBars in settings registry
+
+-- 대칭 구조의 바 생성 (직사각형)
+for i = 1, numBars do
+    -- Left 바
+    local lb = Instance.new("Frame", leftContainer)
+    lb.BackgroundColor3 = Color3.fromRGB(200, 200, 255)
+    lb.BackgroundTransparency = 0.75
+    lb.BorderSizePixel = 0
+    lb.AnchorPoint = Vector2.new(0, 0.5)
+    lb.Position = UDim2.new(0, 0, (i-0.5)/numBars, 0)
+    lb.Size = UDim2.new(0.01, 0, 0.6/numBars, 0) 
+    table.insert(Settings.MusicVisualizerSetting.leftBars, lb)
+
+    -- Right 바
+    local rb = Instance.new("Frame", rightContainer)
+    rb.BackgroundColor3 = Color3.fromRGB(200, 200, 255)
+    rb.BackgroundTransparency = 0.75
+    rb.BorderSizePixel = 0
+    rb.AnchorPoint = Vector2.new(1, 0.5)
+    rb.Position = UDim2.new(1, 0, (i-0.5)/numBars, 0)
+    rb.Size = UDim2.new(0.01, 0, 0.6/numBars, 0)
+    table.insert(Settings.MusicVisualizerSetting.rightBars, rb)
+end
+
+-- 현재 플레이중인 사운드 감지
+local function GetCurrentPlayingSound()
+    -- [NEW] 1순위: 솔스 탭의 음악 동기화 기능 (HRP 내 BGM 사운드 감시)
+    if Settings.SolEgg.musicSync then
+        local char = LocalPlayer.Character or (workspace:FindFirstChild(LocalPlayer.Name))
+        if char then
+            -- [ADVANCED] 캐릭터 기본 효과음을 제외한 모든 음악 파일 자동 감지
+            local excluded = {"Climbing", "Died", "FreeFalling", "GettingUp", "Jumping", "Landing", "Running", "Splash", "Swimming"}
+            for _, child in ipairs(char:GetDescendants()) do
+                if child:IsA("Sound") and child.IsPlaying and child.TimeLength > 0 then
+                    if not table.find(excluded, child.Name) then
+                        child.Volume = 1 -- 음악 볼륨 1 고정
+                        return child
+                    end
+                end
+            end
+        end
+    end
+
+    -- 2순위: 기존 Funny 음악 기능
+    if getgenv and getgenv().FunnyMusicPlaying and getgenv().CurrentFunnyMusic and getgenv().CurrentFunnyMusic ~= "" then
+        local funnySound = game:GetService("CoreGui"):FindFirstChild(getgenv().CurrentFunnyMusic)
+        if funnySound and funnySound:IsA("Sound") and funnySound.IsPlaying and funnySound.TimeLength > 0 then
+            return funnySound
+        end
+    end
+    return nil
+end
+
+Settings.MusicVisualizerSetting.MotionAlpha = 0
+-- Settings.MusicVisualizerSetting.VisualizerTime in settings registry
+-- Settings.MusicVisualizerSetting.lastCamLook in settings registry
+-- Settings.MusicVisualizerSetting.lastCamPos in settings registry -- 캐릭터 움직임 감지를 위한 위치 추적 추가
+-- Settings.MusicVisualizerSetting.currentSway in settings registry
+
+-- 비주얼라이저 및 타임라인 실시간 렌더링
+Services.RunService.RenderStepped:Connect(function(dt)
+    local sound = GetCurrentPlayingSound()
+    
+    -- [NEW] 동기화 모드 시 파티클 이미터 색상 감지
+    local syncColor = nil
+    if Settings.SolEgg.musicSync then
+        local char = LocalPlayer.Character or (workspace:FindFirstChild(LocalPlayer.Name))
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            for _, descendant in ipairs(hrp:GetDescendants()) do
+                if descendant:IsA("ParticleEmitter") then
+                    syncColor = descendant.Color.Keypoints[1].Value
+                    break
+                end
+            end
+        end
+    end
+    
+    -- 카메라/캐릭터 움직임 물리 효과 (현실적인 스웨이)
+    local currentLook = Camera.CFrame.LookVector
+    local currentPos = Camera.CFrame.Position
+    
+    local lookDelta = currentLook - Settings.MusicVisualizerSetting.lastCamLook
+    -- 카메라 로컬 좌표계 기준으로 위치 변화량 산출 (이동 방향 감지)
+    local posDelta = Camera.CFrame:VectorToObjectSpace(currentPos - Settings.MusicVisualizerSetting.lastCamPos)
+    
+    Settings.MusicVisualizerSetting.lastCamLook = currentLook
+    Settings.MusicVisualizerSetting.lastCamPos = currentPos
+    
+    -- 회전(관성)과 이동(가속도 느낌)을 결합하여 타겟 스웨이 계산
+    -- 화면 회전에 따른 감도를 3배 낮춤 (20 -> 6.6)
+    
+    -- [보정] 3인칭 줌 아웃 시 위치 변화량이 과하게 커지는 현상 방지
+    local camDistance = (currentPos - Camera.Focus.Position).Magnitude
+    local posDamping = math.max(1, camDistance / 10) -- 거리가 멀수록 이동 감도 감쇄
+    
+    local targetSway = Vector2.new(
+        (lookDelta.X * 6.6) - (posDelta.X * 1.5 / posDamping), 
+        (lookDelta.Y * 6.6) + (posDelta.Y * 1.5 / posDamping)
+    )
+    
+    -- 타임라인이 화면 밖으로 너무 크게 벗어나는 것 방지 (Cap)
+    targetSway = Vector2.new(math.clamp(targetSway.X, -0.3, 0.3), math.clamp(targetSway.Y, -0.3, 0.3))
+    
+    Settings.MusicVisualizerSetting.currentSway = Settings.MusicVisualizerSetting.currentSway:Lerp(targetSway, 0.1)
+    Settings.MusicVisualizerSetting.currentSway = Settings.MusicVisualizerSetting.currentSway * 0.92 -- 감쇠(관성 유지)
+    
+    local swayX, swayY = Settings.MusicVisualizerSetting.currentSway.X * 100, Settings.MusicVisualizerSetting.currentSway.Y * 100
+    
+    -- 비주얼라이저 바는 고정 (스웨이 제거)
+    leftContainer.Position = UDim2.new(0, 0, 0.5, 0)
+    rightContainer.Position = UDim2.new(1, 0, 0.5, 0)
+    
+    -- 타임라인 바에만 위치 상향(0.85) 및 스웨이 오프셋 적용
+    -- [NEW] 사운드 크기에 따른 타임라인 떨림(Shake) 계산 (과하지 않게 normalized 기반 jitter 적용)
+    local timelineShakeX, timelineShakeY = 0, 0
+    if sound and sound.IsPlaying then
+        local loudness = sound.PlaybackLoudness or 0
+        -- [EXPONENTIAL SHAKE] 작은 소리에는 둔감하게, 큰 소리에는 폭발적으로 반응 (상한 15.0)
+        -- (loudness/500)의 제곱을 사용하여 낮은 볼륨에서의 떨림을 억제합니다.
+        local factor = loudness / 500
+        local shakeIntensity = 0.1 + (math.pow(factor, 2) * 14.9) 
+        timelineShakeX = math.random(-100, 100) / 100 * shakeIntensity
+        timelineShakeY = math.random(-100, 100) / 100 * shakeIntensity
+    end
+    
+    local targetAlpha = (sound and sound.IsPlaying) and 1 or 0
+    -- 더욱 부드러운 프레임 독립적 보간 (dt 사용)
+    local lerpSpeed = (targetAlpha == 1) and 10 or 6 -- 나타날 때 조금 더 빠르게, 사라질 때 조금 더 여유있게
+    Settings.MusicVisualizerSetting.MotionAlpha = Settings.MusicVisualizerSetting.MotionAlpha + (targetAlpha - Settings.MusicVisualizerSetting.MotionAlpha) * math.clamp(dt * lerpSpeed, 0, 1)
+    
+    local motion = Settings.MusicVisualizerSetting.MotionAlpha
+    -- [Refinement] Cubic Easing (motion^3) 적용 - 0에 가까워질수록 급격히 작아져서 '툭' 사라지는 느낌 방지
+    local m3 = math.pow(motion, 3) 
+
+    -- 투명도 제어 (invMotion: 0(나타남)~1(사라짐))
+    local invM = 1 - motion
+    
+    -- [MODIFIED] 타임라인 투명도 개선 (더 밝게)
+    timelineBox.BackgroundTransparency = 0.5 + (0.5 * invM)
+    timelineProgress.BackgroundTransparency = 0.15 + (0.85 * invM) -- 0.3 -> 0.15로 밝기 개선
+    
+    -- [MODIFIED] 동기화 모드일 때 제목 숨김
+    musicTitle.TextTransparency = Settings.SolEgg.musicSync and 1 or invM
+    musicTitle.TextStrokeTransparency = 0.5 + (0.5 * invM)
+    
+    -- [NEW] 동기화 색상 감지 (기존 그라데이션 대신 단색 적용)
+    local targetUIBaseColor = syncColor or Settings.MusicVisualizerSetting.leftBars[1].BackgroundColor3
+    
+    -- 브라켓 투명도 제어
+    for _, child in ipairs(timelineBox:GetChildren()) do
+        if child:IsA("Frame") and child.ZIndex == 1 then -- Brackets are added locally
+            child.BackgroundTransparency = 0.4 + (0.6 * invM)
+            local h = child:FindFirstChildOfClass("Frame")
+            if h then 
+                h.BackgroundTransparency = child.BackgroundTransparency
+                for _, f in ipairs(child:GetChildren()) do
+                    if f:IsA("Frame") then f.BackgroundTransparency = child.BackgroundTransparency end
+                end
+            end
+        end
+    end
+
+    -- 타임라인 바 위치 (제자리에서 나타나도록 오프셋 제거)
+    timelineBox.Position = UDim2.new(0.5, swayX + timelineShakeX, 0.83, swayY + timelineShakeY)
+    
+    -- [NEW] 달 오브젝트 위치/크기 업데이트 (진동 1.5배 약하게, 펄스 동기화)
+    if moonFrame then
+        moonFrame.ImageTransparency = 0.4 + (0.6 * invM)
+        
+        -- [MODIFIED] 달 색상 동기화 (파티클 색상 및 사용자 선택 색상 적용)
+        local colorName = Settings.MusicVisualizerSetting and Settings.MusicVisualizerSetting.color or "하얀색"
+        local selectedColor = getVisualizerColor(colorName)
+        local baseMoonColor = syncColor or selectedColor
+        
+        -- 사각형 스트로크 투명도 및 색상 제어
+        if bigSquare:FindFirstChildOfClass("UIStroke") then
+            bigSquare:FindFirstChildOfClass("UIStroke").Transparency = 0.2 + (0.8 * invM)
+            bigSquare:FindFirstChildOfClass("UIStroke").Color = baseMoonColor
+        end
+        if smallSquare:FindFirstChildOfClass("UIStroke") then
+            local smallColor = Color3.new(0, 0, 0)
+            if Settings.MusicVisualizerSetting and Settings.MusicVisualizerSetting.baseColorType == "흰색" then
+                smallColor = Color3.new(1, 1, 1)
+            end
+            smallSquare:FindFirstChildOfClass("UIStroke").Transparency = 0.2 + (0.8 * invM)
+            smallSquare:FindFirstChildOfClass("UIStroke").Color = syncColor or smallColor
+        end
+
+        local moonShakeX = timelineShakeX / 1.5
+        local moonShakeY = timelineShakeY / 1.5
+        -- 타임라인 기준 정중앙 정렬을 해제하고 시각적으로 더 높이 띄웁니다. (Y = 0.65)
+        local moonY = 0.73
+        moonFrame.Position = UDim2.new(0.5, swayX + moonShakeX, moonY, swayY + moonShakeY)
+        
+        if sound and sound.IsPlaying then
+            local loudness = sound.PlaybackLoudness or 0
+            local pulseNormalized = math.clamp(loudness / 500, 0, 1)
+            local moonSizeScale = (1 + (pulseNormalized * 0.08)) * m3
+            moonFrame.Size = UDim2.new(0.24 * moonSizeScale, 0, 0.24 * moonSizeScale, 0)
+            
+            -- [MODIFIED] 달 색상 (소리 크기에 비례하여 밝아짐, 파티클 색상 반영)
+            local brightness = math.clamp(pulseNormalized * 0.8, 0.1, 1)
+            moonFrame.ImageColor3 = baseMoonColor:Lerp(Color3.new(0,0,0), 1 - brightness)
+            
+            -- [NEW] 사각형 회전 (맥스 스피드 7배 상향)
+            bigSquare.Rotation = (Settings.MusicVisualizerSetting.VisualizerTime * 245) % 360
+            smallSquare.Rotation = -(Settings.MusicVisualizerSetting.VisualizerTime * 595) % 360
+            
+            -- [NEW] 사각형 동적 크기 (소리가 클수록 커짐, 최대 2.5배)
+            local sqScale = 1 + (pulseNormalized * 1.5)
+            bigSquare.Size = UDim2.new(bigSquareBase * sqScale * m3, 0, bigSquareBase * sqScale * m3, 0)
+            smallSquare.Size = UDim2.new(smallSquareBase * sqScale * m3, 0, smallSquareBase * sqScale * m3, 0)
+        else
+            moonFrame.Size = UDim2.new(0.24 * m3, 0, 0.24 * m3, 0)
+            -- [MODIFIED] 무음 시 달 색상 (어둡게 유지)
+            moonFrame.ImageColor3 = baseMoonColor:Lerp(Color3.new(0,0,0), 0.9)
+            
+            bigSquare.Rotation = (Settings.MusicVisualizerSetting.VisualizerTime * 105) % 360 -- 기본 속도 (7배)
+            smallSquare.Rotation = -(Settings.MusicVisualizerSetting.VisualizerTime * 210) % 360
+            bigSquare.Size = UDim2.new(bigSquareBase * m3, 0, bigSquareBase * m3, 0)
+            smallSquare.Size = UDim2.new(smallSquareBase * m3, 0, smallSquareBase * m3, 0)
+        end
+    end
+
+    
+    -- [NEW] 소리 크기에 따른 타임라인 크기 동적 스케일링 (Pulse Effect)
+    -- normalized 변수가 아래에서 선언되므로, 여기서 직접 참조하거나 아래에서 처리
+    if sound and sound.IsPlaying then
+        local loudness = sound.PlaybackLoudness or 0
+        local pulseNormalized = math.clamp(loudness / 500, 0, 1)
+        local sizeScale = (1 + (pulseNormalized * 0.12)) * m3
+        timelineBox.Size = UDim2.new(0.36 * sizeScale, 0, 0.013 * sizeScale, 0)
+    else
+        timelineBox.Size = UDim2.new(0.36 * m3, 0, 0.013 * m3, 0)
+    end
+
+    if motion > 0.001 then
+        Settings.MusicVisualizerSetting.Gui.Enabled = true
+        if sound and sound.IsPlaying then
+            -- [NEW] 음악 제목 업데이트
+            musicTitle.Text = FormatMusicTitle(sound.Name)
+            
+            -- 드래그 중이 아닐 때만 사운드 진행도에 따라 타임라인 업데이트
+            if not Settings.MusicVisualizerSetting.isDraggingTimeline then
+                local progress = math.clamp(sound.TimePosition / sound.TimeLength, 0, 1)
+                timelineProgress.Size = UDim2.new(progress, 0, 1, 0)
+            end
+            
+            local loudness = sound.PlaybackLoudness or 0
+            local normalized = math.clamp(loudness / 500, 0.05, 1)
+            
+            -- [RESTORED] 비주얼라이저 흐름 속도는 원래대로 복구 (0.5 ~ 3.0)
+            local speedMultiplier = 0.5 + (normalized * 2.5)
+            Settings.MusicVisualizerSetting.VisualizerTime = Settings.MusicVisualizerSetting.VisualizerTime + (dt * speedMultiplier)
+            
+            for i = 1, numBars do
+                local factor = (i - 1) / (numBars - 1) 
+                local wave = math.sin((Settings.MusicVisualizerSetting.VisualizerTime * 15) - (i * 0.3)) * 0.05
+                
+                -- [RESTORED] 컴프레서 제거 및 고정 고감도(1.35x) 복구
+                local targetScale = math.clamp(normalized * 1.35 * (0.55 - factor * 0.25) + wave, 0.01, 1.35)
+                
+                local curL = Settings.MusicVisualizerSetting.leftBars[i].Size.X.Scale
+                -- m3를 직접 곱하여 retraction을 MotionAlpha와 완벽히 동기화
+                local newL = curL + (targetScale * m3 - curL) * 0.25
+                Settings.MusicVisualizerSetting.leftBars[i].Size = UDim2.new(newL, 0, Settings.MusicVisualizerSetting.leftBars[i].Size.Y.Scale, 0)
+                
+                local curR = Settings.MusicVisualizerSetting.rightBars[i].Size.X.Scale
+                local newR = curR + (targetScale * m3 - curR) * 0.25
+                Settings.MusicVisualizerSetting.rightBars[i].Size = UDim2.new(newR, 0, Settings.MusicVisualizerSetting.rightBars[i].Size.Y.Scale, 0)
+                
+                -- [MODIFIED] 색상 설정 및 흑백 설정 기반 그라데이션 보정
+                local cosWave = math.cos(Settings.MusicVisualizerSetting.VisualizerTime * 3 - (i/numBars) * 6.25)
+                local t = math.clamp(0.4 + 0.7 * cosWave, 0, 1)
+                
+                local maxColor
+                if syncColor then
+                    maxColor = syncColor
+                else
+                    local colorName = Settings.MusicVisualizerSetting and Settings.MusicVisualizerSetting.color or "하얀색"
+                    maxColor = getVisualizerColor(colorName)
+                end
+                
+                local minColor = Color3.new(0, 0, 0)
+                if Settings.MusicVisualizerSetting and Settings.MusicVisualizerSetting.baseColorType == "흰색" then
+                    minColor = Color3.new(1, 1, 1)
+                end
+                
+                local targetColor = minColor:Lerp(maxColor, t)
+                
+                Settings.MusicVisualizerSetting.leftBars[i].BackgroundColor3 = targetColor
+                Settings.MusicVisualizerSetting.rightBars[i].BackgroundColor3 = targetColor
+                
+                -- 바 투명도 제어 (기본 0.75)
+                Settings.MusicVisualizerSetting.leftBars[i].BackgroundTransparency = 0.75 + (0.25 * invM)
+                Settings.MusicVisualizerSetting.rightBars[i].BackgroundTransparency = 0.75 + (0.25 * invM)
+            end
+            -- 타임라인 색상도 일관성 있게 흑백으로 공유
+            timelineProgress.BackgroundColor3 = Settings.MusicVisualizerSetting.leftBars[1].BackgroundColor3
+        else
+            -- 사운드가 없더라도 motion(m3)이 살아있으면 바를 MotionAlpha 속도에 맞춰 줄여줌
+            for i = 1, numBars do
+                local curL = Settings.MusicVisualizerSetting.leftBars[i].Size.X.Scale
+                local newL = curL + (0 - curL) * 0.25
+                Settings.MusicVisualizerSetting.leftBars[i].Size = UDim2.new(newL, 0, Settings.MusicVisualizerSetting.leftBars[i].Size.Y.Scale, 0)
+                
+                local curR = Settings.MusicVisualizerSetting.rightBars[i].Size.X.Scale
+                local newR = curR + (0 - curR) * 0.25
+                Settings.MusicVisualizerSetting.rightBars[i].Size = UDim2.new(newR, 0, Settings.MusicVisualizerSetting.rightBars[i].Size.Y.Scale, 0)
+
+                Settings.MusicVisualizerSetting.leftBars[i].BackgroundTransparency = 0.75 + (0.25 * invM)
+                Settings.MusicVisualizerSetting.rightBars[i].BackgroundTransparency = 0.75 + (0.25 * invM)
+            end
+        end
+    else
+        Settings.MusicVisualizerSetting.Gui.Enabled = false
+    end
+end)
+
 local Material
 local m_success, m_err = pcall(function()
     Material = loadstring(game:HttpGet("https://raw.githubusercontent.com/Kinlei/MaterialLua/master/Module.lua"))()
@@ -7111,6 +7843,44 @@ OtherGameTab.Button({
 })
 
 OtherGameTab.Label({ Text = "PR" })
+
+local PR_LagFolders = {
+    "AssetProtectionPersistentLeftovers",
+    "WorldEssentials",
+    "SoundEmitters",
+    "SnowTrees",
+    "Props",
+    "Images",
+    "Lighting"
+}
+local PR_HiddenFolders = {}
+
+OtherGameTab.Toggle({
+    Text = "최적화 (렉 제거)",
+    Enabled = false,
+    Callback = function(value)
+        local world = workspace:FindFirstChild("World")
+        if not world then return end
+
+        if value then
+            for _, folderName in ipairs(PR_LagFolders) do
+                local folder = world:FindFirstChild(folderName)
+                if folder then
+                    PR_HiddenFolders[folderName] = folder
+                    folder.Parent = nil
+                end
+            end
+        else
+            for folderName, folder in pairs(PR_HiddenFolders) do
+                if folder then
+                    folder.Parent = world
+                end
+            end
+            table.clear(PR_HiddenFolders)
+        end
+    end
+})
+
 local prFarmToggled = false
 OtherGameTab.Toggle({
     Text = "자동 파밍",
@@ -7135,13 +7905,14 @@ OtherGameTab.Toggle({
             -- 텔레포트 추적 로직
             task.spawn(function()
                 local priorityList = {"Gilded Jewelry", "Tablet", "Smartphone", "Jewelry", "Electronics"}
+                local blacklist = {}
                 while prFarmToggled do
                     local RaycastIgnore = workspace:FindFirstChild("RaycastIgnore")
                     if not RaycastIgnore then task.wait(1) continue end
                     
                     local targets = {}
                     for _, child in ipairs(RaycastIgnore:GetChildren()) do
-                        if child:IsA("Model") then
+                        if child:IsA("Model") and not blacklist[child] then
                             table.insert(targets, child)
                         end
                     end
@@ -7167,12 +7938,22 @@ OtherGameTab.Toggle({
                         selectedTarget = targets[math.random(1, #targets)]
                     end
                     
+                    local teleportCount = 0
                     while selectedTarget and selectedTarget.Parent == RaycastIgnore and prFarmToggled do
                         local success, pivot = pcall(function() return selectedTarget:GetPivot() end)
                         if success and pivot then
                             local char = game.Players.LocalPlayer.Character
                             if char then char:PivotTo(pivot) end
                         end
+                        
+                        teleportCount = teleportCount + 1
+                        if teleportCount >= 5 then
+                            -- 5번 이상 시도했는데 안 먹어지면 버그 걸린 아이템/빛나는 파트로 간주하여 무시 & 파괴
+                            blacklist[selectedTarget] = true
+                            pcall(function() selectedTarget:Destroy() end)
+                            break
+                        end
+                        
                         task.wait(0.1)
                     end
                     task.wait(0.1)
@@ -7406,99 +8187,7 @@ EtcTab.Button({
 
 EtcTab.Label({ Text = "디스코드 웹후크" })
 
--- =============================
--- 스크린샷 기능 (Webhook)
--- =============================
-local function sendStatusToDiscord()
-    local webhook = Settings.Webhook
-    if webhook == "" or not webhook:find("discord.com/api/webhooks") then
-        return
-    end
 
-    local success, result = pcall(function()
-        -- 1. 데이터 수집
-        local char = LocalPlayer.Character
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        
-        local hp = hum and math.floor(hum.Health) or 0
-        local maxHp = hum and math.floor(hum.MaxHealth) or 0
-        local pos = hrp and string.format("%.1f, %.1f, %.1f", hrp.Position.X, hrp.Position.Y, hrp.Position.Z) or "알 수 없음"
-        
-        local gameName = "알 수 없음"
-        pcall(function()
-            gameName = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name
-        end)
-        
-        -- 2. 스크린샷 캡쳐 시도
-        local screenshotData = (getgenv().screenshot and getgenv().screenshot()) 
-                            or (getgenv().capture_screenshot and getgenv().capture_screenshot())
-                            or (getgenv().get_screenshot and getgenv().get_screenshot())
-                            or (getgenv().capture_screen and getgenv().capture_screen())
-                            or (syn and syn.screenshot and syn.screenshot())
-                            or (syn and syn.capture_screenshot and syn.capture_screenshot())
-        
-        local http_request = request or (syn and syn.request) or (http and http.request) or http_request
-        if not http_request then
-            return
-        end
-
-        local executor = (identifyexecutor and identifyexecutor()) or "Unknown"
-
-        -- 3. 디스코드 전송 데이터 구성
-        local embed = {
-            title = "📊 플레이어 상태 보고서",
-            color = screenshotData and 5814783 or 16733525, -- 사진 있으면 파랑, 없으면 빨강
-            thumbnail = {
-                url = string.format("https://www.roblox.com/asset-thumbnail/image?assetId=%d&width=420&height=420&format=png", game.PlaceId)
-            },
-            fields = {
-                { name = "플레이어", value = string.format("%s (@%s)", LocalPlayer.DisplayName, LocalPlayer.Name), inline = true },
-                { name = "체력", value = string.format("%d / %d", hp, maxHp), inline = true },
-                { name = "위치 (XYZ)", value = pos, inline = false },
-                { name = "게임", value = string.format("%s (%d)", gameName, game.PlaceId), inline = true },
-                { name = "서버 ID", value = "```" .. game.JobId .. "```", inline = false }
-            },
-            footer = { text = "자작 스크립트 | " .. os.date("%Y-%m-%d %H:%M:%S") }
-        }
-
-        if screenshotData then
-            -- 사진이 있는 경우 (멀티파트 전송)
-            local boundary = "---------------------------" .. tick()
-            embed.image = { url = "attachment://screenshot.png" }
-            
-            local body = "--" .. boundary .. "\r\n" ..
-                         "Content-Disposition: form-data; name=\"payload_json\"\r\n" ..
-                         "Content-Type: application/json\r\n\r\n" ..
-                         game:GetService("HttpService"):JSONEncode({ embeds = { embed } }) .. "\r\n" ..
-                         "--" .. boundary .. "\r\n" ..
-                         "Content-Disposition: form-data; name=\"file\"; filename=\"screenshot.png\"\r\n" ..
-                         "Content-Type: image/png\r\n\r\n" ..
-                         screenshotData .. "\r\n" ..
-                         "--" .. boundary .. "--\r\n"
-            
-            http_request({
-                Url = webhook,
-                Method = "POST",
-                Headers = { ["Content-Type"] = "multipart/form-data; boundary=" .. boundary },
-                Body = body
-            })
-        else
-            -- 사진이 없는 경우 (Solara 등, 텍스트 임베드만 전송)
-            http_request({
-                Url = webhook,
-                Method = "POST",
-                Headers = { ["Content-Type"] = "application/json" },
-                Body = game:GetService("HttpService"):JSONEncode({
-                    content = executor:find("Solara") and "! Solara는 캡쳐를 지원하지 않아 상태 정보만 전송합니다." or "! 캡쳐 API를 찾을 수 없어 상태 정보만 전송합니다.",
-                    embeds = { embed }
-                })
-            })
-        end
-    end)
-    if not success then
-    end
-end
 
 
 EtcTab.Button({
@@ -7526,39 +8215,7 @@ EtcTab.Button({
     end
 })
 
--- =============================
--- [절대무적] 아바타 자동 적용 감시 루프
--- =============================
--- 로블록스 이벤트(생성, 로딩 완료 등)가 씹히는 게임이나 환경을 완벽히 극복하기 위해,
--- 백그라운드에서 0.5초마다 캐릭터 상태를 직접 검사합니다.
-task.spawn(function()
-    while true do
-        task.wait(0.5)
-        local char = LocalPlayer.Character
-        
-        if Settings.AvatarChanger.enabled and char and char.Parent then
-            -- 캐릭터가 로딩 중인지 꼼꼼히 확인 (Humanoid, Head 존재 여부 등)
-            local humanoid = char:FindFirstChildOfClass("Humanoid")
-            local head = char:FindFirstChild("Head")
-            
-            if humanoid and head then
-                -- 우리 스크립트가 아바타를 입혔다는 '마커'가 없는 새 캐릭터라면?
-                if not char:GetAttribute("CustomAvatarLoaded_Mark") then
-                    
-                    -- [버그 수정] 특정 게임이나 환경에서 HasAppearanceLoaded()가 영원히 false로 멈추는 현상 발생.
-                    -- 따라서 이 불완전한 로블록스 함수를 빼버리고, 머리와 몸통이 생긴 시점부터 무조건 1초를 기다립니다.
-                    task.wait(1)
-                    
-                    -- 그 1초 사이에 캐릭터가 또 죽지 않았다면 실행
-                    if char == LocalPlayer.Character and char.Parent then
-                        BackupAvatar(char)
-                        ApplyAvatarChanger(char, Settings.AvatarChanger.pattern)
-                    end
-                end
-            end
-        end
-    end
-end)
+
 
 EtcTab.Button({
     Text = "Infinite Yield",
@@ -7660,594 +8317,10 @@ PERTab.TextField({
     end
 })
 
--- =============================
--- 스크린샷 자동 전송 루프
--- =============================
-task.spawn(function()
-    while true do
-        if Settings.Screenshot and Settings.Screenshot.enabled then
-            sendStatusToDiscord()
-        end
-        task.wait(60) -- 1분 대기
-    end
-end)
+
 
 -- [FIX BUG #2] 스크립트 실행이 완료된 후 텔레포트 플래그를 초기화하여, 
 -- 같은 세션에서 수동으로 다시 실행할 때 이전 설정이 강제로 덮어씌워지는 것을 방지합니다.
 if getgenv then
     getgenv().IS_TELEPORT_LOAD = nil
 end
-
--- =============================
--- [NEW] 음악 비주얼라이저 및 타임라인 모듈
--- =============================
-local MusicVisualizer = {}
-local VisualizerColorMap = {
-    ["하얀색"] = Color3.fromRGB(255, 255, 255),
-    ["빨간색"] = Color3.fromRGB(255, 50, 50),
-    ["주황색"] = Color3.fromRGB(255, 120, 0),
-    ["노란색"] = Color3.fromRGB(255, 220, 0),
-    ["초록색"] = Color3.fromRGB(50, 255, 50),
-    ["파란색"] = Color3.fromRGB(50, 100, 255),
-    ["보라색"] = Color3.fromRGB(150, 50, 255),
-    ["핑크색"] = Color3.fromRGB(255, 100, 200),
-    ["하늘색"] = Color3.fromRGB(100, 200, 255)
-}
-
-local function parseHexColor(hexStr)
-    if not hexStr or type(hexStr) ~= "string" then return nil end
-    hexStr = hexStr:gsub("#", ""):gsub("%s", "")
-    if #hexStr == 6 then
-        local r = tonumber(hexStr:sub(1, 2), 16)
-        local g = tonumber(hexStr:sub(3, 4), 16)
-        local b = tonumber(hexStr:sub(5, 6), 16)
-        if r and g and b then
-            return Color3.fromRGB(r, g, b)
-        end
-    elseif #hexStr == 3 then
-        local r = tonumber(hexStr:sub(1, 1):rep(2), 16)
-        local g = tonumber(hexStr:sub(2, 2):rep(2), 16)
-        local b = tonumber(hexStr:sub(3, 3):rep(2), 16)
-        if r and g and b then
-            return Color3.fromRGB(r, g, b)
-        end
-    end
-    return nil
-end
-
-local function getVisualizerColor(colorStr)
-    if not colorStr then return Color3.new(1, 1, 1) end
-    if VisualizerColorMap[colorStr] then
-        return VisualizerColorMap[colorStr]
-    end
-    local parsed = parseHexColor(colorStr)
-    if parsed then
-        return parsed
-    end
-    return Color3.new(1, 1, 1)
-end
-
-MusicVisualizer.Gui = Instance.new("ScreenGui")
-MusicVisualizer.Gui.Name = "CustomMusicVisualizer"
-MusicVisualizer.Gui.ResetOnSpawn = false
-MusicVisualizer.Gui.IgnoreGuiInset = true -- 상단 여백 비는 현상 수정 (로블록스 기본 탑바 무시)
-local successGui = pcall(function() MusicVisualizer.Gui.Parent = game:GetService("CoreGui") end)
-if not successGui then 
-    MusicVisualizer.Gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-end
-
--- 중앙 하단 타임라인 구조 (반투명)
-local timelineBox = Instance.new("Frame", MusicVisualizer.Gui)
-timelineBox.Size = UDim2.new(0.36, 0, 0.013, 0) -- 전체 크기 1.1배 축소 (0.4 -> 0.36, 0.015 -> 0.013)
-timelineBox.Position = UDim2.new(0.5, 0, 0.83, 0) -- 위치 하향 복구 (0.78 -> 0.83)
-timelineBox.AnchorPoint = Vector2.new(0.5, 1)
-timelineBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-timelineBox.BackgroundTransparency = 0.5
-timelineBox.BorderSizePixel = 0
-timelineBox.ZIndex = 2 -- 달보다 앞으로 배치
-
--- [NEW] 타임라인 뒤 배경 달 (Moon) - 지정된 데칼 아이디 적용
-local moonFrame = Instance.new("ImageLabel", MusicVisualizer.Gui)
-moonFrame.Name = "MusicMoon"
--- 데칼 웹페이지 ID를 인게임에서 직접 쓸 때 안 보이는 현상 해결을 위해 rbxthumb 사용
-moonFrame.Image = "rbxthumb://type=Asset&id=8922788427&w=420&h=420" 
-moonFrame.Size = UDim2.new(0.24, 0, 0.24, 0) -- 크기 2배 유지
-moonFrame.Position = UDim2.new(0.5, 0, 0.65, 0) -- 타임라인 정중앙에서 더 위쪽으로 상향
-moonFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-moonFrame.BackgroundTransparency = 1
-moonFrame.ImageTransparency = 0.4 -- 기존 0.8이 너무 투명해서 안 보일 수 있으므로 0.4로 가시성 확보
-moonFrame.BorderSizePixel = 0
-moonFrame.ZIndex = 1
-
-local moonAspect = Instance.new("UIAspectRatioConstraint", moonFrame)
-moonAspect.AspectRatio = 1 -- 정비율 유지
-
--- [NEW] 달 중앙에 회전하는 사각형 장식 2개 (외곽선만 남김)
-local function createRotatingSquare(parent, name, sizeScale, color, order)
-    local sq = Instance.new("Frame", parent)
-    sq.Name = name
-    sq.Size = UDim2.new(sizeScale, 0, sizeScale, 0)
-    sq.Position = UDim2.new(0.5, 0, 0.5, 0)
-    sq.AnchorPoint = Vector2.new(0.5, 0.5)
-    sq.BackgroundTransparency = 1 -- 배경 완전 투명 (테두리만 남김)
-    sq.BorderSizePixel = 0
-    sq.ZIndex = order
-    local stroke = Instance.new("UIStroke", sq)
-    stroke.Color = color
-    stroke.Thickness = 2
-    stroke.Transparency = 0.2
-    local aspect = Instance.new("UIAspectRatioConstraint", sq)
-    aspect.AspectRatio = 1
-    return sq
-end
-
-local bigSquare = createRotatingSquare(moonFrame, "BigRotSquare", 0.304, Color3.new(1, 1, 1), 0) -- 하얀색 (1.1배 확대)
-local smallSquare = createRotatingSquare(moonFrame, "SmallRotSquare", 0.238, Color3.new(0, 0, 0), 1) -- 검정색
-
--- 사각형 기본 크기 상수 (동적 크기 계산용)
-local bigSquareBase = 0.304
-local smallSquareBase = 0.238
-
-
-local timelineProgress = Instance.new("Frame", timelineBox)
-timelineProgress.Size = UDim2.new(0, 0, 1, 0)
-timelineProgress.BackgroundColor3 = Color3.fromRGB(180, 180, 180) -- 전체 흑백 테마 반영
-timelineProgress.BackgroundTransparency = 0.3
-timelineProgress.BorderSizePixel = 0
-
--- [NEW] 음악 제목 표시용 텍스트 레이블 (타임라인 하단)
-local musicTitle = Instance.new("TextLabel", timelineBox)
-musicTitle.Name = "MusicTitle"
-musicTitle.Size = UDim2.new(1, 0, 0, 40) -- 폰트 크기에 맞춰 높이 재조정 (80 -> 40)
-musicTitle.Position = UDim2.new(0.5, 0, 1, 10) -- 타임라인 바에서 10픽셀 아래로 간격 최적화
-musicTitle.AnchorPoint = Vector2.new(0.5, 0)
-musicTitle.BackgroundTransparency = 1
-musicTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-musicTitle.TextSize = 28 -- 2.5배 축소 (70 -> 28)
-musicTitle.Font = Enum.Font.Gotham -- 얇고 세련된 느낌의 일반 Gotham 폰트 적용
-musicTitle.Text = ""
-musicTitle.TextStrokeTransparency = 0.5 -- 가독성 향상
-
--- [NEW] 제목 포매팅 함수 (PascalCase -> Spaced Word)
-local function FormatMusicTitle(name)
-    if not name then return "" end
-    -- 확장자 제거 (.mp3, .wav 등)
-    local title = name:gsub("%.%w+$", "")
-    -- 첫 대문자가 아닌 뒤의 대문자 앞에 한 칸 띄어쓰기 추가
-    title = title:gsub("([^%s])(%u)", "%1 %2")
-    return title
-end
-
-local isDraggingTimeline = false
-local function UpdateSeek(inputPos)
-    local sound = GetCurrentPlayingSound()
-    if sound and sound.TimeLength > 0 then
-        local relX = math.clamp((inputPos.X - timelineBox.AbsolutePosition.X) / timelineBox.AbsoluteSize.X, 0, 1)
-        sound.TimePosition = relX * sound.TimeLength
-    end
-end
-
-timelineBox.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        isDraggingTimeline = true
-        UpdateSeek(input.Position)
-    end
-end)
-
-Services.UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        isDraggingTimeline = false
-    end
-end)
-
-Services.UserInputService.InputChanged:Connect(function(input)
-    if isDraggingTimeline and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        UpdateSeek(input.Position)
-    end
-end)
-
--- [NEW] 타임라인 장식 (End-Caps / Brackets)
-local function CreateBracket(side)
-    local b = Instance.new("Frame", timelineBox)
-    b.Size = UDim2.new(0, 2, 1, 6)
-    b.Position = UDim2.new(side == "Left" and 0 or 1, side == "Left" and -6 or 6, 0.5, 0)
-    b.AnchorPoint = Vector2.new(side == "Left" and 1 or 0, 0.5)
-    b.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
-    b.BackgroundTransparency = 0.4
-    b.BorderSizePixel = 0
-    Instance.new("UICorner", b).CornerRadius = UDim.new(1, 0)
-    
-    local h = Instance.new("Frame", b)
-    h.Size = UDim2.new(0, 6, 0, 2)
-    h.Position = UDim2.new(side == "Left" and 1 or 0, 0, 0, 0)
-    h.AnchorPoint = Vector2.new(side == "Left" and 1 or 0, 0)
-    h.BackgroundColor3 = b.BackgroundColor3
-    h.BackgroundTransparency = b.BackgroundTransparency
-    h.BorderSizePixel = 0
-    
-    local f = h:Clone()
-    f.Parent = b
-    f.Position = UDim2.new(side == "Left" and 1 or 0, 0, 1, 0)
-    f.AnchorPoint = Vector2.new(side == "Left" and 1 or 0, 1)
-end
-CreateBracket("Left")
-CreateBracket("Right")
-
-local corner1 = Instance.new("UICorner", timelineBox)
-corner1.CornerRadius = UDim.new(1, 0)
-local corner2 = Instance.new("UICorner", timelineProgress)
-corner2.CornerRadius = UDim.new(1, 0)
-
--- 왼쪽 비주얼라이저 부모 (세로 100%)
-local leftContainer = Instance.new("Frame", MusicVisualizer.Gui)
-leftContainer.Size = UDim2.new(0.25, 0, 1, 0)
-leftContainer.Position = UDim2.new(0, 0, 0.5, 0)
-leftContainer.AnchorPoint = Vector2.new(0, 0.5)
-leftContainer.BackgroundTransparency = 1
-
--- 오른쪽 비주얼라이저 부모 (세로 100%)
-local rightContainer = Instance.new("Frame", MusicVisualizer.Gui)
-rightContainer.Size = UDim2.new(0.25, 0, 1, 0)
-rightContainer.Position = UDim2.new(1, 0, 0.5, 0) -- 화면 오른쪽에 딱 붙임
-rightContainer.AnchorPoint = Vector2.new(1, 0.5)
-rightContainer.BackgroundTransparency = 1
-
-local numBars = 40
-local leftBars = {}
-local rightBars = {}
-
--- 대칭 구조의 바 생성 (직사각형)
-for i = 1, numBars do
-    -- Left 바
-    local lb = Instance.new("Frame", leftContainer)
-    lb.BackgroundColor3 = Color3.fromRGB(200, 200, 255)
-    lb.BackgroundTransparency = 0.75
-    lb.BorderSizePixel = 0
-    lb.AnchorPoint = Vector2.new(0, 0.5)
-    lb.Position = UDim2.new(0, 0, (i-0.5)/numBars, 0)
-    lb.Size = UDim2.new(0.01, 0, 0.6/numBars, 0) 
-    table.insert(leftBars, lb)
-
-    -- Right 바
-    local rb = Instance.new("Frame", rightContainer)
-    rb.BackgroundColor3 = Color3.fromRGB(200, 200, 255)
-    rb.BackgroundTransparency = 0.75
-    rb.BorderSizePixel = 0
-    rb.AnchorPoint = Vector2.new(1, 0.5)
-    rb.Position = UDim2.new(1, 0, (i-0.5)/numBars, 0)
-    rb.Size = UDim2.new(0.01, 0, 0.6/numBars, 0)
-    table.insert(rightBars, rb)
-end
-
--- 현재 플레이중인 사운드 감지
-local function GetCurrentPlayingSound()
-    -- [NEW] 1순위: 솔스 탭의 음악 동기화 기능 (HRP 내 BGM 사운드 감시)
-    if Settings.SolEgg.musicSync then
-        local char = LocalPlayer.Character or (workspace:FindFirstChild(LocalPlayer.Name))
-        if char then
-            -- [ADVANCED] 캐릭터 기본 효과음을 제외한 모든 음악 파일 자동 감지
-            local excluded = {"Climbing", "Died", "FreeFalling", "GettingUp", "Jumping", "Landing", "Running", "Splash", "Swimming"}
-            for _, child in ipairs(char:GetDescendants()) do
-                if child:IsA("Sound") and child.IsPlaying and child.TimeLength > 0 then
-                    if not table.find(excluded, child.Name) then
-                        child.Volume = 1 -- 음악 볼륨 1 고정
-                        return child
-                    end
-                end
-            end
-        end
-    end
-
-    -- 2순위: 기존 Funny 음악 기능
-    if getgenv and getgenv().FunnyMusicPlaying and getgenv().CurrentFunnyMusic and getgenv().CurrentFunnyMusic ~= "" then
-        local funnySound = game:GetService("CoreGui"):FindFirstChild(getgenv().CurrentFunnyMusic)
-        if funnySound and funnySound:IsA("Sound") and funnySound.IsPlaying and funnySound.TimeLength > 0 then
-            return funnySound
-        end
-    end
-    return nil
-end
-
-MusicVisualizer.MotionAlpha = 0
-local VisualizerTime = 0
-local lastCamLook = Camera.CFrame.LookVector
-local lastCamPos = Camera.CFrame.Position -- 캐릭터 움직임 감지를 위한 위치 추적 추가
-local currentSway = Vector2.new(0, 0)
-
--- 비주얼라이저 및 타임라인 실시간 렌더링
-Services.RunService.RenderStepped:Connect(function(dt)
-    local sound = GetCurrentPlayingSound()
-    
-    -- [NEW] 동기화 모드 시 파티클 이미터 색상 감지
-    local syncColor = nil
-    if Settings.SolEgg.musicSync then
-        local char = LocalPlayer.Character or (workspace:FindFirstChild(LocalPlayer.Name))
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            for _, descendant in ipairs(hrp:GetDescendants()) do
-                if descendant:IsA("ParticleEmitter") then
-                    syncColor = descendant.Color.Keypoints[1].Value
-                    break
-                end
-            end
-        end
-    end
-    
-    -- 카메라/캐릭터 움직임 물리 효과 (현실적인 스웨이)
-    local currentLook = Camera.CFrame.LookVector
-    local currentPos = Camera.CFrame.Position
-    
-    local lookDelta = currentLook - lastCamLook
-    -- 카메라 로컬 좌표계 기준으로 위치 변화량 산출 (이동 방향 감지)
-    local posDelta = Camera.CFrame:VectorToObjectSpace(currentPos - lastCamPos)
-    
-    lastCamLook = currentLook
-    lastCamPos = currentPos
-    
-    -- 회전(관성)과 이동(가속도 느낌)을 결합하여 타겟 스웨이 계산
-    -- 화면 회전에 따른 감도를 3배 낮춤 (20 -> 6.6)
-    
-    -- [보정] 3인칭 줌 아웃 시 위치 변화량이 과하게 커지는 현상 방지
-    local camDistance = (currentPos - Camera.Focus.Position).Magnitude
-    local posDamping = math.max(1, camDistance / 10) -- 거리가 멀수록 이동 감도 감쇄
-    
-    local targetSway = Vector2.new(
-        (lookDelta.X * 6.6) - (posDelta.X * 1.5 / posDamping), 
-        (lookDelta.Y * 6.6) + (posDelta.Y * 1.5 / posDamping)
-    )
-    
-    -- 타임라인이 화면 밖으로 너무 크게 벗어나는 것 방지 (Cap)
-    targetSway = Vector2.new(math.clamp(targetSway.X, -0.3, 0.3), math.clamp(targetSway.Y, -0.3, 0.3))
-    
-    currentSway = currentSway:Lerp(targetSway, 0.1)
-    currentSway = currentSway * 0.92 -- 감쇠(관성 유지)
-    
-    local swayX, swayY = currentSway.X * 100, currentSway.Y * 100
-    
-    -- 비주얼라이저 바는 고정 (스웨이 제거)
-    leftContainer.Position = UDim2.new(0, 0, 0.5, 0)
-    rightContainer.Position = UDim2.new(1, 0, 0.5, 0)
-    
-    -- 타임라인 바에만 위치 상향(0.85) 및 스웨이 오프셋 적용
-    -- [NEW] 사운드 크기에 따른 타임라인 떨림(Shake) 계산 (과하지 않게 normalized 기반 jitter 적용)
-    local timelineShakeX, timelineShakeY = 0, 0
-    if sound and sound.IsPlaying then
-        local loudness = sound.PlaybackLoudness or 0
-        -- [EXPONENTIAL SHAKE] 작은 소리에는 둔감하게, 큰 소리에는 폭발적으로 반응 (상한 15.0)
-        -- (loudness/500)의 제곱을 사용하여 낮은 볼륨에서의 떨림을 억제합니다.
-        local factor = loudness / 500
-        local shakeIntensity = 0.1 + (math.pow(factor, 2) * 14.9) 
-        timelineShakeX = math.random(-100, 100) / 100 * shakeIntensity
-        timelineShakeY = math.random(-100, 100) / 100 * shakeIntensity
-    end
-    
-    local targetAlpha = (sound and sound.IsPlaying) and 1 or 0
-    -- 더욱 부드러운 프레임 독립적 보간 (dt 사용)
-    local lerpSpeed = (targetAlpha == 1) and 10 or 6 -- 나타날 때 조금 더 빠르게, 사라질 때 조금 더 여유있게
-    MusicVisualizer.MotionAlpha = MusicVisualizer.MotionAlpha + (targetAlpha - MusicVisualizer.MotionAlpha) * math.clamp(dt * lerpSpeed, 0, 1)
-    
-    local motion = MusicVisualizer.MotionAlpha
-    -- [Refinement] Cubic Easing (motion^3) 적용 - 0에 가까워질수록 급격히 작아져서 '툭' 사라지는 느낌 방지
-    local m3 = math.pow(motion, 3) 
-
-    -- 투명도 제어 (invMotion: 0(나타남)~1(사라짐))
-    local invM = 1 - motion
-    
-    -- [MODIFIED] 타임라인 투명도 개선 (더 밝게)
-    timelineBox.BackgroundTransparency = 0.5 + (0.5 * invM)
-    timelineProgress.BackgroundTransparency = 0.15 + (0.85 * invM) -- 0.3 -> 0.15로 밝기 개선
-    
-    -- [MODIFIED] 동기화 모드일 때 제목 숨김
-    musicTitle.TextTransparency = Settings.SolEgg.musicSync and 1 or invM
-    musicTitle.TextStrokeTransparency = 0.5 + (0.5 * invM)
-    
-    -- [NEW] 동기화 색상 감지 (기존 그라데이션 대신 단색 적용)
-    local targetUIBaseColor = syncColor or leftBars[1].BackgroundColor3
-    
-    -- 브라켓 투명도 제어
-    for _, child in ipairs(timelineBox:GetChildren()) do
-        if child:IsA("Frame") and child.ZIndex == 1 then -- Brackets are added locally
-            child.BackgroundTransparency = 0.4 + (0.6 * invM)
-            local h = child:FindFirstChildOfClass("Frame")
-            if h then 
-                h.BackgroundTransparency = child.BackgroundTransparency
-                for _, f in ipairs(child:GetChildren()) do
-                    if f:IsA("Frame") then f.BackgroundTransparency = child.BackgroundTransparency end
-                end
-            end
-        end
-    end
-
-    -- 타임라인 바 위치 (제자리에서 나타나도록 오프셋 제거)
-    timelineBox.Position = UDim2.new(0.5, swayX + timelineShakeX, 0.83, swayY + timelineShakeY)
-    
-    -- [NEW] 달 오브젝트 위치/크기 업데이트 (진동 1.5배 약하게, 펄스 동기화)
-    if moonFrame then
-        moonFrame.ImageTransparency = 0.4 + (0.6 * invM)
-        
-        -- [MODIFIED] 달 색상 동기화 (파티클 색상 및 사용자 선택 색상 적용)
-        local colorName = Settings.MusicVisualizerSetting and Settings.MusicVisualizerSetting.color or "하얀색"
-        local selectedColor = getVisualizerColor(colorName)
-        local baseMoonColor = syncColor or selectedColor
-        
-        -- 사각형 스트로크 투명도 및 색상 제어
-        if bigSquare:FindFirstChildOfClass("UIStroke") then
-            bigSquare:FindFirstChildOfClass("UIStroke").Transparency = 0.2 + (0.8 * invM)
-            bigSquare:FindFirstChildOfClass("UIStroke").Color = baseMoonColor
-        end
-        if smallSquare:FindFirstChildOfClass("UIStroke") then
-            local smallColor = Color3.new(0, 0, 0)
-            if Settings.MusicVisualizerSetting and Settings.MusicVisualizerSetting.baseColorType == "흰색" then
-                smallColor = Color3.new(1, 1, 1)
-            end
-            smallSquare:FindFirstChildOfClass("UIStroke").Transparency = 0.2 + (0.8 * invM)
-            smallSquare:FindFirstChildOfClass("UIStroke").Color = syncColor or smallColor
-        end
-
-        local moonShakeX = timelineShakeX / 1.5
-        local moonShakeY = timelineShakeY / 1.5
-        -- 타임라인 기준 정중앙 정렬을 해제하고 시각적으로 더 높이 띄웁니다. (Y = 0.65)
-        local moonY = 0.73
-        moonFrame.Position = UDim2.new(0.5, swayX + moonShakeX, moonY, swayY + moonShakeY)
-        
-        if sound and sound.IsPlaying then
-            local loudness = sound.PlaybackLoudness or 0
-            local pulseNormalized = math.clamp(loudness / 500, 0, 1)
-            local moonSizeScale = (1 + (pulseNormalized * 0.08)) * m3
-            moonFrame.Size = UDim2.new(0.24 * moonSizeScale, 0, 0.24 * moonSizeScale, 0)
-            
-            -- [MODIFIED] 달 색상 (소리 크기에 비례하여 밝아짐, 파티클 색상 반영)
-            local brightness = math.clamp(pulseNormalized * 0.8, 0.1, 1)
-            moonFrame.ImageColor3 = baseMoonColor:Lerp(Color3.new(0,0,0), 1 - brightness)
-            
-            -- [NEW] 사각형 회전 (맥스 스피드 7배 상향)
-            bigSquare.Rotation = (VisualizerTime * 245) % 360
-            smallSquare.Rotation = -(VisualizerTime * 595) % 360
-            
-            -- [NEW] 사각형 동적 크기 (소리가 클수록 커짐, 최대 2.5배)
-            local sqScale = 1 + (pulseNormalized * 1.5)
-            bigSquare.Size = UDim2.new(bigSquareBase * sqScale * m3, 0, bigSquareBase * sqScale * m3, 0)
-            smallSquare.Size = UDim2.new(smallSquareBase * sqScale * m3, 0, smallSquareBase * sqScale * m3, 0)
-        else
-            moonFrame.Size = UDim2.new(0.24 * m3, 0, 0.24 * m3, 0)
-            -- [MODIFIED] 무음 시 달 색상 (어둡게 유지)
-            moonFrame.ImageColor3 = baseMoonColor:Lerp(Color3.new(0,0,0), 0.9)
-            
-            bigSquare.Rotation = (VisualizerTime * 105) % 360 -- 기본 속도 (7배)
-            smallSquare.Rotation = -(VisualizerTime * 210) % 360
-            bigSquare.Size = UDim2.new(bigSquareBase * m3, 0, bigSquareBase * m3, 0)
-            smallSquare.Size = UDim2.new(smallSquareBase * m3, 0, smallSquareBase * m3, 0)
-        end
-    end
-
-    
-    -- [NEW] 소리 크기에 따른 타임라인 크기 동적 스케일링 (Pulse Effect)
-    -- normalized 변수가 아래에서 선언되므로, 여기서 직접 참조하거나 아래에서 처리
-    if sound and sound.IsPlaying then
-        local loudness = sound.PlaybackLoudness or 0
-        local pulseNormalized = math.clamp(loudness / 500, 0, 1)
-        local sizeScale = (1 + (pulseNormalized * 0.12)) * m3
-        timelineBox.Size = UDim2.new(0.36 * sizeScale, 0, 0.013 * sizeScale, 0)
-    else
-        timelineBox.Size = UDim2.new(0.36 * m3, 0, 0.013 * m3, 0)
-    end
-
-    if motion > 0.001 then
-        MusicVisualizer.Gui.Enabled = true
-        if sound and sound.IsPlaying then
-            -- [NEW] 음악 제목 업데이트
-            musicTitle.Text = FormatMusicTitle(sound.Name)
-            
-            -- 드래그 중이 아닐 때만 사운드 진행도에 따라 타임라인 업데이트
-            if not isDraggingTimeline then
-                local progress = math.clamp(sound.TimePosition / sound.TimeLength, 0, 1)
-                timelineProgress.Size = UDim2.new(progress, 0, 1, 0)
-            end
-            
-            local loudness = sound.PlaybackLoudness or 0
-            local normalized = math.clamp(loudness / 500, 0.05, 1)
-            
-            -- [RESTORED] 비주얼라이저 흐름 속도는 원래대로 복구 (0.5 ~ 3.0)
-            local speedMultiplier = 0.5 + (normalized * 2.5)
-            VisualizerTime = VisualizerTime + (dt * speedMultiplier)
-            
-            for i = 1, numBars do
-                local factor = (i - 1) / (numBars - 1) 
-                local wave = math.sin((VisualizerTime * 15) - (i * 0.3)) * 0.05
-                
-                -- [RESTORED] 컴프레서 제거 및 고정 고감도(1.35x) 복구
-                local targetScale = math.clamp(normalized * 1.35 * (0.55 - factor * 0.25) + wave, 0.01, 1.35)
-                
-                local curL = leftBars[i].Size.X.Scale
-                -- m3를 직접 곱하여 retraction을 MotionAlpha와 완벽히 동기화
-                local newL = curL + (targetScale * m3 - curL) * 0.25
-                leftBars[i].Size = UDim2.new(newL, 0, leftBars[i].Size.Y.Scale, 0)
-                
-                local curR = rightBars[i].Size.X.Scale
-                local newR = curR + (targetScale * m3 - curR) * 0.25
-                rightBars[i].Size = UDim2.new(newR, 0, rightBars[i].Size.Y.Scale, 0)
-                
-                -- [MODIFIED] 색상 설정 및 흑백 설정 기반 그라데이션 보정
-                local cosWave = math.cos(VisualizerTime * 3 - (i/numBars) * 6.25)
-                local t = math.clamp(0.4 + 0.7 * cosWave, 0, 1)
-                
-                local maxColor
-                if syncColor then
-                    maxColor = syncColor
-                else
-                    local colorName = Settings.MusicVisualizerSetting and Settings.MusicVisualizerSetting.color or "하얀색"
-                    maxColor = getVisualizerColor(colorName)
-                end
-                
-                local minColor = Color3.new(0, 0, 0)
-                if Settings.MusicVisualizerSetting and Settings.MusicVisualizerSetting.baseColorType == "흰색" then
-                    minColor = Color3.new(1, 1, 1)
-                end
-                
-                local targetColor = minColor:Lerp(maxColor, t)
-                
-                leftBars[i].BackgroundColor3 = targetColor
-                rightBars[i].BackgroundColor3 = targetColor
-                
-                -- 바 투명도 제어 (기본 0.75)
-                leftBars[i].BackgroundTransparency = 0.75 + (0.25 * invM)
-                rightBars[i].BackgroundTransparency = 0.75 + (0.25 * invM)
-            end
-            -- 타임라인 색상도 일관성 있게 흑백으로 공유
-            timelineProgress.BackgroundColor3 = leftBars[1].BackgroundColor3
-        else
-            -- 사운드가 없더라도 motion(m3)이 살아있으면 바를 MotionAlpha 속도에 맞춰 줄여줌
-            for i = 1, numBars do
-                local curL = leftBars[i].Size.X.Scale
-                local newL = curL + (0 - curL) * 0.25
-                leftBars[i].Size = UDim2.new(newL, 0, leftBars[i].Size.Y.Scale, 0)
-                
-                local curR = rightBars[i].Size.X.Scale
-                local newR = curR + (0 - curR) * 0.25
-                rightBars[i].Size = UDim2.new(newR, 0, rightBars[i].Size.Y.Scale, 0)
-
-                leftBars[i].BackgroundTransparency = 0.75 + (0.25 * invM)
-                rightBars[i].BackgroundTransparency = 0.75 + (0.25 * invM)
-            end
-        end
-    else
-        MusicVisualizer.Gui.Enabled = false
-    end
-end)
-
--- ==========================================
--- 보스 스턴 키 자동 탈출 (StunEscape Auto Keypresser)
--- ==========================================
-task.spawn(function()
-    local vim = Services.VirtualInputManager
-    while true do
-        task.wait(0.05)
-        if Settings.SolEgg.autoStunEscape then
-            local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-            local stunEscape = playerGui and playerGui:FindFirstChild("StunEscape")
-            if stunEscape and stunEscape.Enabled then
-                local pcFrame = stunEscape:FindFirstChild("PCFrame")
-                local frame = pcFrame and pcFrame:FindFirstChild("Frame")
-                if frame then
-                    for _, childName in ipairs({"1", "2", "3", "4", "5"}) do
-                        local buttonFrame = frame:FindFirstChild(childName)
-                        local imageGroup = buttonFrame and buttonFrame:FindFirstChild("ImageGroup")
-                        local textLabel = imageGroup and imageGroup:FindFirstChildOfClass("TextLabel")
-                        if textLabel and textLabel.Text ~= "" then
-                            local rawText = textLabel.Text
-                            local letter = rawText:match("%a")
-                            if letter then
-                                local keyCode = Enum.KeyCode[letter:upper()]
-                                if keyCode then
-                                    vim:SendKeyEvent(true, keyCode, false, game)
-                                    task.wait(0.01)
-                                    vim:SendKeyEvent(false, keyCode, false, game)
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-end)
