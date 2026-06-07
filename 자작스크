@@ -4040,7 +4040,8 @@ local PERMANENT_ITEMS = {
     ["에그 획득 디스코드 알림"] = true,
     ["희귀 에그 스폰 웹후크 알림"] = true,
     ["1분마다 상태 및 스크린샷 전송"] = true,
-    ["통합 웹후크 URL"] = true
+    ["통합 웹후크 URL"] = true,
+    ["브섭 링크"] = true
 }
 
 -- [ 영구 저장 ] 웹후크 등 항상 유지되어야 하는 설정 로드
@@ -4055,6 +4056,7 @@ pcall(function()
             if decoded["기존 설정값을 새로운 서버에서 자동으로 불러오기"] ~= nil then ConfigSystem.AutoLoad = decoded["기존 설정값을 새로운 서버에서 자동으로 불러오기"] end
             if decoded["1분마다 상태 및 스크린샷 전송"] ~= nil then Settings.Screenshot.enabled = decoded["1분마다 상태 및 스크린샷 전송"] end
             if decoded["통합 웹후크 URL"] then Settings.Webhook = decoded["통합 웹후크 URL"] end
+            if decoded["브섭 링크"] then Settings.PrivateServerLink = decoded["브섭 링크"] end
         end
     end
 end)
@@ -4126,9 +4128,11 @@ local GlobalNotifReadyAt = tick() + 2
 
 local original_UI_New = UI.New
 UI.New = function(...)
+    local args = {...}
+    local tabTitle = (type(args[1]) == "table" and args[1].Title) or ""
     local page = original_UI_New(...)
     
-            local function hookComponent(compName)
+    local function hookComponent(compName)
         local originalComp = page[compName]
         if not originalComp then return end
         
@@ -4139,7 +4143,7 @@ UI.New = function(...)
                 local cName = rawName:gsub("^%s*(.-)%s*$", "%1") -- 공백 제거
                 if cName == "" then return originalComp(options) end
                 
-                local isPermanent = PERMANENT_ITEMS[cName] or false
+                local isPermanent = (tabTitle == "영구") or PERMANENT_ITEMS[cName] or false
                 local hasSyncedValue = false
                 local syncedValue = nil
                 
