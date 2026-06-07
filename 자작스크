@@ -7070,8 +7070,8 @@ SolTab.Toggle({
                     local desc = "> ## Biome " .. (actionType == "started" and "Started" or "Ended") .. " - " .. biomeNameUpper
                     if actionType == "started" then
                         desc = desc .. "\n> \n> **Started:** <t:" .. tostring(os.time()) .. ":R>"
-                        currentBiomeSession = tick()
                     end
+                    currentBiomeSession = tick()
                     local mySession = currentBiomeSession
                     
                     local embed = {
@@ -7141,6 +7141,7 @@ SolTab.Toggle({
                                             
                                             if actionType == "started" then
                                                 task.spawn(function()
+                                                    local lastPCount = -1
                                                     while true do
                                                         task.wait(1)
                                                         if currentBiomeSession ~= mySession then
@@ -7159,18 +7160,22 @@ SolTab.Toggle({
                                                         end
                                                         
                                                         pcall(function()
-                                                            local pCount = tostring(#game:GetService("Players"):GetPlayers())
-                                                            local mCount = tostring(game:GetService("Players").MaxPlayers)
-                                                            payload.embeds[1].fields[3].value = pCount .. " / " .. mCount
-                                                            
-                                                            requestFunc({
-                                                                Url = webhookUrl .. "/messages/" .. msgId,
-                                                                Method = "PATCH",
-                                                                Headers = {
-                                                                    ["Content-Type"] = "application/json"
-                                                                },
-                                                                Body = HttpService:JSONEncode(payload)
-                                                            })
+                                                            local currentPCount = #game:GetService("Players"):GetPlayers()
+                                                            if currentPCount ~= lastPCount then
+                                                                lastPCount = currentPCount
+                                                                local pCountStr = tostring(currentPCount)
+                                                                local mCountStr = tostring(game:GetService("Players").MaxPlayers)
+                                                                payload.embeds[1].fields[3].value = pCountStr .. " / " .. mCountStr
+                                                                
+                                                                requestFunc({
+                                                                    Url = webhookUrl .. "/messages/" .. msgId,
+                                                                    Method = "PATCH",
+                                                                    Headers = {
+                                                                        ["Content-Type"] = "application/json"
+                                                                    },
+                                                                    Body = HttpService:JSONEncode(payload)
+                                                                })
+                                                            end
                                                         end)
                                                     end
                                                 end)
