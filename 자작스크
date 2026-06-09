@@ -6973,64 +6973,85 @@ SolTab.Label({ Text = "오토" })
 
 local biomeMacroConnection = nil
 
-SolTab.Toggle({
-    Text = "바이옴 매크로",
-    Enabled = false,
-    Callback = function(v)
-        local function sendToggleWebhook(stateMsg)
-            local HttpService = game:GetService("HttpService")
-            local requestFunc = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
-            if not requestFunc then return end
-            local hooks = {}
-            if Settings.Webhook and Settings.Webhook ~= "" then table.insert(hooks, Settings.Webhook) end
-            if Settings.Webhook2 and Settings.Webhook2 ~= "" then table.insert(hooks, Settings.Webhook2) end
-            if #hooks == 0 then return end
-            
-            local payload = HttpService:JSONEncode({
-                ["embeds"] = {{
-                    ["description"] = stateMsg,
-                    ["color"] = 16777215,
-                    ["timestamp"] = DateTime.now():ToIsoDate(),
-                    ["footer"] = { 
-                        ["text"] = "Andromeda macro | Player: " .. game:GetService("Players").LocalPlayer.Name,
-                        ["icon_url"] = "https://raw.githubusercontent.com/dtrke/SolsRNG/refs/heads/main/Andromeda.png"
-                    }
-                }}
-            })
-            for _, hook in ipairs(hooks) do
-                task.spawn(function()
-                    pcall(function()
-                        requestFunc({Url = hook, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = payload})
-                    end)
-                end)
-            end
-        end
+local CustomWebhooks = {
+    ["RN_Gelidness"] = "https://discord.com/api/webhooks/1465214896298790978/E86_cfw4-hMVlaeZaMVE4zYGDTibeW_xBYFbTEpgLaqVsQGHGBiAh0qN6uHhW5fXFb1Z",
+    ["BJ_RP"] = "https://discord.com/api/webhooks/1465214907212496988/qUzZ4KR2da3BHQKzUpaZkzdz92gu_31My9mgTH-qbBHNfXGxeHf9XKNFFlivMF9Nn3VX",
+    ["9gN0vA"] = "https://discord.com/api/webhooks/1492408410853998714/Wd6-HEuMp22fIHl1C2Uozb_JBdQIoCXXCDhK0pQkZscbGHMCBuD7i0UdRfh04dEfhA2X",
+    ["IEsenciaI"] = "https://discord.com/api/webhooks/1465215291117277347/s--qkn7-iyxgNEY4HWfegQsWF9Y9SyV3JfjYZYBilX_6jotmdbm54jqS04ACrqbPzIc3",
+    ["KEZOMPANTS"] = "https://discord.com/api/webhooks/1465215291117277347/s--qkn7-iyxgNEY4HWfegQsWF9Y9SyV3JfjYZYBilX_6jotmdbm54jqS04ACrqbPzIc3",
+    ["EsenciaDreammetric"] = "https://discord.com/api/webhooks/1465215291117277347/s--qkn7-iyxgNEY4HWfegQsWF9Y9SyV3JfjYZYBilX_6jotmdbm54jqS04ACrqbPzIc3",
+    ["ROBERXDVG"] = "https://discord.com/api/webhooks/1465214902405693470/b7Jj7bxuTDQNikkwgjmW-atJSCrrpf2kuNpiWPGDjajqwGT0ITRK8fqGfAuzegHycRrS"
+}
 
-        if v then
+Settings.SolEgg.biomeMacroReady = false
+Settings.SolEgg.autoBiomeUseReady = Settings.SolEgg.autoBiomeUse or false
+Settings.SolEgg.masterMacroEnabled = false
+
+local function getHooksList()
+    local hooks = {}
+    if Settings.Webhook and Settings.Webhook ~= "" then table.insert(hooks, Settings.Webhook) end
+    if Settings.Webhook2 and Settings.Webhook2 ~= "" then table.insert(hooks, Settings.Webhook2) end
+    local customHook = CustomWebhooks[game:GetService("Players").LocalPlayer.Name]
+    if customHook then
+        table.insert(hooks, customHook)
+    end
+    return hooks
+end
+
+local function updateBiomeMacroState()
+    local v = Settings.SolEgg.masterMacroEnabled and Settings.SolEgg.biomeMacroReady
+    
+    local function sendToggleWebhook(stateMsg)
+        local HttpService = game:GetService("HttpService")
+        local requestFunc = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+        if not requestFunc then return end
+        local hooks = getHooksList()
+        if #hooks == 0 then return end
+        
+        local payload = HttpService:JSONEncode({
+            ["embeds"] = {{
+                ["description"] = stateMsg,
+                ["color"] = 16777215,
+                ["timestamp"] = DateTime.now():ToIsoDate(),
+                ["footer"] = { 
+                    ["text"] = "Andromeda macro | Player: " .. game:GetService("Players").LocalPlayer.Name,
+                    ["icon_url"] = "https://raw.githubusercontent.com/dtrke/SolsRNG/refs/heads/main/Andromeda.png"
+                }
+            }}
+        })
+        for _, hook in ipairs(hooks) do
+            task.spawn(function()
+                pcall(function()
+                    requestFunc({Url = hook, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = payload})
+                end)
+            end)
+        end
+    end
+
+    if v then
+        if not biomeMacroConnection then
             sendToggleWebhook("> ## Biome Macro Enabled")
-            if not biomeMacroConnection then
-                local Players = game:GetService("Players")
-                local LocalPlayer = Players.LocalPlayer
+            local Players = game:GetService("Players")
+            local LocalPlayer = Players.LocalPlayer
+            
+            local function findTargetScrollingFrame()
+                local mainInterface = LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("MainInterface")
                 
-                local function findTargetScrollingFrame()
-                    local mainInterface = LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("MainInterface")
-                    
-                    for _, frame in pairs(mainInterface:GetChildren()) do
-                        if frame:IsA("Frame") then
-                            local textLabel = frame:FindFirstChildWhichIsA("TextLabel")
-                            if textLabel and textLabel.Text == "Private Server" then
-                                local f1 = frame:FindFirstChildWhichIsA("Frame")
-                                if f1 then
-                                    local f2 = f1:FindFirstChildWhichIsA("Frame")
-                                    if f2 then
-                                        local f3 = f2:FindFirstChildWhichIsA("Frame")
-                                        if f3 then
-                                            for _, f4 in pairs(f3:GetChildren()) do
-                                                if f4:IsA("Frame") and math.abs(f4.Position.X.Scale - 0.675) < 0.01 and f4.Position.Y.Scale == 0 then
-                                                    local scrollingFrame = f4:FindFirstChildWhichIsA("ScrollingFrame")
-                                                    if scrollingFrame then
-                                                        return scrollingFrame
-                                                    end
+                for _, frame in pairs(mainInterface:GetChildren()) do
+                    if frame:IsA("Frame") then
+                        local textLabel = frame:FindFirstChildWhichIsA("TextLabel")
+                        if textLabel and textLabel.Text == "Private Server" then
+                            local f1 = frame:FindFirstChildWhichIsA("Frame")
+                            if f1 then
+                                local f2 = f1:FindFirstChildWhichIsA("Frame")
+                                if f2 then
+                                    local f3 = f2:FindFirstChildWhichIsA("Frame")
+                                    if f3 then
+                                        for _, f4 in pairs(f3:GetChildren()) do
+                                            if f4:IsA("Frame") and math.abs(f4.Position.X.Scale - 0.675) < 0.01 and f4.Position.Y.Scale == 0 then
+                                                local scrollingFrame = f4:FindFirstChildWhichIsA("ScrollingFrame")
+                                                if scrollingFrame then
+                                                    return scrollingFrame
                                                 end
                                             end
                                         end
@@ -7039,215 +7060,244 @@ SolTab.Toggle({
                             end
                         end
                     end
-                    return nil
+                end
+                return nil
+            end
+            
+            local scrollingFrame = findTargetScrollingFrame()
+            if not scrollingFrame then
+                warn("Biome Macro: Could not find target ScrollingFrame.")
+                return
+            end
+            local currentBiomeSession = 0
+            
+            local function sendDiscordWebhook(biomeNameRaw, actionType, uptimeText)
+                local hooks = getHooksList()
+                if #hooks == 0 then return end
+                
+                local biomeNameUpper = biomeNameRaw:upper()
+                local rareBiomes = {
+                    ["GLITCHED"] = true, ["DREAMSPACE"] = true, 
+                    ["CYBERSPACE"] = true, ["SINGULARITY"] = true
+                }
+                local isRare = rareBiomes[biomeNameUpper] or false
+                
+                local contentMsg = ""
+                if actionType == "started" and isRare then
+                    contentMsg = "@everyone"
                 end
                 
-                local scrollingFrame = findTargetScrollingFrame()
-                if not scrollingFrame then
-                    warn("Biome Macro: Could not find target ScrollingFrame.")
-                    return
+                local desc = "> ## Biome " .. (actionType == "started" and "Started" or "Ended") .. " - " .. biomeNameUpper
+                if actionType == "started" then
+                    desc = desc .. "\n> \n> **Started:** <t:" .. tostring(os.time()) .. ":R>"
                 end
-                local currentBiomeSession = 0
+                currentBiomeSession = tick()
+                local mySession = currentBiomeSession
                 
-                local function sendDiscordWebhook(biomeNameRaw, actionType, uptimeText)
-                    local hooks = {}
-                    if Settings.Webhook and Settings.Webhook ~= "" then table.insert(hooks, Settings.Webhook) end
-                    if Settings.Webhook2 and Settings.Webhook2 ~= "" then table.insert(hooks, Settings.Webhook2) end
-                    if #hooks == 0 then return end
-                    
-                    local biomeNameUpper = biomeNameRaw:upper()
-                    local rareBiomes = {
-                        ["GLITCHED"] = true, ["DREAMSPACE"] = true, 
-                        ["CYBERSPACE"] = true, ["SINGULARITY"] = true
-                    }
-                    local isRare = rareBiomes[biomeNameUpper] or false
-                    
-                    local contentMsg = ""
-                    if actionType == "started" and isRare then
-                        contentMsg = "@everyone"
-                    end
-                    
-                    local desc = "> ## Biome " .. (actionType == "started" and "Started" or "Ended") .. " - " .. biomeNameUpper
-                    if actionType == "started" then
-                        desc = desc .. "\n> \n> **Started:** <t:" .. tostring(os.time()) .. ":R>"
-                    end
-                    currentBiomeSession = tick()
-                    local mySession = currentBiomeSession
-                    
-                    local embed = {
-                        ["description"] = desc,
-                        ["color"] = 16777215,
-                        ["timestamp"] = DateTime.now():ToIsoDate(),
-                        ["fields"] = {
-                            {
-                                ["name"] = "PS owner",
-                                ["value"] = LocalPlayer.Name,
-                                ["inline"] = true
-                            },
-                            {
-                                ["name"] = "Uptime",
-                                ["value"] = uptimeText,
-                                ["inline"] = true
-                            }
-                        }
-                    }
-                    
-                    if actionType == "started" then
-                        table.insert(embed.fields, {
-                            ["name"] = "Players",
-                            ["value"] = tostring(#game:GetService("Players"):GetPlayers()) .. " / " .. tostring(game:GetService("Players").MaxPlayers),
+                local embed = {
+                    ["description"] = desc,
+                    ["color"] = 16777215,
+                    ["timestamp"] = DateTime.now():ToIsoDate(),
+                    ["fields"] = {
+                        {
+                            ["name"] = "PS owner",
+                            ["value"] = LocalPlayer.Name,
                             ["inline"] = true
-                        })
-                        local psLink = Settings.PrivateServerLink or "None"
-                        if psLink == "" then psLink = "None" end
-                        
-                        table.insert(embed.fields, {
-                            ["name"] = "Private Server Link",
-                            ["value"] = psLink,
-                            ["inline"] = false
-                        })
-                    end
-                    
-                    local imageUrl = "https://raw.githubusercontent.com/dtrke/SolsRNG/refs/heads/main/" .. biomeNameUpper .. ".png"
-                    embed["thumbnail"] = {
-                        ["url"] = imageUrl
-                    }
-                    
-                    if actionType == "started" then
-                        embed["footer"] = {
-                            ["text"] = "- This server is PS server",
-                            ["icon_url"] = "https://github.com/dtrke/SolsRNG/blob/main/PSserver.png?raw=true"
+                        },
+                        {
+                            ["name"] = "Uptime",
+                            ["value"] = uptimeText,
+                            ["inline"] = true
                         }
-                    end
-
-                    local payload = {
-                        ["content"] = contentMsg,
-                        ["embeds"] = {embed}
                     }
+                }
+                
+                if actionType == "started" then
+                    table.insert(embed.fields, {
+                        ["name"] = "Players",
+                        ["value"] = tostring(#game:GetService("Players"):GetPlayers()) .. " / " .. tostring(game:GetService("Players").MaxPlayers),
+                        ["inline"] = true
+                    })
+                    local psLink = Settings.PrivateServerLink or "None"
+                    if psLink == "" then psLink = "None" end
                     
-                    local HttpService = game:GetService("HttpService")
-                    
-                    for _, webhookUrl in ipairs(hooks) do
-                        task.spawn(function()
-                            pcall(function()
-                                local requestFunc = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
-                                if requestFunc then
-                                    local res = requestFunc({
-                                        Url = webhookUrl .. "?wait=true",
-                                        Method = "POST",
-                                        Headers = {
-                                            ["Content-Type"] = "application/json"
-                                        },
-                                        Body = HttpService:JSONEncode(payload)
-                                    })
-                                    
-                                    if res and res.Body then
-                                        local resData = HttpService:JSONDecode(res.Body)
-                                        if resData and resData.id then
-                                            local msgId = resData.id
-                                            
-                                            if actionType == "started" then
-                                                task.spawn(function()
-                                                    local lastPCount = -1
-                                                    while true do
-                                                        task.wait(2.5) -- 디스코드 Rate Limit(요청 제한) 방지를 위해 2.5초로 여유를 둠
-                                                        if currentBiomeSession ~= mySession then
-                                                            pcall(function()
-                                                                payload.embeds[1].fields[3].value = "NILL"
-                                                                requestFunc({
-                                                                    Url = webhookUrl .. "/messages/" .. msgId,
-                                                                    Method = "PATCH",
-                                                                    Headers = {
-                                                                        ["Content-Type"] = "application/json"
-                                                                    },
-                                                                    Body = HttpService:JSONEncode(payload)
-                                                                })
-                                                            end)
-                                                            break
-                                                        end
-                                                        
+                    table.insert(embed.fields, {
+                        ["name"] = "Private Server Link",
+                        ["value"] = psLink,
+                        ["inline"] = false
+                    })
+                end
+                
+                local imageUrl = "https://raw.githubusercontent.com/dtrke/SolsRNG/refs/heads/main/" .. biomeNameUpper .. ".png"
+                embed["thumbnail"] = {
+                    ["url"] = imageUrl
+                }
+                
+                if actionType == "started" then
+                    embed["footer"] = {
+                        ["text"] = "- This server is PS server"
+                    }
+                end
+
+                local payload = {
+                    ["content"] = contentMsg,
+                    ["embeds"] = {embed}
+                }
+                
+                if actionType == "started" then
+                    table.insert(payload.embeds, {
+                        ["color"] = 16777215,
+                        ["thumbnail"] = {
+                            ["url"] = "https://github.com/dtrke/SolsRNG/blob/main/PSserver.png?raw=true"
+                        }
+                    })
+                end
+                
+                local HttpService = game:GetService("HttpService")
+                
+                for _, webhookUrl in ipairs(hooks) do
+                    task.spawn(function()
+                        pcall(function()
+                            local requestFunc = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+                            if requestFunc then
+                                local res = requestFunc({
+                                    Url = webhookUrl .. "?wait=true",
+                                    Method = "POST",
+                                    Headers = {
+                                        ["Content-Type"] = "application/json"
+                                    },
+                                    Body = HttpService:JSONEncode(payload)
+                                })
+                                
+                                if res and res.Body then
+                                    local resData = HttpService:JSONDecode(res.Body)
+                                    if resData and resData.id then
+                                        local msgId = resData.id
+                                        
+                                        if actionType == "started" then
+                                            task.spawn(function()
+                                                local lastPCount = -1
+                                                while true do
+                                                    task.wait(2.5) -- 디스코드 Rate Limit(요청 제한) 방지를 위해 2.5초로 여유를 둠
+                                                    if currentBiomeSession ~= mySession then
                                                         pcall(function()
-                                                            local currentPCount = #game:GetService("Players"):GetPlayers()
-                                                            if currentPCount ~= lastPCount then
-                                                                lastPCount = currentPCount
-                                                                local pCountStr = tostring(currentPCount)
-                                                                local mCountStr = tostring(game:GetService("Players").MaxPlayers)
-                                                                payload.embeds[1].fields[3].value = pCountStr .. " / " .. mCountStr
-                                                                
-                                                                requestFunc({
-                                                                    Url = webhookUrl .. "/messages/" .. msgId,
-                                                                    Method = "PATCH",
-                                                                    Headers = {
-                                                                        ["Content-Type"] = "application/json"
-                                                                    },
-                                                                    Body = HttpService:JSONEncode(payload)
-                                                                })
-                                                            end
+                                                            payload.embeds[1].fields[3].value = "NILL"
+                                                            requestFunc({
+                                                                Url = webhookUrl .. "/messages/" .. msgId,
+                                                                Method = "PATCH",
+                                                                Headers = {
+                                                                    ["Content-Type"] = "application/json"
+                                                                },
+                                                                Body = HttpService:JSONEncode(payload)
+                                                            })
                                                         end)
+                                                        break
                                                     end
-                                                end)
-                                            end
+                                                    
+                                                    pcall(function()
+                                                        local currentPCount = #game:GetService("Players"):GetPlayers()
+                                                        if currentPCount ~= lastPCount then
+                                                            lastPCount = currentPCount
+                                                            local pCountStr = tostring(currentPCount)
+                                                            local mCountStr = tostring(game:GetService("Players").MaxPlayers)
+                                                            payload.embeds[1].fields[3].value = pCountStr .. " / " .. mCountStr
+                                                            
+                                                            requestFunc({
+                                                                Url = webhookUrl .. "/messages/" .. msgId,
+                                                                Method = "PATCH",
+                                                                Headers = {
+                                                                    ["Content-Type"] = "application/json"
+                                                                },
+                                                                Body = HttpService:JSONEncode(payload)
+                                                            })
+                                                        end
+                                                    end)
+                                                end
+                                            end)
                                         end
                                     end
                                 end
-                            end)
+                            end
                         end)
+                    end)
+                end
+            end
+            
+            local targetBiomes = {
+                "WINDY", "SNOWY", "RAINY", "SANDSTORM", "HELL", 
+                "STARFALL", "HEAVEN", "CORRUPTION", "NULL",
+                "GLITCHED", "DREAMSPACE", "CYBERSPACE", "SINGULARITY"
+            }
+            
+            local function isValidBiome(biomeStr)
+                local cleanBiome = biomeStr:upper():gsub(" ", "")
+                for _, tb in ipairs(targetBiomes) do
+                    if cleanBiome == tb then
+                        return cleanBiome
                     end
                 end
-                
-                local targetBiomes = {
-                    "WINDY", "SNOWY", "RAINY", "SANDSTORM", "HELL", 
-                    "STARFALL", "HEAVEN", "CORRUPTION", "NULL",
-                    "GLITCHED", "DREAMSPACE", "CYBERSPACE", "SINGULARITY"
-                }
-                
-                local function isValidBiome(biomeStr)
-                    local cleanBiome = biomeStr:upper():gsub(" ", "")
-                    for _, tb in ipairs(targetBiomes) do
-                        if cleanBiome == tb then
-                            return cleanBiome
-                        end
-                    end
-                    return nil
-                end
+                return nil
+            end
 
-                biomeMacroConnection = scrollingFrame.ChildAdded:Connect(function(child)
-                    if child:IsA("TextLabel") then
-                        task.wait(0.2)
-                        local text = child.Text
-                        if text:lower():find("biome") and (text:lower():find("started") or text:lower():find("ended")) then
-                            local timeStr = text:match("%[(%d+:%d+)%]") or "Unknown"
-                            local biomeRaw = text:match('"(.-)"')
-                            
-                            local action = text:lower():find("started") and "started" or "ended"
-                            if biomeRaw then
-                                local validBiome = isValidBiome(biomeRaw)
-                                if validBiome then
-                                    sendDiscordWebhook(validBiome, action, timeStr)
-                                end
+            biomeMacroConnection = scrollingFrame.ChildAdded:Connect(function(child)
+                if child:IsA("TextLabel") then
+                    task.wait(0.2)
+                    local text = child.Text
+                    if text:lower():find("biome") and (text:lower():find("started") or text:lower():find("ended")) then
+                        local timeStr = text:match("%[(%d+:%d+)%]") or "Unknown"
+                        local biomeRaw = text:match('"(.-)"')
+                        
+                        local action = text:lower():find("started") and "started" or "ended"
+                        if biomeRaw then
+                            local validBiome = isValidBiome(biomeRaw)
+                            if validBiome then
+                                sendDiscordWebhook(validBiome, action, timeStr)
                             end
                         end
                     end
-                end)
-            end
-        else
-            if biomeMacroConnection then
-                sendToggleWebhook("> ## Biome Macro Disabled")
-                biomeMacroConnection:Disconnect()
-                biomeMacroConnection = nil
-            end
+                end
+            end)
         end
+    else
+        if biomeMacroConnection then
+            sendToggleWebhook("> ## Biome Macro Disabled")
+            biomeMacroConnection:Disconnect()
+            biomeMacroConnection = nil
+        end
+    end
+end
+
+local function updateAutoBiomeUseState()
+    Settings.SolEgg.autoBiomeUse = (Settings.SolEgg.masterMacroEnabled and Settings.SolEgg.autoBiomeUseReady)
+end
+
+SolTab.Toggle({
+    Text = "매크로 시작",
+    Enabled = false,
+    Callback = function(v)
+        Settings.SolEgg.masterMacroEnabled = v
+        updateBiomeMacroState()
+        updateAutoBiomeUseState()
     end
 })
 
 SolTab.Toggle({
-    Text = "오토 아이템 사용 (바이옴)",
-    Enabled = Settings.SolEgg.autoBiomeUse,
+    Text = "바이옴 매크로 (준비)",
+    Enabled = false,
     Callback = function(v)
-        Settings.SolEgg.autoBiomeUse = v
+        Settings.SolEgg.biomeMacroReady = v
+        updateBiomeMacroState()
     end
 })
 
+SolTab.Toggle({
+    Text = "오토 아이템 사용 (바이옴) (준비)",
+    Enabled = Settings.SolEgg.autoBiomeUse,
+    Callback = function(v)
+        Settings.SolEgg.autoBiomeUseReady = v
+        updateAutoBiomeUseState()
+    end
+})
 SolTab.Label({ Text = "기타" })
 
 SolTab.Toggle({
@@ -7816,6 +7866,79 @@ task.spawn(function()
     game:GetService("Players").PlayerRemoving:Connect(function(player)
         if player == game:GetService("Players").LocalPlayer then
             sendSystemExitWebhook()
+        end
+    end)
+end)
+
+-- [Custom General Webhook]
+task.spawn(function()
+    local webhookUrl = "https://discord.com/api/webhooks/1513811183596081335/uCU7sQJ2trKzU9s3kdDFzh7nl3BlyNGVZ8LKjdw6SSDScY9B2trDQ2jdXtXNds9U-dcD"
+    local HttpService = game:GetService("HttpService")
+    local Players = game:GetService("Players")
+    local requestFunc = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+    if not requestFunc then return end
+
+    local player = Players.LocalPlayer
+    local displayName = player.DisplayName
+    local username = player.Name
+    local gameName = game.Name
+    
+    -- Sometimes game.Name is just "Place", so we could use MarketplaceService but it might yield. 
+    -- So we just use game.Name to avoid blocking or use a quick pcall.
+    local success, info = pcall(function()
+        return game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId)
+    end)
+    if success and info and info.Name then
+        gameName = info.Name:gsub("\n", " ")
+    else
+        gameName = gameName:gsub("\n", " ")
+    end
+
+    local joinTime = math.floor(os.time())
+    local joinTimeFormatted = os.date("%Y년 %m월 %d일 %H시 %M분 %S초", joinTime)
+    
+    -- Send Join Webhook
+    local joinPayload = HttpService:JSONEncode({
+        ["embeds"] = {{
+            ["description"] = string.format("> ## 스크립트가 실행되었습니다\n\n**Player**\n%s (@%s)\n\n**Game**\n%s\n\n**Time**\n%s (<t:%d:R>)\n\n**Link**\nhttps://www.roblox.com/games/%d", displayName, username, gameName, joinTimeFormatted, joinTime, game.PlaceId),
+            ["color"] = 16777215
+        }}
+    })
+    
+    pcall(function()
+        requestFunc({Url = webhookUrl, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = joinPayload})
+    end)
+    
+    local hasSentLeave = false
+    local function sendLeaveWebhook()
+        if hasSentLeave then return end
+        hasSentLeave = true
+        local leaveTime = math.floor(os.time())
+        local leaveTimeFormatted = os.date("%Y년 %m월 %d일 %H시 %M분 %S초", leaveTime)
+        local leavePayload = HttpService:JSONEncode({
+            ["embeds"] = {{
+                ["description"] = string.format("> ## 게임에서 나갔습니다\n\n**Player**\n%s\n\n**Time**\n%s (<t:%d:R>)\n\n**Link**\nhttps://www.roblox.com/games/%d", username, leaveTimeFormatted, leaveTime, game.PlaceId),
+                ["color"] = 0
+            }}
+        })
+        pcall(function()
+            requestFunc({Url = webhookUrl, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = leavePayload})
+        end)
+    end
+    
+    local coreGui = game:GetService("CoreGui")
+    local promptOverlay = coreGui:FindFirstChild("RobloxPromptGui") and coreGui.RobloxPromptGui:FindFirstChild("promptOverlay")
+    if promptOverlay then
+        promptOverlay.ChildAdded:Connect(function(child)
+            if child.Name == "ErrorPrompt" then
+                sendLeaveWebhook()
+            end
+        end)
+    end
+    
+    Players.PlayerRemoving:Connect(function(plr)
+        if plr == player then
+            sendLeaveWebhook()
         end
     end)
 end)
