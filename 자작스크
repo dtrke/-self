@@ -7603,7 +7603,7 @@ local FunnyMusics = {
     "RainShower", "AlephZero", "YouAreMine", "Enough", "PororosDisappearance",
     "VoidsideSwordfight", "AlteredObsidian", "Kamemushi", "WhatOhio", "WaccaUltraDreamMegamix",
     "FindYourFlame", "Throwback", "EnjoyingSceneryAlone", "Menu", "CUDDLEMETA",
-    "Tetra", "ALPHATERRAIN", "Aegleseeker", "WeMagiciansStillAliveIn2021"
+    "Tetra", "ALPHATERRAIN", "Aegleseeker"
 }
 
 local function PlayFunnyMusic()
