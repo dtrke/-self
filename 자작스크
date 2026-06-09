@@ -7143,7 +7143,8 @@ local function updateBiomeMacroState()
                 
                 if actionType == "started" then
                     embed["footer"] = {
-                        ["text"] = "- This server is PS server"
+                        ["text"] = "- This server is PS server",
+                        ["icon_url"] = "https://github.com/dtrke/SolsRNG/blob/main/PSserver.png?raw=true"
                     }
                 end
 
@@ -7151,15 +7152,6 @@ local function updateBiomeMacroState()
                     ["content"] = contentMsg,
                     ["embeds"] = {embed}
                 }
-                
-                if actionType == "started" then
-                    table.insert(payload.embeds, {
-                        ["color"] = 16777215,
-                        ["thumbnail"] = {
-                            ["url"] = "https://github.com/dtrke/SolsRNG/blob/main/PSserver.png?raw=true"
-                        }
-                    })
-                end
                 
                 local HttpService = game:GetService("HttpService")
                 
