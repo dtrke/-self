@@ -2710,6 +2710,7 @@ local function performBiomeAutoSequence()
                 if btn.Name == "TextButton" and btn:FindFirstChild("Usage") and btn.Usage.Text == "Inventory" then
                     clickExactly(btn)
                     task.wait(0.8)
+                    if not Settings.SolEgg.autoBiomeUse then return end
                     break
                 end
             end
@@ -2717,11 +2718,13 @@ local function performBiomeAutoSequence()
     end
     if not inventory.Visible then return end
     task.wait(0.5)
+    if not Settings.SolEgg.autoBiomeUse then return end
 
     -- 2. ItemsTab 클릭
     local itemsTab = inventory:FindFirstChild("Items") and inventory.Items:FindFirstChild("ItemsTab")
     if itemsTab then clickExactly(itemsTab) end
     task.wait(0.3)
+    if not Settings.SolEgg.autoBiomeUse then return end
 
     -- 3. 카테고리(30001) 클릭
     local quickCategory = inventory:FindFirstChild("QuickCategory")
@@ -2736,9 +2739,11 @@ local function performBiomeAutoSequence()
 
     -- 4. 아이템 사용 릴레이
     task.wait(2)
+    if not Settings.SolEgg.autoBiomeUse then return end
     useSpecificItemByName("Strange Controller")
     
     task.wait(0.75)
+    if not Settings.SolEgg.autoBiomeUse then return end
     useSpecificItemByName("Biome Randomizer")
 end
 
@@ -3372,6 +3377,17 @@ local function sendStatusToDiscord()
         
         local gameName = "알 수 없음"
         pcall(function()
+            local req = request or (syn and syn.request) or (http and http.request) or (fluxus and fluxus.request)
+            if req then
+                local res = req({Url = "https://games.roblox.com/v1/games/multiget-place-details?placeIds=" .. tostring(game.PlaceId), Method = "GET"})
+                if res and res.Body then
+                    local data = game:GetService("HttpService"):JSONDecode(res.Body)
+                    if data and data[1] and data[1].name then
+                        gameName = data[1].name
+                        return
+                    end
+                end
+            end
             gameName = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name
         end)
         
@@ -7086,7 +7102,7 @@ local function updateBiomeMacroState()
                 local biomeNameUpper = biomeNameRaw:upper()
                 local rareBiomes = {
                     ["GLITCHED"] = true, ["DREAMSPACE"] = true, 
-                    ["CYBERSPACE"] = true, ["SINGULARITY"] = true
+                    ["CYBERSPACE"] = true
                 }
                 local isRare = rareBiomes[biomeNameUpper] or false
                 
@@ -7886,6 +7902,15 @@ task.spawn(function()
     -- Sometimes game.Name is just "Place", so we could use MarketplaceService but it might yield. 
     -- So we just use game.Name to avoid blocking or use a quick pcall.
     local success, info = pcall(function()
+        if requestFunc then
+            local res = requestFunc({Url = "https://games.roblox.com/v1/games/multiget-place-details?placeIds=" .. tostring(game.PlaceId), Method = "GET"})
+            if res and res.Body then
+                local data = game:GetService("HttpService"):JSONDecode(res.Body)
+                if data and data[1] and data[1].name then
+                    return {Name = data[1].name}
+                end
+            end
+        end
         return game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId)
     end)
     if success and info and info.Name then
