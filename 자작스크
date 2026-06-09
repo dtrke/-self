@@ -126,7 +126,7 @@ local Settings = {
     
     -- 텔레포트
     Teleport = {
-        enabled = true,
+        enabled = false,
         distance = 3.5,
         key = Enum.KeyCode.E,
         effectLevel = 2
