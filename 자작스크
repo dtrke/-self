@@ -4018,8 +4018,19 @@ Services.RunService.RenderStepped:Connect(function(dt)
                 pObj.Rotation = math.random(0, 90) -- 정사각형이거나 마름모
                 pObj.BorderSizePixel = 0
                 
-                -- 색상 결정
-                pObj.BackgroundColor3 = Settings.MusicVisualizerSetting.leftBars[1].BackgroundColor3
+                -- 색상 결정 (색1 ~ 색2 사이 랜덤)
+                local pMaxColor
+                if syncColor then
+                    pMaxColor = syncColor
+                else
+                    local colorName = Settings.MusicVisualizerSetting and Settings.MusicVisualizerSetting.color or "하얀색"
+                    pMaxColor = getVisualizerColor(colorName)
+                end
+                local pMinColor = Color3.new(0, 0, 0)
+                if Settings.MusicVisualizerSetting and Settings.MusicVisualizerSetting.baseColorType == "흰색" then
+                    pMinColor = Color3.new(1, 1, 1)
+                end
+                pObj.BackgroundColor3 = pMinColor:Lerp(pMaxColor, math.random())
                 
                 local baseSizeRnd = math.random(8, 17) * (0.2 + normalized * 1) -- 기본 크기 2배, 대비 증가
                 pObj.Size = UDim2.new(0, baseSizeRnd, 0, baseSizeRnd)
