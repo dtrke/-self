@@ -230,6 +230,8 @@ local Settings = {
         isDraggingTimeline = false,
         leftBars = {},
         rightBars = {},
+        Particles = {},
+        LastParticleSpawn = 0,
         lastCamLook = nil,
         lastCamPos = nil,
         currentSway = Vector3.new(0, 0),
@@ -3999,6 +4001,47 @@ Services.RunService.RenderStepped:Connect(function(dt)
             end
             -- 타임라인 색상도 일관성 있게 흑백으로 공유
             timelineProgress.BackgroundColor3 = Settings.MusicVisualizerSetting.leftBars[1].BackgroundColor3
+            
+            -- [NEW] 파티클 스폰 로직 (프레임 단위 스폰)
+            local spawnCount = math.floor(normalized * 2) -- 최대 개수 절반
+            if math.random() < normalized then
+                spawnCount = math.max(1, spawnCount)
+            else
+                spawnCount = 0
+            end
+            
+            for pIdx = 1, spawnCount do
+                local pSide = math.random() > 0.5 and "Left" or "Right"
+                
+                local pObj = Instance.new("Frame")
+                pObj.BackgroundTransparency = 0
+                pObj.Rotation = math.random(0, 90) -- 정사각형이거나 마름모
+                pObj.BorderSizePixel = 0
+                
+                -- 색상 결정
+                pObj.BackgroundColor3 = Settings.MusicVisualizerSetting.leftBars[1].BackgroundColor3
+                
+                local baseSizeRnd = math.random(8, 17) * (0.2 + normalized * 1) -- 기본 크기 2배, 대비 증가
+                pObj.Size = UDim2.new(0, baseSizeRnd, 0, baseSizeRnd)
+                pObj.AnchorPoint = Vector2.new(0.5, 0.5)
+                
+                local startY = math.random(10, 90) / 100
+                local startX = pSide == "Left" and -0.05 or 1.05
+                pObj.Position = UDim2.new(startX, 0, startY, 0)
+                pObj.Parent = Settings.MusicVisualizerSetting.Gui
+                
+                table.insert(Settings.MusicVisualizerSetting.Particles, {
+                    Obj = pObj,
+                    StartX = startX,
+                    TargetX = pSide == "Left" and (0.06 + math.random()*0.14) or (0.94 - math.random()*0.14), -- 이동거리 1.5배 감소
+                    StartY = startY,
+                    TargetY = startY + (math.random() - 0.5) * 0.3,
+                    Progress = 0,
+                    Duration = 1.5 + math.random() * 2.5,
+                    RotationSpeed = math.random(-3, 3),
+                    BaseSize = baseSizeRnd
+                })
+            end
         else
             -- 사운드가 없더라도 motion(m3)이 살아있으면 바를 MotionAlpha 속도에 맞춰 줄여줌
             for i = 1, numBars do
@@ -4014,6 +4057,46 @@ Services.RunService.RenderStepped:Connect(function(dt)
                 Settings.MusicVisualizerSetting.rightBars[i].BackgroundTransparency = 0.75 + (0.25 * invM)
             end
         end
+        
+        -- [NEW] 파티클 업데이트 로직 (easeOutCubic 적용)
+        local curLoudness = (sound and sound.IsPlaying) and (sound.PlaybackLoudness or 0) or 0
+        local curNorm = math.clamp(curLoudness / 500, 0.05, 1)
+        local curSpeedMult = (sound and sound.IsPlaying) and (0.5 + (curNorm * 9)) or 1
+        
+        local aliveParticles = {}
+        for _, p in ipairs(Settings.MusicVisualizerSetting.Particles or {}) do
+            if p.Obj and p.Obj.Parent then
+                -- dt와 음악 기반 배율에 따라 Progress 증가 (음악이 빠를/클수록 빨리 진행)
+                p.Progress = p.Progress + (dt / p.Duration) * curSpeedMult
+                
+                if p.Progress >= 1 then
+                    p.Obj:Destroy()
+                else
+                    -- easeOutCubic: 1 - (1 - t)^3
+                    local easeVal = 1 - math.pow(1 - p.Progress, 3)
+                    
+                    local currentX = p.StartX + (p.TargetX - p.StartX) * easeVal
+                    local currentY = p.StartY + (p.TargetY - p.StartY) * easeVal
+                    
+                    p.Obj.Position = UDim2.new(currentX, 0, currentY, 0)
+                    p.Obj.Rotation = p.Obj.Rotation + p.RotationSpeed
+                    
+                    -- 동적 크기 조절 (최대 크기는 BaseSize 유지, 소리가 작아지면 0.4배까지 축소)
+                    local dynSize = p.BaseSize * (0.4 + curNorm * 0.6)
+                    p.Obj.Size = UDim2.new(0, dynSize, 0, dynSize)
+                    
+                    -- Progress가 진행될수록 투명해짐 (0 -> 1)
+                    local pTrans = p.Progress
+                    pTrans = 1 - ((1 - pTrans) * m3) -- 전체 UI 투명도(m3)와 결합
+                    pTrans = math.clamp(pTrans, 0, 1)
+                    
+                    p.Obj.BackgroundTransparency = pTrans
+                    
+                    table.insert(aliveParticles, p)
+                end
+            end
+        end
+        Settings.MusicVisualizerSetting.Particles = aliveParticles
     else
         Settings.MusicVisualizerSetting.Gui.Enabled = false
     end
