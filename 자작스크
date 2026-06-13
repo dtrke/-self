@@ -7378,7 +7378,710 @@ local function updateBiomeMacroState()
 end
 
 local function updateAutoBiomeUseState()
-    Settings.SolEgg.autoBiomeUse = (Settings.SolEgg.masterMacroEnabled and Settings.SolEgg.autoBiomeUseReady)
+    if Settings.SolEgg.autoFishActive then
+        Settings.SolEgg.autoBiomeUse = false
+    else
+        Settings.SolEgg.autoBiomeUse = (Settings.SolEgg.masterMacroEnabled and Settings.SolEgg.autoBiomeUseReady)
+    end
+end
+
+local autoFishConnection = nil
+Settings.SolEgg.autoFishReady = false
+Settings.SolEgg.autoFishActive = false
+
+local function updateAutoFishState()
+    local v = Settings.SolEgg.masterMacroEnabled and Settings.SolEgg.autoFishReady
+    Settings.SolEgg.autoFishActive = v
+    updateAutoBiomeUseState()
+    if v then
+        if not autoFishConnection then
+            autoFishConnection = task.spawn(function()
+                local vim = game:GetService("VirtualInputManager")
+                local coreGui = game:GetService("CoreGui")
+                
+                pcall(function()
+                    local scriptParts = workspace:FindFirstChild("ScriptParts")
+                    if not scriptParts then
+                        scriptParts = Instance.new("Folder")
+                        scriptParts.Name = "ScriptParts"
+                        scriptParts.Parent = workspace
+                    end
+                    
+                    local place1 = scriptParts:FindFirstChild("Place1")
+                    if not place1 then
+                        place1 = Instance.new("Part")
+                        place1.Name = "Place1"
+                        place1.Position = Vector3.new(55, 99, -279)
+                        place1.Anchored = true
+                        place1.CanCollide = false
+                        place1.Transparency = 1
+                        place1.Parent = scriptParts
+                    end
+                    
+                    local place2 = scriptParts:FindFirstChild("Place2")
+                    if not place2 then
+                        place2 = Instance.new("Part")
+                        place2.Name = "Place2"
+                        place2.Position = Vector3.new(109, 107, -296)
+                        place2.Anchored = true
+                        place2.CanCollide = false
+                        place2.Transparency = 1
+                        place2.Parent = scriptParts
+                    end
+                end)
+                
+                local function findFishStorageCount()
+                    local mainUI = game.Players.LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("MainInterface")
+                    if not mainUI then return -1, -1 end
+                    for _, v in ipairs(mainUI:GetChildren()) do
+                        if v:IsA("Frame") then
+                            local hasFishStorage = false
+                            for _, desc in ipairs(v:GetDescendants()) do
+                                if desc:IsA("TextLabel") and string.find(string.lower(desc.Text), "fish storage") then
+                                    hasFishStorage = true
+                                    break
+                                end
+                            end
+                            if hasFishStorage then
+                                for _, v2 in ipairs(v:GetChildren()) do
+                                    if v2:IsA("Frame") and math.abs(v2.Size.X.Scale - 0.69) < 0.05 and math.abs(v2.Size.Y.Scale - 0.9) < 0.05 then
+                                        for _, v3 in ipairs(v2:GetChildren()) do
+                                            if v3:IsA("ImageButton") and math.abs(v3.Position.X.Scale) < 0.01 and math.abs(v3.Position.Y.Scale) < 0.01 then
+                                                for _, cl in ipairs(v3:GetDescendants()) do
+                                                    if cl:IsA("TextLabel") and string.find(string.lower(cl.Text), "inventory") then
+                                                        local n1, n2 = cl.Text:match("%[(%d+)%s*/%s*(%d+)%]")
+                                                        if n1 and n2 then
+                                                            return tonumber(n1), tonumber(n2)
+                                                        end
+                                                    end
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    return -1, -1
+                end
+                
+                local function findFishingShopFrame()
+                    local mainUI = game.Players.LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("MainInterface")
+                    if not mainUI then return nil end
+                    for _, v in ipairs(mainUI:GetChildren()) do
+                        if v:IsA("Frame") then
+                            local hasFishingShop = false
+                            for _, desc in ipairs(v:GetDescendants()) do
+                                if desc:IsA("TextLabel") and string.find(string.lower(desc.Text), "fishing shop") then
+                                    hasFishingShop = true
+                                    break
+                                end
+                            end
+                            if hasFishingShop then
+                                return v
+                            end
+                        end
+                    end
+                    return nil
+                end
+                
+                local function findFishingShopSubframe(fShopParent)
+                    if not fShopParent then return nil end
+                    for _, v2 in ipairs(fShopParent:GetChildren()) do
+                        if v2:IsA("Frame") and math.abs(v2.Position.X.Scale - 0.995) < 0.01 and math.abs(v2.Position.Y.Scale - 0.09) < 0.01 and math.abs(v2.Size.X.Scale - 0.69) < 0.01 and math.abs(v2.Size.Y.Scale - 0.9) < 0.01 then
+                            return v2
+                        end
+                    end
+                    return nil
+                end
+                
+                while Settings.SolEgg.autoFishActive do
+                    local pathExists = false
+                    local isTargetPos = false
+                    local selector = nil
+                    
+                    local success, result = pcall(function()
+                        local basePage = coreGui.RobloxGui.SettingsClippingShield.SettingsShield.MenuContainer.Page.PageViewClipper.PageView.PageViewInnerFrame.Page
+                        selector = basePage["Movement ModeFrame"].Selector
+                        return selector.Selection3
+                    end)
+                    
+                    if success and result then
+                        pathExists = true
+                        if result.Position == UDim2.new(0, 32, 0, 0) then
+                            isTargetPos = true
+                        end
+                    end
+                    
+                    local proceed = false
+
+                    if isTargetPos then
+                        proceed = true
+                    else
+                        if not pathExists then
+                            vim:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
+                            task.wait(1.5)
+                            vim:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
+                            
+                            vim:SendKeyEvent(true, Enum.KeyCode.Tab, false, game)
+                            task.wait(1.5)
+                            vim:SendKeyEvent(false, Enum.KeyCode.Tab, false, game)
+                            
+                            vim:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
+                            task.wait(1)
+                            vim:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
+                            
+                            local success2, result2 = pcall(function()
+                                return coreGui.RobloxGui.SettingsClippingShield.SettingsShield.MenuContainer.Page.PageViewClipper.PageView.PageViewInnerFrame.Page["Movement ModeFrame"].Selector.Selection3
+                            end)
+                            if success2 and result2 and result2.Position == UDim2.new(0, 32, 0, 0) then
+                                proceed = true
+                            end
+                        else
+                            vim:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
+                            task.wait(1.5)
+                            vim:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
+                            
+                            vim:SendKeyEvent(true, Enum.KeyCode.Tab, false, game)
+                            task.wait(1.5)
+                            vim:SendKeyEvent(false, Enum.KeyCode.Tab, false, game)
+                            
+                            local hoverSuccess = false
+                            if selector then
+                                for i = 1, 50 do
+                                    if not Settings.SolEgg.autoFishActive then break end
+                                    vim:SendKeyEvent(true, Enum.KeyCode.Down, false, game)
+                                    task.wait(0.35)
+                                    vim:SendKeyEvent(false, Enum.KeyCode.Down, false, game)
+                                    if selector.GuiState == Enum.GuiState.Hover then
+                                        hoverSuccess = true
+                                        break
+                                    end
+                                end
+                                
+                                if not hoverSuccess and Settings.SolEgg.autoFishActive then
+                                    for i = 1, 50 do
+                                        if not Settings.SolEgg.autoFishActive then break end
+                                        vim:SendKeyEvent(true, Enum.KeyCode.Up, false, game)
+                                        task.wait(0.35)
+                                        vim:SendKeyEvent(false, Enum.KeyCode.Up, false, game)
+                                        if selector.GuiState == Enum.GuiState.Hover then
+                                            hoverSuccess = true
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+                            
+                            if hoverSuccess then
+                                local targetReached = false
+                                while Settings.SolEgg.autoFishActive do
+                                    local s3 = nil
+                                    pcall(function() s3 = selector.Selection3 end)
+                                    if s3 and s3.Position == UDim2.new(0, 32, 0, 0) then
+                                        targetReached = true
+                                        break
+                                    end
+                                    
+                                    vim:SendKeyEvent(true, Enum.KeyCode.Right, false, game)
+                                    task.wait(1)
+                                    vim:SendKeyEvent(false, Enum.KeyCode.Right, false, game)
+                                end
+                                
+                                if targetReached then
+                                    task.wait(1)
+                                    vim:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
+                                    task.wait(1.5)
+                                    vim:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
+                                    proceed = true
+                                else
+                                    break
+                                end
+                            else
+                                Settings.SolEgg.masterMacroEnabled = false
+                                if updateBiomeMacroState then updateBiomeMacroState() end
+                                if updateAutoBiomeUseState then updateAutoBiomeUseState() end
+                                break
+                            end
+                        end
+                    end
+                    
+                    if proceed and Settings.SolEgg.autoFishActive then
+                        while Settings.SolEgg.autoFishActive do
+                            -- PHASE 1 (! - 1)
+                            local cam = workspace.CurrentCamera
+                            local originalCamCFrame = nil
+                            local originalCamType = nil
+                            
+                            if cam then
+                                originalCamType = cam.CameraType
+                                originalCamCFrame = cam.CFrame
+                                cam.CameraType = Enum.CameraType.Scriptable
+                                local p1 = workspace:FindFirstChild("ScriptParts") and workspace.ScriptParts:FindFirstChild("Place1")
+                                if p1 then
+                                    cam.CFrame = CFrame.new(p1.Position) * CFrame.Angles(math.rad(-90), 0, 0)
+                                else
+                                    cam.CFrame = CFrame.new(55, 99, -279) * CFrame.Angles(math.rad(-90), 0, 0)
+                                end
+                            end
+                            
+                            task.wait(1)
+                            
+                            local viewport = workspace.CurrentCamera.ViewportSize
+                            local centerX = math.floor(viewport.X / 2)
+                            local centerY = math.floor(viewport.Y / 2)
+                            
+                            showPremiumIndicator(centerX, centerY)
+                            vim:SendMouseButtonEvent(centerX, centerY, 1, true, game, 0)
+                            task.wait(0.05)
+                            vim:SendMouseButtonEvent(centerX, centerY, 1, false, game, 0)
+                            
+                            task.wait(0.1)
+                            
+                            if cam and originalCamCFrame and originalCamType then
+                                cam.CFrame = originalCamCFrame
+                                cam.CameraType = originalCamType
+                            end
+                            
+                            local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                            local p1 = workspace:FindFirstChild("ScriptParts") and workspace.ScriptParts:FindFirstChild("Place1")
+                            local touched = false
+                            if hrp and p1 and (hrp.Position - p1.Position).Magnitude < 10 then
+                                touched = true
+                            end
+                            
+                            local skipToPhase2 = false
+                            
+                            if not touched then
+                                local isStoppedTime = 0
+                                while isStoppedTime < 3 and Settings.SolEgg.autoFishActive do
+                                    task.wait(0.1)
+                                    local currentHrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                                    if currentHrp and p1 and (currentHrp.Position - p1.Position).Magnitude < 10 then
+                                        touched = true
+                                        break
+                                    end
+                                    if currentHrp and currentHrp.Velocity.Magnitude < 1 then
+                                        isStoppedTime = isStoppedTime + 0.1
+                                    else
+                                        isStoppedTime = 0
+                                    end
+                                end
+                                
+                                if not touched then
+                                    local hrp2 = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                                    if hrp2 and p1 and (hrp2.Position - p1.Position).Magnitude < 10 then
+                                        touched = true
+                                    end
+                                end
+                                
+                                if not touched then
+                                    local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("Humanoid")
+                                    if hum then
+                                        hum.Health = 0
+                                    end
+                                    task.wait(5)
+                                    skipToPhase2 = true
+                                end
+                            end
+                            
+                            if not skipToPhase2 then
+                                task.wait(1)
+                                
+                                while Settings.SolEgg.autoFishActive do
+                                    local n1, n2 = findFishStorageCount()
+                                    if n1 ~= -1 and n1 == n2 then
+                                        break
+                                    end
+                                    
+                                    local mainUI = game.Players.LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("MainInterface")
+                                    if mainUI then
+                                        local clicked = false
+                                        local rootImageLabel = nil
+                                        for _, img1 in ipairs(mainUI:GetDescendants()) do
+                                            if img1:IsA("ImageLabel") and math.abs(img1.BackgroundTransparency - 0.4) < 0.01 then
+                                                rootImageLabel = img1
+                                                for _, img2 in ipairs(img1:GetDescendants()) do
+                                                    if img2:IsA("ImageLabel") then
+                                                        local textCount = 0
+                                                        for _, ch2 in ipairs(img2:GetChildren()) do
+                                                            if ch2:IsA("TextLabel") then
+                                                                textCount = textCount + 1
+                                                            end
+                                                        end
+                                                        
+                                                        if textCount == 4 then
+                                                            for _, img3 in ipairs(img2:GetDescendants()) do
+                                                                if img3:IsA("ImageLabel") and img3:FindFirstChildWhichIsA("UIListLayout") then
+                                                                    for _, btn in ipairs(img3:GetChildren()) do
+                                                                        if btn:IsA("ImageButton") and btn.LayoutOrder == 0 then
+                                                                            clickExactly(btn)
+                                                                            clicked = true
+                                                                            break
+                                                                        end
+                                                                    end
+                                                                end
+                                                                if clicked then break end
+                                                            end
+                                                        end
+                                                    end
+                                                    if clicked then break end
+                                                end
+                                            end
+                                            if clicked then break end
+                                        end
+                                        
+                                        if rootImageLabel then
+                                            local targetTextLabel = nil
+                                            while Settings.SolEgg.autoFishActive do
+                                                targetTextLabel = nil
+                                                for _, subImg1 in ipairs(rootImageLabel:GetDescendants()) do
+                                                    if subImg1:IsA("ImageLabel") then
+                                                        local imgCount = 0
+                                                        for _, c in ipairs(subImg1:GetChildren()) do
+                                                            if c:IsA("ImageLabel") then imgCount = imgCount + 1 end
+                                                        end
+                                                        if imgCount == 3 then
+                                                            for _, subImg2 in ipairs(subImg1:GetDescendants()) do
+                                                                if subImg2:IsA("ImageLabel") then
+                                                                    local txtCount = 0
+                                                                    for _, c in ipairs(subImg2:GetChildren()) do
+                                                                        if c:IsA("TextLabel") then txtCount = txtCount + 1 end
+                                                                    end
+                                                                    if txtCount == 2 then
+                                                                        for _, t in ipairs(subImg2:GetChildren()) do
+                                                                            if t:IsA("TextLabel") and t.Text == "Click / Touch Screen to Reel" then
+                                                                                targetTextLabel = t
+                                                                                break
+                                                                            end
+                                                                        end
+                                                                    end
+                                                                end
+                                                                if targetTextLabel then break end
+                                                            end
+                                                        end
+                                                    end
+                                                    if targetTextLabel then break end
+                                                end
+                                                
+                                                if targetTextLabel and math.abs(targetTextLabel.Position.X.Scale) < 0.01 and math.abs(targetTextLabel.Position.X.Offset) < 0.01 and math.abs(targetTextLabel.Position.Y.Scale) < 0.01 and math.abs(targetTextLabel.Position.Y.Offset) < 0.01 then
+                                                    break
+                                                end
+                                                task.wait(0.1)
+                                            end
+                                            
+                                            local vim = game:GetService("VirtualInputManager")
+                                            local cam = workspace.CurrentCamera
+                                            
+                                            while targetTextLabel and Settings.SolEgg.autoFishActive do
+                                                if math.abs(targetTextLabel.Position.X.Scale) < 0.01 and math.abs(targetTextLabel.Position.X.Offset) < 0.01 and math.abs(targetTextLabel.Position.Y.Scale - 1) < 0.01 and math.abs(targetTextLabel.Position.Y.Offset) < 0.01 then
+                                                    break
+                                                end
+                                                
+                                                -- 반복 A - 1 (Center click, 겹치면 클릭 안 함)
+                                                local barImg, zoneImg = nil, nil
+                                                for _, d in ipairs(rootImageLabel:GetDescendants()) do
+                                                    if d:IsA("ImageLabel") then
+                                                        if d.ZIndex == 2 and not barImg then barImg = d end
+                                                        if d.ZIndex == 1 and not zoneImg then zoneImg = d end
+                                                    end
+                                                end
+                                                local notOverlap = true
+                                                if barImg and zoneImg then
+                                                    local bx = barImg.AbsolutePosition.X
+                                                    local by = barImg.AbsolutePosition.Y
+                                                    local bw = barImg.AbsoluteSize.X
+                                                    local bh = barImg.AbsoluteSize.Y
+                                                    local zx = zoneImg.AbsolutePosition.X
+                                                    local zy = zoneImg.AbsolutePosition.Y
+                                                    local zw = zoneImg.AbsoluteSize.X
+                                                    local zh = zoneImg.AbsoluteSize.Y
+                                                    if bx < zx + zw and bx + bw > zx and by < zy + zh and by + bh > zy then
+                                                        notOverlap = false
+                                                    end
+                                                end
+                                                if notOverlap and cam then
+                                                    local vpSize = cam.ViewportSize
+                                                    local cx = vpSize.X / 2
+                                                    local cy = vpSize.Y / 2
+                                                    vim:SendMouseButtonEvent(cx, cy, 0, true, game, 0)
+                                                    task.wait(0.05)
+                                                    vim:SendMouseButtonEvent(cx, cy, 0, false, game, 0)
+                                                end
+                                                
+                                                task.wait(0.1)
+                                            end
+                                            
+                                            task.wait(3)
+                                            
+                                            local clickedClose = false
+                                            for _, subImg in ipairs(rootImageLabel:GetDescendants()) do
+                                                if subImg:IsA("ImageLabel") and subImg:FindFirstChildWhichIsA("ScrollingFrame") then
+                                                    for _, btn in ipairs(subImg:GetDescendants()) do
+                                                        if btn:IsA("ImageButton") then
+                                                            clickExactly(btn)
+                                                            clickedClose = true
+                                                            break
+                                                        end
+                                                    end
+                                                end
+                                                if clickedClose then break end
+                                            end
+                                            
+                                            task.wait(0.75)
+                                        else
+                                            task.wait(0.5)
+                                        end
+                                    end
+                                    task.wait(0.5)
+                                end
+                                end
+                            
+                            if not Settings.SolEgg.autoFishActive then break end
+                            
+                            if not Settings.SolEgg.autoFishActive then break end
+                            
+                            -- PHASE 2 (! - 2)
+                            while Settings.SolEgg.autoFishActive do
+                                cam = workspace.CurrentCamera
+                                originalCamCFrame = nil
+                                originalCamType = nil
+                                
+                                if cam then
+                                    originalCamType = cam.CameraType
+                                    originalCamCFrame = cam.CFrame
+                                    cam.CameraType = Enum.CameraType.Scriptable
+                                    local p2 = workspace:FindFirstChild("ScriptParts") and workspace.ScriptParts:FindFirstChild("Place2")
+                                    if p2 then
+                                        cam.CFrame = CFrame.new(p2.Position) * CFrame.Angles(math.rad(-90), 0, 0)
+                                    else
+                                        cam.CFrame = CFrame.new(109, 107, -296) * CFrame.Angles(math.rad(-90), 0, 0)
+                                    end
+                                end
+                                
+                                task.wait(1)
+                                
+                                local viewport2 = workspace.CurrentCamera.ViewportSize
+                                local centerX2 = math.floor(viewport2.X / 2)
+                                local centerY2 = math.floor(viewport2.Y / 2)
+                                
+                                showPremiumIndicator(centerX2, centerY2)
+                                vim:SendMouseButtonEvent(centerX2, centerY2, 1, true, game, 0)
+                                task.wait(0.05)
+                                vim:SendMouseButtonEvent(centerX2, centerY2, 1, false, game, 0)
+                                
+                                task.wait(0.1)
+                                
+                                if cam and originalCamCFrame and originalCamType then
+                                    cam.CFrame = originalCamCFrame
+                                    cam.CameraType = originalCamType
+                                end
+                                
+                                local hrp3 = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                                local p2 = workspace:FindFirstChild("ScriptParts") and workspace.ScriptParts:FindFirstChild("Place2")
+                                local touched2 = false
+                                if hrp3 and p2 and (hrp3.Position - p2.Position).Magnitude < 10 then
+                                    touched2 = true
+                                end
+                                
+                                local phase2Success = false
+                                
+                                if not touched2 then
+                                    local isStoppedTime = 0
+                                    while isStoppedTime < 3 and Settings.SolEgg.autoFishActive do
+                                        task.wait(0.1)
+                                        local currentHrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                                        if currentHrp and p2 and (currentHrp.Position - p2.Position).Magnitude < 10 then
+                                            touched2 = true
+                                            break
+                                        end
+                                        if currentHrp and currentHrp.Velocity.Magnitude < 1 then
+                                            isStoppedTime = isStoppedTime + 0.1
+                                        else
+                                            isStoppedTime = 0
+                                        end
+                                    end
+                                    
+                                    if not touched2 then
+                                        local hrp4 = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                                        if hrp4 and p2 and (hrp4.Position - p2.Position).Magnitude < 10 then
+                                            touched2 = true
+                                        end
+                                    end
+                                    
+                                    if not touched2 then
+                                        local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("Humanoid")
+                                        if hum then
+                                            hum.Health = 0
+                                        end
+                                        task.wait(5)
+                                        continue
+                                    else
+                                        phase2Success = true
+                                    end
+                                else
+                                    phase2Success = true
+                                end
+                                
+                                if phase2Success then
+                                    break
+                                end
+                            end
+                            
+                            task.wait(1)
+                            
+                            local fShopParent = findFishingShopFrame()
+                            if fShopParent then
+                                fShopParent.Visible = true
+                            end
+                            
+                            task.wait(0.75)
+                            
+                            local fShopParent2 = findFishingShopFrame()
+                            if fShopParent2 then
+                                local targetFrame = nil
+                                for _, ch in ipairs(fShopParent2:GetChildren()) do
+                                    if ch:IsA("Frame") and math.abs(ch.Position.X.Scale - 0.995) < 0.05 and math.abs(ch.Position.Y.Scale - 0.09) < 0.05 and math.abs(ch.Size.X.Scale - 0.69) < 0.05 and math.abs(ch.Size.Y.Scale - 0.9) < 0.05 then
+                                        targetFrame = ch
+                                        break
+                                    end
+                                end
+                                
+                                if targetFrame then
+                                    for _, desc in ipairs(targetFrame:GetDescendants()) do
+                                        if desc:IsA("TextLabel") and string.find(string.lower(desc.Text), "sell") then
+                                            clickExactly(desc)
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+                            
+                            task.wait(0.5)
+                            
+                            while Settings.SolEgg.autoFishActive do
+                                local fShopParent3 = findFishingShopFrame()
+                                local targetFrame2 = nil
+                                if fShopParent3 then
+                                    for _, ch in ipairs(fShopParent3:GetChildren()) do
+                                        if ch:IsA("Frame") and math.abs(ch.Position.X.Scale - 0.995) < 0.05 and math.abs(ch.Position.Y.Scale - 0.09) < 0.05 and math.abs(ch.Size.X.Scale - 0.69) < 0.05 and math.abs(ch.Size.Y.Scale - 0.9) < 0.05 then
+                                            targetFrame2 = ch
+                                            break
+                                        end
+                                    end
+                                end
+                                
+                                local scrollingFrame = nil
+                                if targetFrame2 then
+                                    for _, v in ipairs(targetFrame2:GetChildren()) do
+                                        if v:IsA("Frame") and v.Visible then
+                                            scrollingFrame = v:FindFirstChildWhichIsA("ScrollingFrame")
+                                            if scrollingFrame then break end
+                                        end
+                                    end
+                                end
+                                
+                                local hasFrames = false
+                                if scrollingFrame then
+                                    for _, ch in ipairs(scrollingFrame:GetChildren()) do
+                                        if ch:IsA("Frame") then
+                                            hasFrames = true
+                                            break
+                                        end
+                                    end
+                                end
+                                
+                                if not hasFrames then
+                                    break
+                                end
+                                
+                                if scrollingFrame then
+                                    for _, ch in ipairs(scrollingFrame:GetChildren()) do
+                                        if ch:IsA("Frame") and ch.LayoutOrder == 1 then
+                                            local imgBtn = ch:FindFirstChildWhichIsA("ImageButton")
+                                            if imgBtn then
+                                                clickExactly(imgBtn)
+                                            end
+                                            break
+                                        end
+                                    end
+                                end
+                                
+                                task.wait(0.5)
+                                
+                                local fShopParent4 = findFishingShopFrame()
+                                if fShopParent4 then
+                                    for _, desc in ipairs(fShopParent4:GetDescendants()) do
+                                        if desc:IsA("Frame") then
+                                            local targetBtn = nil
+                                            for _, ch1 in ipairs(desc:GetChildren()) do
+                                                if ch1:IsA("ImageButton") then
+                                                    for _, tl in ipairs(ch1:GetDescendants()) do
+                                                        if tl:IsA("TextLabel") and string.find(string.lower(tl.Text), "sell all") then
+                                                            targetBtn = ch1
+                                                            break
+                                                        end
+                                                    end
+                                                end
+                                                if targetBtn then break end
+                                            end
+                                            if targetBtn then
+                                                clickExactly(targetBtn)
+                                                break
+                                            end
+                                        end
+                                    end
+                                end
+                                
+                                task.wait(0.5)
+                                
+                                local fShopParent5 = findFishingShopFrame()
+                                if fShopParent5 then
+                                    local clickedConfirm = false
+                                    for _, btn1 in ipairs(fShopParent5:GetDescendants()) do
+                                        if btn1:IsA("ImageButton") then
+                                            local cg = btn1:FindFirstChildWhichIsA("CanvasGroup")
+                                            if cg then
+                                                for _, f1 in ipairs(cg:GetChildren()) do
+                                                    if f1:IsA("Frame") then
+                                                        for _, btn2 in ipairs(f1:GetDescendants()) do
+                                                            if btn2:IsA("ImageButton") and math.abs(btn2.Position.X.Scale - 0.235) < 0.05 and math.abs(btn2.Position.Y.Scale - 0.5) < 0.05 then
+                                                                clickExactly(btn2)
+                                                                clickedConfirm = true
+                                                                break
+                                                            end
+                                                        end
+                                                    end
+                                                    if clickedConfirm then break end
+                                                end
+                                            end
+                                            if clickedConfirm then break end
+                                        end
+                                    end
+                                end
+                                
+                                task.wait(1.5)
+                            end
+                            
+                            task.wait(1)
+                            
+                            local finalShopParent = findFishingShopFrame()
+                            if finalShopParent then
+                                finalShopParent.Visible = false
+                            end
+                            
+                            task.wait(1)
+                        end
+                    end
+                    
+                    task.wait(0.1)
+                end
+                autoFishConnection = nil
+            end)
+        end
+    else
+        -- Active already false, loop will break
+    end
 end
 
 SolTab.Toggle({
@@ -7388,6 +8091,7 @@ SolTab.Toggle({
         Settings.SolEgg.masterMacroEnabled = v
         updateBiomeMacroState()
         updateAutoBiomeUseState()
+        updateAutoFishState()
     end
 })
 
@@ -7406,6 +8110,15 @@ SolTab.Toggle({
     Callback = function(v)
         Settings.SolEgg.autoBiomeUseReady = v
         updateAutoBiomeUseState()
+    end
+})
+
+SolTab.Toggle({
+    Text = "자동 낚시 (준비) - pre pre pre alpha",
+    Enabled = false,
+    Callback = function(v)
+        Settings.SolEgg.autoFishReady = v
+        updateAutoFishState()
     end
 })
 SolTab.Label({ Text = "기타" })
