@@ -7770,49 +7770,120 @@ local function updateAutoFishState()
                                                 task.wait(0.1)
                                             end
                                             
-                                            local vim = game:GetService("VirtualInputManager")
-                                            local cam = workspace.CurrentCamera
-                                            
+                                            local function dbgRepeatA1(msg)
+                                                print("[반복 A-1] " .. tostring(msg))
+                                            end
+
+                                            local function getRepeatA1BarAndZone(root)
+                                                local threeImgParent = nil
+                                                for _, subImg1 in ipairs(root:GetDescendants()) do
+                                                    if subImg1:IsA("ImageLabel") then
+                                                        local imgCount = 0
+                                                        for _, c in ipairs(subImg1:GetChildren()) do
+                                                            if c:IsA("ImageLabel") then imgCount = imgCount + 1 end
+                                                        end
+                                                        if imgCount == 3 then
+                                                            threeImgParent = subImg1
+                                                            break
+                                                        end
+                                                    end
+                                                end
+                                                if not threeImgParent then
+                                                    dbgRepeatA1("ImageLabel 3개 부모 없음")
+                                                    return nil, nil
+                                                end
+
+                                                local aspectParent = nil
+                                                for _, subImg2 in ipairs(threeImgParent:GetDescendants()) do
+                                                    if subImg2:IsA("ImageLabel") and subImg2:FindFirstChildWhichIsA("UIAspectRatioConstraint") then
+                                                        aspectParent = subImg2
+                                                        break
+                                                    end
+                                                end
+                                                if not aspectParent then
+                                                    dbgRepeatA1("UIAspectRatioConstraint 부모 없음")
+                                                    return nil, nil
+                                                end
+
+                                                local textParent = nil
+                                                for _, subImg3 in ipairs(aspectParent:GetDescendants()) do
+                                                    if subImg3:IsA("ImageLabel") then
+                                                        local txtCount = 0
+                                                        for _, c in ipairs(subImg3:GetChildren()) do
+                                                            if c:IsA("TextLabel") then txtCount = txtCount + 1 end
+                                                        end
+                                                        if txtCount == 1 then
+                                                            textParent = subImg3
+                                                            break
+                                                        end
+                                                    end
+                                                end
+                                                if not textParent then
+                                                    dbgRepeatA1("TextLabel 1개 부모 없음")
+                                                    return nil, nil
+                                                end
+
+                                                local barImg, zoneInner = nil, nil
+                                                for _, c in ipairs(textParent:GetChildren()) do
+                                                    if c:IsA("ImageLabel") and c.ZIndex == 2 then
+                                                        barImg = c
+                                                    elseif c:IsA("ImageLabel") and c.ZIndex == 1 then
+                                                        for _, ch in ipairs(c:GetChildren()) do
+                                                            if ch:IsA("ImageLabel") then
+                                                                zoneInner = ch
+                                                                break
+                                                            end
+                                                        end
+                                                    end
+                                                end
+                                                if not barImg then dbgRepeatA1("ZIndex 2 바 없음") end
+                                                if not zoneInner then dbgRepeatA1("ZIndex 1 존 ImageLabel 없음") end
+                                                return barImg, zoneInner
+                                            end
+
+                                            local prevZoneCenterX = nil
+                                            dbgRepeatA1("루프 시작")
+
                                             while targetTextLabel and Settings.SolEgg.autoFishActive do
                                                 if math.abs(targetTextLabel.Position.X.Scale) < 0.01 and math.abs(targetTextLabel.Position.X.Offset) < 0.01 and math.abs(targetTextLabel.Position.Y.Scale - 1) < 0.01 and math.abs(targetTextLabel.Position.Y.Offset) < 0.01 then
+                                                    dbgRepeatA1("종료 조건 충족 - 루프 종료")
                                                     break
                                                 end
-                                                
-                                                -- 반복 A - 1 (Center click, 겹치면 클릭 안 함)
-                                                local barImg, zoneImg = nil, nil
-                                                for _, d in ipairs(rootImageLabel:GetDescendants()) do
-                                                    if d:IsA("ImageLabel") then
-                                                        if d.ZIndex == 2 and not barImg then barImg = d end
-                                                        if d.ZIndex == 1 and not zoneImg then zoneImg = d end
+
+                                                -- 반복 A - 1 (ZIndex 2 왼쪽 끝 X 기준, ZIndex 1 중앙이 이하이면 0.1초마다 화면 중앙 클릭)
+                                                local barImg, zoneInner = getRepeatA1BarAndZone(rootImageLabel)
+                                                if barImg and zoneInner then
+                                                    local leftEdgeX = barImg.AbsolutePosition.X
+                                                    local barSizeX = barImg.AbsoluteSize.X
+                                                    local zoneCenterX = zoneInner.AbsolutePosition.X + zoneInner.AbsoluteSize.X / 2
+
+                                                    dbgRepeatA1(string.format(
+                                                        "틱 | leftEdgeX=%.1f barSizeX=%.1f zoneCenterX=%.1f",
+                                                        leftEdgeX,
+                                                        barSizeX,
+                                                        zoneCenterX
+                                                    ))
+
+                                                    if zoneCenterX < leftEdgeX then
+                                                        warn("트리거 중")
+                                                        local viewport = workspace.CurrentCamera.ViewportSize
+                                                        local centerX = math.floor(viewport.X / 2)
+                                                        local centerY = math.floor(viewport.Y / 2)
+                                                        showPremiumIndicator(centerX, centerY)
+                                                        Services.VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 0)
+                                                        task.wait(0.01)
+                                                        Services.VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 0)
                                                     end
+                                                else
+                                                    dbgRepeatA1("바/존 없음")
                                                 end
-                                                local notOverlap = true
-                                                if barImg and zoneImg then
-                                                    local bx = barImg.AbsolutePosition.X
-                                                    local by = barImg.AbsolutePosition.Y
-                                                    local bw = barImg.AbsoluteSize.X
-                                                    local bh = barImg.AbsoluteSize.Y
-                                                    local zx = zoneImg.AbsolutePosition.X
-                                                    local zy = zoneImg.AbsolutePosition.Y
-                                                    local zw = zoneImg.AbsoluteSize.X
-                                                    local zh = zoneImg.AbsoluteSize.Y
-                                                    if bx < zx + zw and bx + bw > zx and by < zy + zh and by + bh > zy then
-                                                        notOverlap = false
-                                                    end
-                                                end
-                                                if notOverlap and cam then
-                                                    local vpSize = cam.ViewportSize
-                                                    local cx = vpSize.X / 2
-                                                    local cy = vpSize.Y / 2
-                                                    vim:SendMouseButtonEvent(cx, cy, 0, true, game, 0)
-                                                    task.wait(0.05)
-                                                    vim:SendMouseButtonEvent(cx, cy, 0, false, game, 0)
-                                                end
-                                                
-                                                task.wait(0.1)
+
+                                                task.wait(0.01)
                                             end
+
+                                            dbgRepeatA1("루프 종료")
                                             
-                                            task.wait(3)
+                                            task.wait(2.5)
                                             
                                             local clickedClose = false
                                             for _, subImg in ipairs(rootImageLabel:GetDescendants()) do
@@ -8114,7 +8185,7 @@ SolTab.Toggle({
 })
 
 SolTab.Toggle({
-    Text = "자동 낚시 (준비) - pre pre pre alpha",
+    Text = "자동 낚시 (준비) - Alpha ver.",
     Enabled = false,
     Callback = function(v)
         Settings.SolEgg.autoFishReady = v
