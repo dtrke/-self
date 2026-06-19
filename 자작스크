@@ -203,7 +203,7 @@ local Settings = {
     Webhook2 = "",
 
     -- 솔스 (Egg Bot) 추가
-    SolEgg = {
+    Sols = {
         autoBiomeUse = false, -- [NEW] 바이옴 아이템 자동 사용 여부
         musicSync = false, -- [NEW] 음악 비주얼라이저 동기화 여부
         autoStunEscape = false -- [NEW] 보스 스턴 키 자동 토글
@@ -2551,7 +2551,7 @@ task.spawn(function()
     local vim = Services.VirtualInputManager
     while true do
         task.wait(0.05)
-        if Settings.SolEgg.autoStunEscape then
+        if Settings.Sols.autoStunEscape then
             local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
             local stunEscape = playerGui and playerGui:FindFirstChild("StunEscape")
             if stunEscape and stunEscape.Enabled then
@@ -2699,12 +2699,20 @@ local function useSpecificItemByName(itemName)
     return false
 end
 
-local function performBiomeAutoSequence()
+local lastStrangeControllerUse = 0
+local lastBiomeRandomizerUse = 0
+
+local function performBiomeAutoSequence(force)
+    local now = tick()
+    local useStrange = (now - lastStrangeControllerUse) >= (10.5 * 60)
+    local useBiome = (now - lastBiomeRandomizerUse) >= (18 * 60)
+
+    if not useStrange and not useBiome then return end
+
     local mainInterface = LocalPlayer.PlayerGui:FindFirstChild("MainInterface")
     local inventory = mainInterface and mainInterface:FindFirstChild("Inventory")
     if not inventory then return end
 
-    -- 1. 인벤토리 열기
     if not inventory.Visible then
         local sideButtons = mainInterface:FindFirstChild("SideButtons")
         if sideButtons then
@@ -2712,7 +2720,7 @@ local function performBiomeAutoSequence()
                 if btn.Name == "TextButton" and btn:FindFirstChild("Usage") and btn.Usage.Text == "Inventory" then
                     clickExactly(btn)
                     task.wait(0.8)
-                    if not Settings.SolEgg.autoBiomeUse then return end
+                    if not (force or Settings.Sols.autoBiomeUse) then return end
                     break
                 end
             end
@@ -2720,15 +2728,13 @@ local function performBiomeAutoSequence()
     end
     if not inventory.Visible then return end
     task.wait(0.5)
-    if not Settings.SolEgg.autoBiomeUse then return end
+    if not (force or Settings.Sols.autoBiomeUse) then return end
 
-    -- 2. ItemsTab 클릭
     local itemsTab = inventory:FindFirstChild("Items") and inventory.Items:FindFirstChild("ItemsTab")
     if itemsTab then clickExactly(itemsTab) end
     task.wait(0.3)
-    if not Settings.SolEgg.autoBiomeUse then return end
+    if not (force or Settings.Sols.autoBiomeUse) then return end
 
-    -- 3. 카테고리(30001) 클릭
     local quickCategory = inventory:FindFirstChild("QuickCategory")
     if quickCategory then
         for _, btn in pairs(quickCategory:GetChildren()) do
@@ -2739,21 +2745,33 @@ local function performBiomeAutoSequence()
         end
     end
 
-    -- 4. 아이템 사용 릴레이
     task.wait(2)
-    if not Settings.SolEgg.autoBiomeUse then return end
-    useSpecificItemByName("Strange Controller")
+    if not (force or Settings.Sols.autoBiomeUse) then return end
     
-    task.wait(0.75)
-    if not Settings.SolEgg.autoBiomeUse then return end
-    useSpecificItemByName("Biome Randomizer")
+    if useStrange then
+        useSpecificItemByName("Strange Controller")
+        lastStrangeControllerUse = tick()
+        task.wait(0.75)
+    end
+    
+    if not (force or Settings.Sols.autoBiomeUse) then return end
+    
+    if useBiome then
+        useSpecificItemByName("Biome Randomizer")
+        lastBiomeRandomizerUse = tick()
+    end
+    
+    task.wait(0.5)
+    if inventory and inventory.Visible then
+        inventory.Visible = false
+    end
 end
 
 task.spawn(function()
     while true do
-        if Settings.SolEgg.autoBiomeUse then
+        if Settings.Sols.autoBiomeUse then
             pcall(performBiomeAutoSequence)
-            task.wait(3) -- [끝 - 3초 대기 - 시작] 반복
+            task.wait(3)
         else
             task.wait(1)
         end
@@ -3728,7 +3746,7 @@ end
 -- 현재 플레이중인 사운드 감지
 local function GetCurrentPlayingSound()
     -- [NEW] 1순위: 솔스 탭의 음악 동기화 기능 (HRP 내 BGM 사운드 감시)
-    if Settings.SolEgg.musicSync then
+    if Settings.Sols.musicSync then
         local char = LocalPlayer.Character or (workspace:FindFirstChild(LocalPlayer.Name))
         if char then
             -- [ADVANCED] 캐릭터 기본 효과음을 제외한 모든 음악 파일 자동 감지
@@ -3766,7 +3784,7 @@ Services.RunService.RenderStepped:Connect(function(dt)
     
     -- [NEW] 동기화 모드 시 파티클 이미터 색상 감지
     local syncColor = nil
-    if Settings.SolEgg.musicSync then
+    if Settings.Sols.musicSync then
         local char = LocalPlayer.Character or (workspace:FindFirstChild(LocalPlayer.Name))
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if hrp then
@@ -3844,7 +3862,7 @@ Services.RunService.RenderStepped:Connect(function(dt)
     timelineProgress.BackgroundTransparency = 0.15 + (0.85 * invM) -- 0.3 -> 0.15로 밝기 개선
     
     -- [MODIFIED] 동기화 모드일 때 제목 숨김
-    musicTitle.TextTransparency = Settings.SolEgg.musicSync and 1 or invM
+    musicTitle.TextTransparency = Settings.Sols.musicSync and 1 or invM
     musicTitle.TextStrokeTransparency = 0.5 + (0.5 * invM)
     
     -- [NEW] 동기화 색상 감지 (기존 그라데이션 대신 단색 적용)
@@ -7081,9 +7099,9 @@ SolTab.Label({ Text = "BOSS_보스" })
 
 SolTab.Toggle({
     Text = "보스 스턴 키 자동",
-    Enabled = Settings.SolEgg.autoStunEscape,
+    Enabled = Settings.Sols.autoStunEscape,
     Callback = function(v)
-        Settings.SolEgg.autoStunEscape = v
+        Settings.Sols.autoStunEscape = v
     end
 })
 
@@ -7101,9 +7119,9 @@ local CustomWebhooks = {
     ["ROBERXDVG"] = "https://discord.com/api/webhooks/1465214902405693470/b7Jj7bxuTDQNikkwgjmW-atJSCrrpf2kuNpiWPGDjajqwGT0ITRK8fqGfAuzegHycRrS"
 }
 
-Settings.SolEgg.biomeMacroReady = false
-Settings.SolEgg.autoBiomeUseReady = Settings.SolEgg.autoBiomeUse or false
-Settings.SolEgg.masterMacroEnabled = false
+Settings.Sols.biomeMacroReady = false
+Settings.Sols.autoBiomeUseReady = Settings.Sols.autoBiomeUse or false
+Settings.Sols.masterMacroEnabled = false
 
 local function getHooksList()
     local hooks = {}
@@ -7117,7 +7135,7 @@ local function getHooksList()
 end
 
 local function updateBiomeMacroState()
-    local v = Settings.SolEgg.masterMacroEnabled and Settings.SolEgg.biomeMacroReady
+    local v = Settings.Sols.masterMacroEnabled and Settings.Sols.biomeMacroReady
     
     local function sendToggleWebhook(stateMsg)
         local HttpService = game:GetService("HttpService")
@@ -7377,21 +7395,22 @@ local function updateBiomeMacroState()
     end
 end
 
+
 local function updateAutoBiomeUseState()
-    if Settings.SolEgg.autoFishActive then
-        Settings.SolEgg.autoBiomeUse = false
+    if Settings.Sols.autoFishActive then
+        Settings.Sols.autoBiomeUse = false
     else
-        Settings.SolEgg.autoBiomeUse = (Settings.SolEgg.masterMacroEnabled and Settings.SolEgg.autoBiomeUseReady)
+        Settings.Sols.autoBiomeUse = (Settings.Sols.masterMacroEnabled and Settings.Sols.autoBiomeUseReady)
     end
 end
 
 local autoFishConnection = nil
-Settings.SolEgg.autoFishReady = false
-Settings.SolEgg.autoFishActive = false
+Settings.Sols.autoFishReady = false
+Settings.Sols.autoFishActive = false
 
 local function updateAutoFishState()
-    local v = Settings.SolEgg.masterMacroEnabled and Settings.SolEgg.autoFishReady
-    Settings.SolEgg.autoFishActive = v
+    local v = Settings.Sols.masterMacroEnabled and Settings.Sols.autoFishReady
+    Settings.Sols.autoFishActive = v
     updateAutoBiomeUseState()
     if v then
         if not autoFishConnection then
@@ -7485,17 +7504,22 @@ local function updateAutoFishState()
                     return nil
                 end
                 
-                local function findFishingShopSubframe(fShopParent)
-                    if not fShopParent then return nil end
-                    for _, v2 in ipairs(fShopParent:GetChildren()) do
-                        if v2:IsA("Frame") and math.abs(v2.Position.X.Scale - 0.995) < 0.01 and math.abs(v2.Position.Y.Scale - 0.09) < 0.01 and math.abs(v2.Size.X.Scale - 0.69) < 0.01 and math.abs(v2.Size.Y.Scale - 0.9) < 0.01 then
-                            return v2
+                local function doFlexibility()
+                    if Settings.Sols.autoBiomeUseReady and Settings.Sols.masterMacroEnabled then
+                        local now = tick()
+                        local useStrange = (now - lastStrangeControllerUse) >= (10.5 * 60)
+                        local useBiome = (now - lastBiomeRandomizerUse) >= (18 * 60)
+                        if useStrange or useBiome then
+                            task.wait(0.5)
+                            pcall(performBiomeAutoSequence, true)
+                            task.wait(0.5)
                         end
                     end
-                    return nil
                 end
-                
-                while Settings.SolEgg.autoFishActive do
+
+                while Settings.Sols.autoFishActive do
+                    local lastActivityTime = tick()
+                    
                     local pathExists = false
                     local isTargetPos = false
                     local selector = nil
@@ -7549,7 +7573,7 @@ local function updateAutoFishState()
                             local hoverSuccess = false
                             if selector then
                                 for i = 1, 50 do
-                                    if not Settings.SolEgg.autoFishActive then break end
+                                    if not Settings.Sols.autoFishActive then break end
                                     vim:SendKeyEvent(true, Enum.KeyCode.Down, false, game)
                                     task.wait(0.35)
                                     vim:SendKeyEvent(false, Enum.KeyCode.Down, false, game)
@@ -7559,9 +7583,9 @@ local function updateAutoFishState()
                                     end
                                 end
                                 
-                                if not hoverSuccess and Settings.SolEgg.autoFishActive then
+                                if not hoverSuccess and Settings.Sols.autoFishActive then
                                     for i = 1, 50 do
-                                        if not Settings.SolEgg.autoFishActive then break end
+                                        if not Settings.Sols.autoFishActive then break end
                                         vim:SendKeyEvent(true, Enum.KeyCode.Up, false, game)
                                         task.wait(0.35)
                                         vim:SendKeyEvent(false, Enum.KeyCode.Up, false, game)
@@ -7575,7 +7599,7 @@ local function updateAutoFishState()
                             
                             if hoverSuccess then
                                 local targetReached = false
-                                while Settings.SolEgg.autoFishActive do
+                                while Settings.Sols.autoFishActive do
                                     local s3 = nil
                                     pcall(function() s3 = selector.Selection3 end)
                                     if s3 and s3.Position == UDim2.new(0, 32, 0, 0) then
@@ -7598,7 +7622,7 @@ local function updateAutoFishState()
                                     break
                                 end
                             else
-                                Settings.SolEgg.masterMacroEnabled = false
+                                Settings.Sols.masterMacroEnabled = false
                                 if updateBiomeMacroState then updateBiomeMacroState() end
                                 if updateAutoBiomeUseState then updateAutoBiomeUseState() end
                                 break
@@ -7606,9 +7630,13 @@ local function updateAutoFishState()
                         end
                     end
                     
-                    if proceed and Settings.SolEgg.autoFishActive then
-                        while Settings.SolEgg.autoFishActive do
-                            -- PHASE 1 (! - 1)
+                    if proceed and Settings.Sols.autoFishActive then
+                        while Settings.Sols.autoFishActive do
+                            if tick() - lastActivityTime > 180 then
+                                break
+                            end
+                            
+                            -- ! - 1
                             local cam = workspace.CurrentCamera
                             local originalCamCFrame = nil
                             local originalCamType = nil
@@ -7635,6 +7663,7 @@ local function updateAutoFishState()
                             vim:SendMouseButtonEvent(centerX, centerY, 1, true, game, 0)
                             task.wait(0.05)
                             vim:SendMouseButtonEvent(centerX, centerY, 1, false, game, 0)
+                            lastActivityTime = tick() -- [ACT] Phase1 cast
                             
                             task.wait(0.1)
                             
@@ -7643,24 +7672,29 @@ local function updateAutoFishState()
                                 cam.CameraType = originalCamType
                             end
                             
-                            local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
                             local p1 = workspace:FindFirstChild("ScriptParts") and workspace.ScriptParts:FindFirstChild("Place1")
                             local touched = false
-                            if hrp and p1 and (hrp.Position - p1.Position).Magnitude < 10 then
-                                touched = true
+                            
+                            local function checkTouched()
+                                local currentHrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                                if currentHrp and p1 and (currentHrp.Position - p1.Position).Magnitude < 10 then
+                                    return true
+                                end
+                                return false
                             end
                             
+                            touched = checkTouched()
                             local skipToPhase2 = false
                             
                             if not touched then
                                 local isStoppedTime = 0
-                                while isStoppedTime < 3 and Settings.SolEgg.autoFishActive do
+                                while isStoppedTime < 3 and Settings.Sols.autoFishActive do
                                     task.wait(0.1)
-                                    local currentHrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                                    if currentHrp and p1 and (currentHrp.Position - p1.Position).Magnitude < 10 then
+                                    if checkTouched() then
                                         touched = true
                                         break
                                     end
+                                    local currentHrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
                                     if currentHrp and currentHrp.Velocity.Magnitude < 1 then
                                         isStoppedTime = isStoppedTime + 0.1
                                     else
@@ -7669,10 +7703,7 @@ local function updateAutoFishState()
                                 end
                                 
                                 if not touched then
-                                    local hrp2 = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                                    if hrp2 and p1 and (hrp2.Position - p1.Position).Magnitude < 10 then
-                                        touched = true
-                                    end
+                                    touched = checkTouched()
                                 end
                                 
                                 if not touched then
@@ -7688,7 +7719,14 @@ local function updateAutoFishState()
                             if not skipToPhase2 then
                                 task.wait(1)
                                 
-                                while Settings.SolEgg.autoFishActive do
+                                -- ! - Flexibility
+                                doFlexibility()
+                                
+                                while Settings.Sols.autoFishActive do
+                                    if tick() - lastActivityTime > 180 then
+                                        break
+                                    end
+                                    
                                     local n1, n2 = findFishStorageCount()
                                     if n1 ~= -1 and n1 == n2 then
                                         break
@@ -7731,9 +7769,16 @@ local function updateAutoFishState()
                                             if clicked then break end
                                         end
                                         
-                                        if rootImageLabel then
+                                        if rootImageLabel and clicked then
                                             local targetTextLabel = nil
-                                            while Settings.SolEgg.autoFishActive do
+                                            local waitStart = tick()
+                                            local safe1Trigger = false
+                                            
+                                            while Settings.Sols.autoFishActive do
+                                                if tick() - waitStart > 30 then
+                                                    safe1Trigger = true
+                                                    break
+                                                end
                                                 targetTextLabel = nil
                                                 for _, subImg1 in ipairs(rootImageLabel:GetDescendants()) do
                                                     if subImg1:IsA("ImageLabel") then
@@ -7770,121 +7815,95 @@ local function updateAutoFishState()
                                                 task.wait(0.1)
                                             end
                                             
-                                            local function dbgRepeatA1(msg)
-                                                print("[반복 A-1] " .. tostring(msg))
-                                            end
-
-                                            local function getRepeatA1BarAndZone(root)
-                                                local threeImgParent = nil
-                                                for _, subImg1 in ipairs(root:GetDescendants()) do
-                                                    if subImg1:IsA("ImageLabel") then
-                                                        local imgCount = 0
-                                                        for _, c in ipairs(subImg1:GetChildren()) do
-                                                            if c:IsA("ImageLabel") then imgCount = imgCount + 1 end
-                                                        end
-                                                        if imgCount == 3 then
-                                                            threeImgParent = subImg1
-                                                            break
-                                                        end
-                                                    end
-                                                end
-                                                if not threeImgParent then
-                                                    dbgRepeatA1("ImageLabel 3개 부모 없음")
-                                                    return nil, nil
-                                                end
-
-                                                local aspectParent = nil
-                                                for _, subImg2 in ipairs(threeImgParent:GetDescendants()) do
-                                                    if subImg2:IsA("ImageLabel") and subImg2:FindFirstChildWhichIsA("UIAspectRatioConstraint") then
-                                                        aspectParent = subImg2
-                                                        break
-                                                    end
-                                                end
-                                                if not aspectParent then
-                                                    dbgRepeatA1("UIAspectRatioConstraint 부모 없음")
-                                                    return nil, nil
-                                                end
-
-                                                local textParent = nil
-                                                for _, subImg3 in ipairs(aspectParent:GetDescendants()) do
-                                                    if subImg3:IsA("ImageLabel") then
-                                                        local txtCount = 0
-                                                        for _, c in ipairs(subImg3:GetChildren()) do
-                                                            if c:IsA("TextLabel") then txtCount = txtCount + 1 end
-                                                        end
-                                                        if txtCount == 1 then
-                                                            textParent = subImg3
-                                                            break
-                                                        end
-                                                    end
-                                                end
-                                                if not textParent then
-                                                    dbgRepeatA1("TextLabel 1개 부모 없음")
-                                                    return nil, nil
-                                                end
-
-                                                local barImg, zoneInner = nil, nil
-                                                for _, c in ipairs(textParent:GetChildren()) do
-                                                    if c:IsA("ImageLabel") and c.ZIndex == 2 then
-                                                        barImg = c
-                                                    elseif c:IsA("ImageLabel") and c.ZIndex == 1 then
-                                                        for _, ch in ipairs(c:GetChildren()) do
-                                                            if ch:IsA("ImageLabel") then
-                                                                zoneInner = ch
+                                            if safe1Trigger then
+                                                -- Fallthrough to Safe 1
+                                            else
+                                                local function getRepeatA1BarAndZone(root)
+                                                    local threeImgParent = nil
+                                                    for _, subImg1 in ipairs(root:GetDescendants()) do
+                                                        if subImg1:IsA("ImageLabel") then
+                                                            local imgCount = 0
+                                                            for _, c in ipairs(subImg1:GetChildren()) do
+                                                                if c:IsA("ImageLabel") then imgCount = imgCount + 1 end
+                                                            end
+                                                            if imgCount == 3 then
+                                                                threeImgParent = subImg1
                                                                 break
                                                             end
                                                         end
                                                     end
-                                                end
-                                                if not barImg then dbgRepeatA1("ZIndex 2 바 없음") end
-                                                if not zoneInner then dbgRepeatA1("ZIndex 1 존 ImageLabel 없음") end
-                                                return barImg, zoneInner
-                                            end
+                                                    if not threeImgParent then return nil, nil end
 
-                                            local prevZoneCenterX = nil
-                                            dbgRepeatA1("루프 시작")
-
-                                            while targetTextLabel and Settings.SolEgg.autoFishActive do
-                                                if math.abs(targetTextLabel.Position.X.Scale) < 0.01 and math.abs(targetTextLabel.Position.X.Offset) < 0.01 and math.abs(targetTextLabel.Position.Y.Scale - 1) < 0.01 and math.abs(targetTextLabel.Position.Y.Offset) < 0.01 then
-                                                    dbgRepeatA1("종료 조건 충족 - 루프 종료")
-                                                    break
-                                                end
-
-                                                -- 반복 A - 1 (ZIndex 2 왼쪽 끝 X 기준, ZIndex 1 중앙이 이하이면 0.1초마다 화면 중앙 클릭)
-                                                local barImg, zoneInner = getRepeatA1BarAndZone(rootImageLabel)
-                                                if barImg and zoneInner then
-                                                    local leftEdgeX = barImg.AbsolutePosition.X
-                                                    local barSizeX = barImg.AbsoluteSize.X
-                                                    local zoneCenterX = zoneInner.AbsolutePosition.X + zoneInner.AbsoluteSize.X / 2
-
-                                                    dbgRepeatA1(string.format(
-                                                        "틱 | leftEdgeX=%.1f barSizeX=%.1f zoneCenterX=%.1f",
-                                                        leftEdgeX,
-                                                        barSizeX,
-                                                        zoneCenterX
-                                                    ))
-
-                                                    if zoneCenterX < leftEdgeX then
-                                                        warn("트리거 중")
-                                                        local viewport = workspace.CurrentCamera.ViewportSize
-                                                        local centerX = math.floor(viewport.X / 2)
-                                                        local centerY = math.floor(viewport.Y / 2)
-                                                        showPremiumIndicator(centerX, centerY)
-                                                        Services.VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 0)
-                                                        task.wait(0.01)
-                                                        Services.VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 0)
+                                                    local aspectParent = nil
+                                                    for _, subImg2 in ipairs(threeImgParent:GetDescendants()) do
+                                                        if subImg2:IsA("ImageLabel") and subImg2:FindFirstChildWhichIsA("UIAspectRatioConstraint") then
+                                                            aspectParent = subImg2
+                                                            break
+                                                        end
                                                     end
-                                                else
-                                                    dbgRepeatA1("바/존 없음")
+                                                    if not aspectParent then return nil, nil end
+
+                                                    local textParent = nil
+                                                    for _, subImg3 in ipairs(aspectParent:GetDescendants()) do
+                                                        if subImg3:IsA("ImageLabel") then
+                                                            local txtCount = 0
+                                                            for _, c in ipairs(subImg3:GetChildren()) do
+                                                                if c:IsA("TextLabel") then txtCount = txtCount + 1 end
+                                                            end
+                                                            if txtCount == 1 then
+                                                                textParent = subImg3
+                                                                break
+                                                            end
+                                                        end
+                                                    end
+                                                    if not textParent then return nil, nil end
+
+                                                    local barImg, zoneInner = nil, nil
+                                                    for _, c in ipairs(textParent:GetChildren()) do
+                                                        if c:IsA("ImageLabel") and c.ZIndex == 2 then
+                                                            barImg = c
+                                                        elseif c:IsA("ImageLabel") and c.ZIndex == 1 then
+                                                            for _, ch in ipairs(c:GetChildren()) do
+                                                                if ch:IsA("ImageLabel") then
+                                                                    zoneInner = ch
+                                                                    break
+                                                                end
+                                                            end
+                                                        end
+                                                    end
+                                                    return barImg, zoneInner
                                                 end
 
-                                                task.wait(0.01)
-                                            end
+                                                while targetTextLabel and Settings.Sols.autoFishActive do
+                                                    if math.abs(targetTextLabel.Position.X.Scale) < 0.01 and math.abs(targetTextLabel.Position.X.Offset) < 0.01 and math.abs(targetTextLabel.Position.Y.Scale - 1) < 0.01 and math.abs(targetTextLabel.Position.Y.Offset) < 0.01 then
+                                                        break
+                                                    end
 
-                                            dbgRepeatA1("루프 종료")
+                                                    local barImg, zoneInner = getRepeatA1BarAndZone(rootImageLabel)
+                                                    if barImg and zoneInner then
+                                                        local leftEdgeX = barImg.AbsolutePosition.X
+                                                        local barSizeX = barImg.AbsoluteSize.X
+                                                        local zoneCenterX = zoneInner.AbsolutePosition.X + zoneInner.AbsoluteSize.X / 2
+
+                                                        if zoneCenterX < leftEdgeX then
+                                                            local viewport = workspace.CurrentCamera.ViewportSize
+                                                            local centerX = math.floor(viewport.X / 2)
+                                                            local centerY = math.floor(viewport.Y / 2)
+                                                            showPremiumIndicator(centerX, centerY)
+                                                            Services.VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 0)
+                                                            task.wait(0.01)
+                                                            Services.VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 0)
+                                                            lastActivityTime = tick() -- [ACT] reel click
+                                                        end
+                                                    end
+
+                                                    task.wait(0.01)
+                                                end
+
+                                                task.wait(2.5)
+                                            end
                                             
-                                            task.wait(2.5)
-                                            
+                                            -- ! - Safe 1
                                             local clickedClose = false
                                             for _, subImg in ipairs(rootImageLabel:GetDescendants()) do
                                                 if subImg:IsA("ImageLabel") and subImg:FindFirstChildWhichIsA("ScrollingFrame") then
@@ -7900,20 +7919,22 @@ local function updateAutoFishState()
                                             end
                                             
                                             task.wait(0.75)
+                                            
+                                            -- ! - Flexibility
+                                            doFlexibility()
                                         else
                                             task.wait(0.5)
                                         end
                                     end
                                     task.wait(0.5)
                                 end
-                                end
+                            end
                             
-                            if not Settings.SolEgg.autoFishActive then break end
+                            if not Settings.Sols.autoFishActive then break end
+                            if tick() - lastActivityTime > 180 then continue end -- global restart logic
                             
-                            if not Settings.SolEgg.autoFishActive then break end
-                            
-                            -- PHASE 2 (! - 2)
-                            while Settings.SolEgg.autoFishActive do
+                            -- ! - 2
+                            while Settings.Sols.autoFishActive do
                                 cam = workspace.CurrentCamera
                                 originalCamCFrame = nil
                                 originalCamType = nil
@@ -7940,6 +7961,7 @@ local function updateAutoFishState()
                                 vim:SendMouseButtonEvent(centerX2, centerY2, 1, true, game, 0)
                                 task.wait(0.05)
                                 vim:SendMouseButtonEvent(centerX2, centerY2, 1, false, game, 0)
+                                lastActivityTime = tick() -- [ACT] Phase2 cast
                                 
                                 task.wait(0.1)
                                 
@@ -7948,24 +7970,29 @@ local function updateAutoFishState()
                                     cam.CameraType = originalCamType
                                 end
                                 
-                                local hrp3 = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
                                 local p2 = workspace:FindFirstChild("ScriptParts") and workspace.ScriptParts:FindFirstChild("Place2")
                                 local touched2 = false
-                                if hrp3 and p2 and (hrp3.Position - p2.Position).Magnitude < 10 then
-                                    touched2 = true
+                                
+                                local function checkTouched2()
+                                    local currentHrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                                    if currentHrp and p2 and (currentHrp.Position - p2.Position).Magnitude < 10 then
+                                        return true
+                                    end
+                                    return false
                                 end
                                 
+                                touched2 = checkTouched2()
                                 local phase2Success = false
                                 
                                 if not touched2 then
                                     local isStoppedTime = 0
-                                    while isStoppedTime < 3 and Settings.SolEgg.autoFishActive do
+                                    while isStoppedTime < 3 and Settings.Sols.autoFishActive do
                                         task.wait(0.1)
-                                        local currentHrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                                        if currentHrp and p2 and (currentHrp.Position - p2.Position).Magnitude < 10 then
+                                        if checkTouched2() then
                                             touched2 = true
                                             break
                                         end
+                                        local currentHrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
                                         if currentHrp and currentHrp.Velocity.Magnitude < 1 then
                                             isStoppedTime = isStoppedTime + 0.1
                                         else
@@ -7974,10 +8001,7 @@ local function updateAutoFishState()
                                     end
                                     
                                     if not touched2 then
-                                        local hrp4 = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                                        if hrp4 and p2 and (hrp4.Position - p2.Position).Magnitude < 10 then
-                                            touched2 = true
-                                        end
+                                        touched2 = checkTouched2()
                                     end
                                     
                                     if not touched2 then
@@ -8000,6 +8024,9 @@ local function updateAutoFishState()
                             end
                             
                             task.wait(1)
+                            
+                            -- Flexibility
+                            doFlexibility()
                             
                             local fShopParent = findFishingShopFrame()
                             if fShopParent then
@@ -8030,7 +8057,7 @@ local function updateAutoFishState()
                             
                             task.wait(0.5)
                             
-                            while Settings.SolEgg.autoFishActive do
+                            while Settings.Sols.autoFishActive do
                                 local fShopParent3 = findFishingShopFrame()
                                 local targetFrame2 = nil
                                 if fShopParent3 then
@@ -8070,9 +8097,7 @@ local function updateAutoFishState()
                                     for _, ch in ipairs(scrollingFrame:GetChildren()) do
                                         if ch:IsA("Frame") and ch.LayoutOrder == 1 then
                                             local imgBtn = ch:FindFirstChildWhichIsA("ImageButton")
-                                            if imgBtn then
-                                                clickExactly(imgBtn)
-                                            end
+                                            if imgBtn then clickExactly(imgBtn) end
                                             break
                                         end
                                     end
@@ -8082,51 +8107,34 @@ local function updateAutoFishState()
                                 
                                 local fShopParent4 = findFishingShopFrame()
                                 if fShopParent4 then
-                                    for _, desc in ipairs(fShopParent4:GetDescendants()) do
-                                        if desc:IsA("Frame") then
-                                            local targetBtn = nil
-                                            for _, ch1 in ipairs(desc:GetChildren()) do
-                                                if ch1:IsA("ImageButton") then
-                                                    for _, tl in ipairs(ch1:GetDescendants()) do
-                                                        if tl:IsA("TextLabel") and string.find(string.lower(tl.Text), "sell all") then
-                                                            targetBtn = ch1
-                                                            break
-                                                        end
-                                                    end
-                                                end
-                                                if targetBtn then break end
-                                            end
-                                            if targetBtn then
-                                                clickExactly(targetBtn)
+                                    local sellAllBtn = nil
+                                    for _, btn in ipairs(fShopParent4:GetDescendants()) do
+                                        if btn:IsA("ImageButton") then
+                                            local t = btn:FindFirstChildWhichIsA("TextLabel")
+                                            if t and string.find(string.lower(t.Text), "sell all") then
+                                                sellAllBtn = btn
                                                 break
                                             end
                                         end
                                     end
+                                    if sellAllBtn then clickExactly(sellAllBtn) end
                                 end
                                 
                                 task.wait(0.5)
                                 
                                 local fShopParent5 = findFishingShopFrame()
                                 if fShopParent5 then
-                                    local clickedConfirm = false
-                                    for _, btn1 in ipairs(fShopParent5:GetDescendants()) do
-                                        if btn1:IsA("ImageButton") then
-                                            local cg = btn1:FindFirstChildWhichIsA("CanvasGroup")
-                                            if cg then
-                                                for _, f1 in ipairs(cg:GetChildren()) do
-                                                    if f1:IsA("Frame") then
-                                                        for _, btn2 in ipairs(f1:GetDescendants()) do
-                                                            if btn2:IsA("ImageButton") and math.abs(btn2.Position.X.Scale - 0.235) < 0.05 and math.abs(btn2.Position.Y.Scale - 0.5) < 0.05 then
-                                                                clickExactly(btn2)
-                                                                clickedConfirm = true
-                                                                break
-                                                            end
-                                                        end
+                                    for _, cgrp in ipairs(fShopParent5:GetDescendants()) do
+                                        if cgrp:IsA("CanvasGroup") then
+                                            local frm = cgrp:FindFirstChildWhichIsA("Frame")
+                                            if frm then
+                                                for _, btn2 in ipairs(frm:GetDescendants()) do
+                                                    if btn2:IsA("ImageButton") and math.abs(btn2.Position.X.Scale - 0.235) < 0.05 and math.abs(btn2.Position.Y.Scale - 0.5) < 0.05 then
+                                                        clickExactly(btn2)
+                                                        break
                                                     end
-                                                    if clickedConfirm then break end
                                                 end
                                             end
-                                            if clickedConfirm then break end
                                         end
                                     end
                                 end
@@ -8137,21 +8145,24 @@ local function updateAutoFishState()
                             task.wait(1)
                             
                             local finalShopParent = findFishingShopFrame()
-                            if finalShopParent then
-                                finalShopParent.Visible = false
-                            end
+                            if finalShopParent then finalShopParent.Visible = false end
                             
                             task.wait(1)
+                            
+                            -- ! - Flexibility
+                            doFlexibility()
+                            
+                            -- Loop goes back to ! - 1
                         end
                     end
-                    
-                    task.wait(0.1)
                 end
-                autoFishConnection = nil
             end)
         end
     else
-        -- Active already false, loop will break
+        if autoFishConnection then
+            task.cancel(autoFishConnection)
+            autoFishConnection = nil
+        end
     end
 end
 
@@ -8159,7 +8170,7 @@ SolTab.Toggle({
     Text = "매크로 시작",
     Enabled = false,
     Callback = function(v)
-        Settings.SolEgg.masterMacroEnabled = v
+        Settings.Sols.masterMacroEnabled = v
         updateBiomeMacroState()
         updateAutoBiomeUseState()
         updateAutoFishState()
@@ -8170,16 +8181,16 @@ SolTab.Toggle({
     Text = "바이옴 매크로 (준비)",
     Enabled = false,
     Callback = function(v)
-        Settings.SolEgg.biomeMacroReady = v
+        Settings.Sols.biomeMacroReady = v
         updateBiomeMacroState()
     end
 })
 
 SolTab.Toggle({
     Text = "오토 아이템 사용 (바이옴) (준비)",
-    Enabled = Settings.SolEgg.autoBiomeUse,
+    Enabled = Settings.Sols.autoBiomeUse,
     Callback = function(v)
-        Settings.SolEgg.autoBiomeUseReady = v
+        Settings.Sols.autoBiomeUseReady = v
         updateAutoBiomeUseState()
     end
 })
@@ -8188,7 +8199,7 @@ SolTab.Toggle({
     Text = "자동 낚시 (준비) - Alpha ver.",
     Enabled = false,
     Callback = function(v)
-        Settings.SolEgg.autoFishReady = v
+        Settings.Sols.autoFishReady = v
         updateAutoFishState()
     end
 })
@@ -8196,9 +8207,9 @@ SolTab.Label({ Text = "기타" })
 
 SolTab.Toggle({
     Text = "[ Funny ] Music - 동기화",
-    Enabled = Settings.SolEgg.musicSync,
+    Enabled = Settings.Sols.musicSync,
     Callback = function(v)
-        Settings.SolEgg.musicSync = v
+        Settings.Sols.musicSync = v
     end
 })
 
