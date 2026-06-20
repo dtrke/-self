@@ -4385,8 +4385,12 @@ pcall(function()
     if isfile and isfile(PERMANENT_FILE) then
         local data = readfile(PERMANENT_FILE)
         local decoded = HttpService:JSONDecode(data)
-        if decoded and type(decoded) == "table" and decoded["재접속 시 UI 자동 숨김"] ~= nil then
-            autoHideUI = decoded["재접속 시 UI 자동 숨김"]
+        if decoded and type(decoded) == "table" then
+            if decoded["재접속 시 UI 자동 숨김"] ~= nil then
+                autoHideUI = decoded["재접속 시 UI 자동 숨김"]
+            elseif decoded["스크립트 실행 시 UI 자동 숨김"] ~= nil then
+                autoHideUI = decoded["스크립트 실행 시 UI 자동 숨김"]
+            end
         end
     end
     
@@ -4526,7 +4530,11 @@ pcall(function()
             if decoded["1분마다 상태 및 스크린샷 전송"] ~= nil then Settings.Screenshot.enabled = decoded["1분마다 상태 및 스크린샷 전송"] end
             if decoded["통합 웹후크 URL"] then Settings.Webhook = decoded["통합 웹후크 URL"] end
             if decoded["브섭 링크"] then Settings.PrivateServerLink = decoded["브섭 링크"] end
-            if decoded["재접속 시 UI 자동 숨김"] ~= nil then Settings.Persistence.autoHideUI = decoded["재접속 시 UI 자동 숨김"] end
+            if decoded["재접속 시 UI 자동 숨김"] ~= nil then 
+                Settings.Persistence.autoHideUI = decoded["재접속 시 UI 자동 숨김"] 
+            elseif decoded["스크립트 실행 시 UI 자동 숨김"] ~= nil then
+                Settings.Persistence.autoHideUI = decoded["스크립트 실행 시 UI 자동 숨김"] 
+            end
         end
     end
 end)
