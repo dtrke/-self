@@ -251,6 +251,22 @@ local Settings = {
 -- =============================
 local myScriptUrl = "https://raw.githubusercontent.com/dtrke/-self/refs/heads/main/%EC%9E%90%EC%9E%91%EC%8A%A4%ED%81%AC"
 
+-- 텔레포트 감지 파일 시스템 (queue_on_teleport 실패 또는 autoexec 사용 대비)
+local TELEPORT_FLAG_FILE = "ZajakScript_TeleportFlag.txt"
+local isTeleportedByFile = false
+pcall(function()
+    if isfile and isfile(TELEPORT_FLAG_FILE) then
+        local flagTime = tonumber(readfile(TELEPORT_FLAG_FILE))
+        if flagTime and (os.time() - flagTime < 300) then -- 5분 이내면 인정
+            isTeleportedByFile = true
+        end
+        delfile(TELEPORT_FLAG_FILE)
+    end
+end)
+if getgenv then
+    getgenv().IS_TELEPORT_LOAD = getgenv().IS_TELEPORT_LOAD or isTeleportedByFile
+end
+
 -- 1. 처음 스크립트를 켰을 때, 익스플로잇 workspace 폴더에 '링크 파일' 자동 생성 (이미 있으면 생성 안함)
 local function UpdatePersistence()
     if writefile and isfile then
@@ -283,6 +299,11 @@ if queue_on_teleport then
     teleportConn = game:GetService("Players").LocalPlayer.OnTeleport:Connect(function(State)
         -- 퍼시스턴스(자동 실행)가 켜져 있을 때만 다음 서버로 스크립트를 전달합니다.
         if Settings.Persistence.enabled and (State == Enum.TeleportState.Started or State == Enum.TeleportState.InProgress) then
+            pcall(function()
+                if writefile then
+                    writefile("ZajakScript_TeleportFlag.txt", tostring(os.time()))
+                end
+            end)
             local TELEPORT_AUTO_LOAD = [[
                 if not game:IsLoaded() then game.Loaded:Wait() end
                 task.wait(1)
