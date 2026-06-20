@@ -4401,7 +4401,7 @@ pcall(function()
     end
     
     local isRecon = (getgenv and getgenv().IS_TELEPORT_LOAD) or false
-    if autoHideUI and isRecon then
+    getgenv().TriggerUIHide = function(customImageId, onShowCallback)
         local coreGui = game:GetService("CoreGui")
         local scriptUIName = "자작 스크립트 🧊  ~  ▣ ABSOLUTE ▣ ✨"
         local isHidden = true
@@ -4447,7 +4447,7 @@ pcall(function()
         imgLabel.BackgroundTransparency = 1
         
         -- 최고 화질 로딩: 썸네일 우회 후 원본 데칼 텍스처 직접 추출
-        local imgId = "rbxassetid://129920542078687"
+        local imgId = customImageId or "rbxassetid://129920542078687"
         task.spawn(function()
             pcall(function()
                 local objs = game:GetObjects(imgId)
@@ -4487,12 +4487,29 @@ pcall(function()
                     isHidden = false
                     if forceHideConn then forceHideConn:Disconnect() end
                     if scriptUI then scriptUI.Enabled = true end
-                    if moveConn then moveConn:Disconnect() end
-                    if screenGui then screenGui:Destroy() end
                     if conn then conn:Disconnect() end
+                    
+                    if onShowCallback then
+                        pcall(onShowCallback)
+                    end
+                    
+                    -- 모션 정지 및 서서히 사라지기
+                    if moveConn then moveConn:Disconnect() end
+                    local TS = game:GetService("TweenService")
+                    local fadeOut = TS:Create(imgLabel, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        ImageTransparency = 1
+                    })
+                    fadeOut:Play()
+                    fadeOut.Completed:Connect(function()
+                        if screenGui then screenGui:Destroy() end
+                    end)
                 end
             end
         end)
+    end
+
+    if autoHideUI and isRecon then
+        getgenv().TriggerUIHide()
     end
 end)
 -- =======================================
@@ -8563,7 +8580,8 @@ end
 
 SolTab.Label({ Text = "오토" })
 
-SolTab.Toggle({
+local MacroToggle
+MacroToggle = SolTab.Toggle({
     Text = "매크로 시작",
     Enabled = false,
     Callback = function(v)
@@ -8571,6 +8589,19 @@ SolTab.Toggle({
         updateBiomeMacroState()
         updateAutoBiomeUseState()
         updateAutoFishState()
+        
+        if v and getgenv().TriggerUIHide then
+            getgenv().TriggerUIHide("rbxassetid://129155044065438", function()
+                if MacroToggle then
+                    MacroToggle:SetState(false)
+                else
+                    Settings.Sols.masterMacroEnabled = false
+                    updateBiomeMacroState()
+                    updateAutoBiomeUseState()
+                    updateAutoFishState()
+                end
+            end)
+        end
     end
 })
 
