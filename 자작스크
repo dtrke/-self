@@ -8917,15 +8917,6 @@ PERTab.Label({ Text = "이 탭에 있는 토글들은 영구히 유지됩니다.
 PERTab.Label({ Text = "자작 스크립트" })
 
 PERTab.Toggle({
-    Text = "재접속 시 UI 자동 숨김",
-    Enabled = Settings.Persistence.autoHideUI,
-    Callback = function(v)
-        Settings.Persistence.autoHideUI = v
-        if SaveConfig then SaveConfig() end
-    end
-})
-
-PERTab.Toggle({
     Text = "스크립트 자동 실행",
     Enabled = Settings.Persistence.enabled,
     Callback = function(v)
@@ -8948,6 +8939,15 @@ PERTab.Toggle({
     Callback = function(v)
         ConfigSystem.AutoLoad = v
         SaveConfig()
+    end
+})
+
+PERTab.Toggle({
+    Text = "재접속 시 UI 자동 숨김",
+    Enabled = Settings.Persistence.autoHideUI,
+    Callback = function(v)
+        Settings.Persistence.autoHideUI = v
+        if SaveConfig then SaveConfig() end
     end
 })
 
