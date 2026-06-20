@@ -4442,21 +4442,42 @@ pcall(function()
         screenGui.Parent = coreGui
         
         local imgLabel = Instance.new("ImageLabel")
-        imgLabel.Size = UDim2.new(0, 500, 0, 120)
-        imgLabel.Position = UDim2.new(0.5, -250, 1, -150)
+        imgLabel.Size = UDim2.new(0, 800, 0, 240)
+        imgLabel.Position = UDim2.new(0.5, -400, 1, -280)
         imgLabel.BackgroundTransparency = 1
-        imgLabel.Image = "rbxthumb://type=Asset&id=129920542078687&w=420&h=420"
+        
+        -- 최고 화질 로딩: 썸네일 우회 후 원본 데칼 텍스처 직접 추출
+        local imgId = "rbxassetid://129920542078687"
+        task.spawn(function()
+            pcall(function()
+                local objs = game:GetObjects(imgId)
+                if objs and objs[1] and objs[1]:IsA("Decal") then
+                    imgLabel.Image = objs[1].Texture
+                end
+            end)
+        end)
+        imgLabel.Image = imgId
+        
         imgLabel.ScaleType = Enum.ScaleType.Fit
         imgLabel.ImageTransparency = 0.1
         imgLabel.Parent = screenGui
         
-        local TS = game:GetService("TweenService")
-        local tweenInfo = TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
-        local tween = TS:Create(imgLabel, tweenInfo, {
-            ImageTransparency = 0.65,
-            Position = UDim2.new(0.5, -250, 1, -165)
-        })
-        tween:Play()
+        -- 유기적이고 부드러운 다방향 흔들림 모션 (RenderStepped + 다중 Sine)
+        local RS = game:GetService("RunService")
+        local tick_t = 0
+        local basePos = UDim2.new(0.5, -400, 1, -280)
+        local moveConn
+        moveConn = RS.RenderStepped:Connect(function(dt)
+            tick_t = tick_t + dt
+            local offsetY = math.sin(tick_t * 2.5) * 12    -- 위아래
+            local offsetX = math.cos(tick_t * 1.5) * 6     -- 좌우
+            local rot = math.sin(tick_t * 1.8) * 2.5       -- 각도 (살짝 갸우뚱)
+            local trans = 0.35 + math.sin(tick_t * 3) * 0.25 -- 투명도 깜빡임
+            
+            imgLabel.Position = UDim2.new(basePos.X.Scale, basePos.X.Offset + offsetX, basePos.Y.Scale, basePos.Y.Offset + offsetY)
+            imgLabel.Rotation = rot
+            imgLabel.ImageTransparency = trans
+        end)
         
         local uis = game:GetService("UserInputService")
         local conn
@@ -4466,7 +4487,7 @@ pcall(function()
                     isHidden = false
                     if forceHideConn then forceHideConn:Disconnect() end
                     if scriptUI then scriptUI.Enabled = true end
-                    if tween then tween:Cancel() end
+                    if moveConn then moveConn:Disconnect() end
                     if screenGui then screenGui:Destroy() end
                     if conn then conn:Disconnect() end
                 end
