@@ -4387,6 +4387,21 @@ end)
 
 getgenv().TriggerUIHide = function(customImageId, onShowCallback)
     local coreGui = game:GetService("CoreGui")
+    
+    -- 이미 실행 중인 숨김 UI 및 이벤트 제거 (중복 방지)
+    if getgenv()._reconScreenGui then
+        pcall(function() getgenv()._reconScreenGui:Destroy() end)
+    end
+    if getgenv()._reconMoveConn then
+        getgenv()._reconMoveConn:Disconnect()
+    end
+    if getgenv()._reconInputConn then
+        getgenv()._reconInputConn:Disconnect()
+    end
+    if getgenv()._reconForceHideConn then
+        getgenv()._reconForceHideConn:Disconnect()
+    end
+
     local scriptUIName = "자작 스크립트 🧊  ~  ▣ ABSOLUTE ▣ ✨"
     local isHidden = true
     local scriptUI
@@ -4402,6 +4417,7 @@ getgenv().TriggerUIHide = function(customImageId, onShowCallback)
                         gui.Enabled = false
                     end
                 end)
+                getgenv()._reconForceHideConn = forceHideConn
             end
         end
     end
@@ -4424,6 +4440,7 @@ getgenv().TriggerUIHide = function(customImageId, onShowCallback)
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "ReconnectionPromptGui"
     screenGui.Parent = coreGui
+    getgenv()._reconScreenGui = screenGui
     
     local imgLabel = Instance.new("ImageLabel")
     imgLabel.Size = UDim2.new(0, 960, 0, 288)
@@ -4462,6 +4479,7 @@ getgenv().TriggerUIHide = function(customImageId, onShowCallback)
         imgLabel.Rotation = rot
         imgLabel.ImageTransparency = trans
     end)
+    getgenv()._reconMoveConn = moveConn
     
     local uis = game:GetService("UserInputService")
     local conn
@@ -4490,6 +4508,7 @@ getgenv().TriggerUIHide = function(customImageId, onShowCallback)
             end
         end
     end)
+    getgenv()._reconInputConn = conn
 end
 
 pcall(function()
