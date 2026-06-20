@@ -4384,6 +4384,114 @@ Services.RunService.RenderStepped:Connect(function(dt)
 end)
 
 -- === [UI 로딩 번쩍임 원천 차단 및 숨김 시스템] ===
+
+getgenv().TriggerUIHide = function(customImageId, onShowCallback)
+    local coreGui = game:GetService("CoreGui")
+    local scriptUIName = "자작 스크립트 🧊  ~  ▣ ABSOLUTE ▣ ✨"
+    local isHidden = true
+    local scriptUI
+    local forceHideConn
+    
+    local function hideUI(gui)
+        if gui:IsA("ScreenGui") and isHidden then
+            scriptUI = gui
+            gui.Enabled = false
+            if not forceHideConn then
+                forceHideConn = gui:GetPropertyChangedSignal("Enabled"):Connect(function()
+                    if isHidden and gui.Enabled then
+                        gui.Enabled = false
+                    end
+                end)
+            end
+        end
+    end
+
+    local function checkChild(child)
+        if child.Name == scriptUIName then
+            hideUI(child)
+        end
+    end
+
+    coreGui.ChildAdded:Connect(checkChild)
+    for _, child in ipairs(coreGui:GetChildren()) do checkChild(child) end
+    
+    local hiddenUI = coreGui:FindFirstChild("HiddenUI")
+    if hiddenUI then
+        hiddenUI.ChildAdded:Connect(checkChild)
+        for _, child in ipairs(hiddenUI:GetChildren()) do checkChild(child) end
+    end
+    
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "ReconnectionPromptGui"
+    screenGui.Parent = coreGui
+    
+    local imgLabel = Instance.new("ImageLabel")
+    imgLabel.Size = UDim2.new(0, 960, 0, 288)
+    imgLabel.Position = UDim2.new(0.5, -480, 1, -300)
+    imgLabel.BackgroundTransparency = 1
+    
+    -- 최고 화질 로딩: 썸네일 우회 후 원본 데칼 텍스처 직접 추출
+    local imgId = customImageId or "rbxassetid://129920542078687"
+    task.spawn(function()
+        pcall(function()
+            local objs = game:GetObjects(imgId)
+            if objs and objs[1] and objs[1]:IsA("Decal") then
+                imgLabel.Image = objs[1].Texture
+            end
+        end)
+    end)
+    imgLabel.Image = imgId
+    
+    imgLabel.ScaleType = Enum.ScaleType.Fit
+    imgLabel.ImageTransparency = 0.1
+    imgLabel.Parent = screenGui
+    
+    -- 무한 기호(∞) 궤적을 그리며 둥둥 떠다니는 부드러운 모션 (Lissajous 곡선)
+    local RS = game:GetService("RunService")
+    local basePos = UDim2.new(0.5, -480, 1, -300)
+    local moveConn
+    
+    moveConn = RS.RenderStepped:Connect(function()
+        local t = os.clock() * 1.5 -- 애니메이션 속도
+        local offsetX = math.sin(t) * 45       -- 좌우 폭
+        local offsetY = math.sin(t * 2) * 20   -- 위아래 폭 (좌우의 2배 주기로 움직여 ∞ 기호 완성)
+        local rot = math.cos(t) * 2.5          -- 기울기
+        local trans = 0.35 + math.sin(t * 0.8) * 0.25 -- 부드러운 깜빡임
+        
+        imgLabel.Position = UDim2.new(basePos.X.Scale, basePos.X.Offset + offsetX, basePos.Y.Scale, basePos.Y.Offset + offsetY)
+        imgLabel.Rotation = rot
+        imgLabel.ImageTransparency = trans
+    end)
+    
+    local uis = game:GetService("UserInputService")
+    local conn
+    conn = uis.InputBegan:Connect(function(input, gp)
+        if not gp and input.KeyCode == Enum.KeyCode.P then
+            if isHidden then
+                isHidden = false
+                if forceHideConn then forceHideConn:Disconnect() end
+                if scriptUI then scriptUI.Enabled = true end
+                if conn then conn:Disconnect() end
+                
+                if onShowCallback then
+                    pcall(onShowCallback)
+                end
+                
+                -- 모션 정지 및 서서히 사라지기
+                if moveConn then moveConn:Disconnect() end
+                local TS = game:GetService("TweenService")
+                local fadeOut = TS:Create(imgLabel, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    ImageTransparency = 1
+                })
+                fadeOut:Play()
+                fadeOut.Completed:Connect(function()
+                    if screenGui then screenGui:Destroy() end
+                end)
+            end
+        end
+    end)
+end
+
 pcall(function()
     local HttpService = game:GetService("HttpService")
     local PERMANENT_FILE = "ZajakScript_Permanent.json"
@@ -4401,112 +4509,6 @@ pcall(function()
     end
     
     local isRecon = (getgenv and getgenv().IS_TELEPORT_LOAD) or false
-    getgenv().TriggerUIHide = function(customImageId, onShowCallback)
-        local coreGui = game:GetService("CoreGui")
-        local scriptUIName = "자작 스크립트 🧊  ~  ▣ ABSOLUTE ▣ ✨"
-        local isHidden = true
-        local scriptUI
-        local forceHideConn
-        
-        local function hideUI(gui)
-            if gui:IsA("ScreenGui") and isHidden then
-                scriptUI = gui
-                gui.Enabled = false
-                if not forceHideConn then
-                    forceHideConn = gui:GetPropertyChangedSignal("Enabled"):Connect(function()
-                        if isHidden and gui.Enabled then
-                            gui.Enabled = false
-                        end
-                    end)
-                end
-            end
-        end
-
-        local function checkChild(child)
-            if child.Name == scriptUIName then
-                hideUI(child)
-            end
-        end
-
-        coreGui.ChildAdded:Connect(checkChild)
-        for _, child in ipairs(coreGui:GetChildren()) do checkChild(child) end
-        
-        local hiddenUI = coreGui:FindFirstChild("HiddenUI")
-        if hiddenUI then
-            hiddenUI.ChildAdded:Connect(checkChild)
-            for _, child in ipairs(hiddenUI:GetChildren()) do checkChild(child) end
-        end
-        
-        local screenGui = Instance.new("ScreenGui")
-        screenGui.Name = "ReconnectionPromptGui"
-        screenGui.Parent = coreGui
-        
-        local imgLabel = Instance.new("ImageLabel")
-        imgLabel.Size = UDim2.new(0, 960, 0, 288)
-        imgLabel.Position = UDim2.new(0.5, -480, 1, -300)
-        imgLabel.BackgroundTransparency = 1
-        
-        -- 최고 화질 로딩: 썸네일 우회 후 원본 데칼 텍스처 직접 추출
-        local imgId = customImageId or "rbxassetid://129920542078687"
-        task.spawn(function()
-            pcall(function()
-                local objs = game:GetObjects(imgId)
-                if objs and objs[1] and objs[1]:IsA("Decal") then
-                    imgLabel.Image = objs[1].Texture
-                end
-            end)
-        end)
-        imgLabel.Image = imgId
-        
-        imgLabel.ScaleType = Enum.ScaleType.Fit
-        imgLabel.ImageTransparency = 0.1
-        imgLabel.Parent = screenGui
-        
-        -- 무한 기호(∞) 궤적을 그리며 둥둥 떠다니는 부드러운 모션 (Lissajous 곡선)
-        local RS = game:GetService("RunService")
-        local basePos = UDim2.new(0.5, -480, 1, -300)
-        local moveConn
-        
-        moveConn = RS.RenderStepped:Connect(function()
-            local t = os.clock() * 1.5 -- 애니메이션 속도
-            local offsetX = math.sin(t) * 45       -- 좌우 폭
-            local offsetY = math.sin(t * 2) * 20   -- 위아래 폭 (좌우의 2배 주기로 움직여 ∞ 기호 완성)
-            local rot = math.cos(t) * 2.5          -- 기울기
-            local trans = 0.35 + math.sin(t * 0.8) * 0.25 -- 부드러운 깜빡임
-            
-            imgLabel.Position = UDim2.new(basePos.X.Scale, basePos.X.Offset + offsetX, basePos.Y.Scale, basePos.Y.Offset + offsetY)
-            imgLabel.Rotation = rot
-            imgLabel.ImageTransparency = trans
-        end)
-        
-        local uis = game:GetService("UserInputService")
-        local conn
-        conn = uis.InputBegan:Connect(function(input, gp)
-            if not gp and input.KeyCode == Enum.KeyCode.P then
-                if isHidden then
-                    isHidden = false
-                    if forceHideConn then forceHideConn:Disconnect() end
-                    if scriptUI then scriptUI.Enabled = true end
-                    if conn then conn:Disconnect() end
-                    
-                    if onShowCallback then
-                        pcall(onShowCallback)
-                    end
-                    
-                    -- 모션 정지 및 서서히 사라지기
-                    if moveConn then moveConn:Disconnect() end
-                    local TS = game:GetService("TweenService")
-                    local fadeOut = TS:Create(imgLabel, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                        ImageTransparency = 1
-                    })
-                    fadeOut:Play()
-                    fadeOut.Completed:Connect(function()
-                        if screenGui then screenGui:Destroy() end
-                    end)
-                end
-            end
-        end)
-    end
 
     if autoHideUI and isRecon then
         getgenv().TriggerUIHide()
