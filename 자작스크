@@ -34,6 +34,8 @@ local Camera = workspace.CurrentCamera
 -- 설정 테이블 통합
 -- =============================
 local Settings = {
+    Emergency = false,
+    EmergencyReady = false,
     -- FLY
     Fly = {
         speed = 15,
@@ -202,11 +204,15 @@ local Settings = {
     Webhook = "",
     Webhook2 = "",
 
-    -- 솔스 (Egg Bot) 추가
+    -- 솔스 추가
     Sols = {
-        autoBiomeUse = false, -- [NEW] 바이옴 아이템 자동 사용 여부
-        musicSync = false, -- [NEW] 음악 비주얼라이저 동기화 여부
-        autoStunEscape = false -- [NEW] 보스 스턴 키 자동 토글
+        autoBiomeUse = false,
+        autoRareBiomePop = false,
+        musicSync = false,
+        autoStunEscape = false,
+        popGlitched = true,
+        popDreamspace = true,
+        popCyberspace = true
     },
 
     -- 스크린샷 (Webhook) 추가
@@ -2699,8 +2705,234 @@ local function useSpecificItemByName(itemName)
     return false
 end
 
+local function useSpecificItemByNameWithAmount(itemName, useAmountNum)
+    local inventory = LocalPlayer.PlayerGui.MainInterface:FindFirstChild("Inventory")
+    if not inventory then return false end
+    
+    local scrollingFrame = inventory:FindFirstChild("Items") and inventory.Items:FindFirstChild("ItemGrid") and inventory.Items.ItemGrid:FindFirstChild("ItemGridScrollingFrame")
+    if not scrollingFrame then return false end
+
+    local targetItem = nil
+    local currentAmount = 0
+    for _, item in pairs(scrollingFrame:GetChildren()) do
+        if item.Name == itemName or item:FindFirstChild(itemName, true) then
+            targetItem = item
+        else
+            for _, desc in pairs(item:GetDescendants()) do
+                if desc:IsA("TextLabel") and string.find(desc.Text, itemName) then
+                    targetItem = item
+                    break
+                end
+            end
+        end
+        if targetItem then
+            -- Try to parse amount
+            local btn = targetItem:FindFirstChild("Button")
+            if btn and btn:FindFirstChild("ItemAmount") then
+                local txt = btn.ItemAmount.Text
+                -- e.g., 'x15' -> 15
+                local num = txt:match("x(%d+)")
+                if num then currentAmount = tonumber(num) end
+            end
+            break 
+        end
+    end
+
+    if targetItem then
+        if currentAmount <= 0 then currentAmount = 1 end -- fallback
+        local amountToUse = currentAmount
+        if useAmountNum ~= "ALL" and type(useAmountNum) == "number" then
+            if currentAmount > useAmountNum then
+                amountToUse = useAmountNum
+            end
+        end
+        
+        clickExactly(targetItem)
+        task.wait(0.5)
+        local itemIndex = inventory:WaitForChild("Index"):WaitForChild("ItemIndex")
+        local useAmountBox = itemIndex:WaitForChild("UseHolder"):WaitForChild("UseAmount")
+        local useButton = itemIndex.UseHolder:WaitForChild("UseButton")
+        
+        useAmountBox.Text = tostring(amountToUse)
+        if useAmountBox:IsA("TextBox") then useAmountBox:ReleaseFocus() end
+        task.wait(0.25)
+        clickExactly(useButton)
+        task.wait(0.77)
+        return true
+    end
+    return false
+end
+
+local function performRareBiomePopSequence(biomeName)
+    if not Settings.Sols.autoRareBiomePop then return end
+    
+    if biomeName == "GLITCHED" and not Settings.Sols.popGlitched then return end
+    if biomeName == "DREAMSPACE" and not Settings.Sols.popDreamspace then return end
+    if biomeName == "CYBERSPACE" and not Settings.Sols.popCyberspace then return end
+    
+    -- 1. 대기 및 시작
+    Settings.Emergency = true
+    
+    if Settings.Sols and Settings.Sols.autoFishActive then
+        local waitLimit = 60
+        local elapsed = 0
+        while not Settings.EmergencyReady and elapsed < waitLimit do
+            task.wait(0.5)
+            elapsed = elapsed + 0.5
+        end
+    else
+        task.wait(2)
+    end
+    
+    -- 캐릭터 재설정
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+        LocalPlayer.Character.Humanoid.Health = 0
+    end
+    
+    -- Wait for character respawn
+    task.wait(0.5)
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    char:WaitForChild("HumanoidRootPart")
+    task.wait(0.5)
+    
+    -- 2. 인벤토리 열기
+    local mainInterface = LocalPlayer.PlayerGui:FindFirstChild("MainInterface")
+    local inventory = mainInterface and mainInterface:FindFirstChild("Inventory")
+    if not inventory then Settings.Emergency = false; return end
+
+    if not inventory.Visible then
+        local sideButtons = mainInterface:FindFirstChild("SideButtons")
+        if sideButtons then
+            for _, btn in pairs(sideButtons:GetChildren()) do
+                if btn.Name == "TextButton" and btn:FindFirstChild("Usage") and btn.Usage.Text == "Inventory" then
+                    clickExactly(btn)
+                    task.wait(0.8)
+                    break
+                end
+            end
+        end
+    end
+    if not inventory.Visible then Settings.Emergency = false; return end
+    task.wait(0.5)
+
+    -- ItemsTab 클릭
+    local itemsTab = inventory:FindFirstChild("Items") and inventory.Items:FindFirstChild("ItemsTab")
+    if itemsTab then clickExactly(itemsTab) end
+    task.wait(0.3)
+
+    -- LayoutOrder 10001 (포션류) 필터
+    local quickCategory = inventory:FindFirstChild("QuickCategory")
+    if quickCategory then
+        for _, btn in pairs(quickCategory:GetChildren()) do
+            if btn:IsA("ImageButton") and btn.LayoutOrder == 10001 then
+                clickExactly(btn)
+                break
+            end
+        end
+    end
+
+    -- 아이템 정렬 2초 대기
+    task.wait(2)
+    
+    -- 2-1. 아이템 종류별 우선순위 파악 및 사용
+    local function hasItem(itemName)
+        local scrollingFrame = inventory:FindFirstChild("Items") and inventory.Items:FindFirstChild("ItemGrid") and inventory.Items.ItemGrid:FindFirstChild("ItemGridScrollingFrame")
+        if not scrollingFrame then return false end
+        for _, item in pairs(scrollingFrame:GetChildren()) do
+            if item.Name == itemName or item:FindFirstChild(itemName, true) then return true end
+            for _, desc in pairs(item:GetDescendants()) do
+                if desc:IsA("TextLabel") and string.find(desc.Text, itemName) then return true end
+            end
+        end
+        return false
+    end
+
+    local function getAmount(itemName)
+        local scrollingFrame = inventory:FindFirstChild("Items") and inventory.Items:FindFirstChild("ItemGrid") and inventory.Items.ItemGrid:FindFirstChild("ItemGridScrollingFrame")
+        if not scrollingFrame then return 0 end
+        for _, item in pairs(scrollingFrame:GetChildren()) do
+            local matched = false
+            if item.Name == itemName or item:FindFirstChild(itemName, true) then
+                matched = true
+            else
+                for _, desc in pairs(item:GetDescendants()) do
+                    if desc:IsA("TextLabel") and string.find(desc.Text, itemName) then
+                        matched = true
+                        break
+                    end
+                end
+            end
+            if matched then
+                local btn = item:FindFirstChild("Button")
+                if btn and btn:FindFirstChild("ItemAmount") then
+                    local txt = btn.ItemAmount.Text
+                    local num = txt:match("x(%d+)")
+                    if num then return tonumber(num) end
+                end
+                return 1 -- fallback if it exists but no xNum
+            end
+        end
+        return 0
+    end
+
+    if biomeName == "GLITCHED" or biomeName == "DREAMSPACE" then
+        if hasItem("Warp Potion") then
+            useSpecificItemByNameWithAmount("Warp Potion", 1)
+        end
+        if hasItem("Oblivion Potion") then
+            useSpecificItemByNameWithAmount("Oblivion Potion", "ALL")
+        end
+        if hasItem("Godlike Potion") then
+            useSpecificItemByNameWithAmount("Godlike Potion", "ALL")
+        end
+        if hasItem("Heavenly Potion") then
+            useSpecificItemByNameWithAmount("Heavenly Potion", "ALL")
+        end
+        if hasItem("Potion of Bound") then
+            useSpecificItemByNameWithAmount("Potion of Bound", "ALL")
+        end
+        if hasItem("Popping Potion") then
+            useSpecificItemByNameWithAmount("Popping Potion", "ALL")
+        end
+    elseif biomeName == "CYBERSPACE" then
+        local warpAmount = getAmount("Warp Potion")
+        local hasTrans = hasItem("Transcendent Potion")
+        
+        if warpAmount >= 10 then
+            useSpecificItemByNameWithAmount("Warp Potion", 10)
+        elseif warpAmount < 10 and hasTrans then
+            useSpecificItemByNameWithAmount("Transcendent Potion", 1)
+        elseif warpAmount < 10 and not hasTrans and warpAmount > 0 then
+            useSpecificItemByNameWithAmount("Warp Potion", 10)
+        end
+    end
+    
+    task.wait(1)
+    if inventory and inventory.Visible then
+        inventory.Visible = false
+    end
+    
+    Settings.Emergency = false
+end
+
+
 local lastStrangeControllerUse = 0
 local lastBiomeRandomizerUse = 0
+
+task.spawn(function()
+    local lastTick = tick()
+    while true do
+        local now = tick()
+        local dt = now - lastTick
+        lastTick = now
+        
+        if Settings and Settings.Emergency then
+            lastStrangeControllerUse = lastStrangeControllerUse + dt
+            lastBiomeRandomizerUse = lastBiomeRandomizerUse + dt
+        end
+        task.wait(0.1)
+    end
+end)
 
 local function performBiomeAutoSequence(force)
     local now = tick()
@@ -2720,6 +2952,10 @@ local function performBiomeAutoSequence(force)
                 if btn.Name == "TextButton" and btn:FindFirstChild("Usage") and btn.Usage.Text == "Inventory" then
                     clickExactly(btn)
                     task.wait(0.8)
+                    if Settings.Emergency then
+                        if inventory and inventory.Visible then inventory.Visible = false end
+                        return
+                    end
                     if not (force or Settings.Sols.autoBiomeUse) then return end
                     break
                 end
@@ -2728,11 +2964,19 @@ local function performBiomeAutoSequence(force)
     end
     if not inventory.Visible then return end
     task.wait(0.5)
+    if Settings.Emergency then
+        if inventory and inventory.Visible then inventory.Visible = false end
+        return
+    end
     if not (force or Settings.Sols.autoBiomeUse) then return end
 
     local itemsTab = inventory:FindFirstChild("Items") and inventory.Items:FindFirstChild("ItemsTab")
     if itemsTab then clickExactly(itemsTab) end
     task.wait(0.3)
+    if Settings.Emergency then
+        if inventory and inventory.Visible then inventory.Visible = false end
+        return
+    end
     if not (force or Settings.Sols.autoBiomeUse) then return end
 
     local quickCategory = inventory:FindFirstChild("QuickCategory")
@@ -2746,6 +2990,10 @@ local function performBiomeAutoSequence(force)
     end
 
     task.wait(2)
+    if Settings.Emergency then
+        if inventory and inventory.Visible then inventory.Visible = false end
+        return
+    end
     if not (force or Settings.Sols.autoBiomeUse) then return end
     
     if useStrange then
@@ -2754,6 +3002,10 @@ local function performBiomeAutoSequence(force)
         task.wait(0.75)
     end
     
+    if Settings.Emergency then
+        if inventory and inventory.Visible then inventory.Visible = false end
+        return
+    end
     if not (force or Settings.Sols.autoBiomeUse) then return end
     
     if useBiome then
@@ -7093,7 +7345,7 @@ SBTab.Button({
 
 -- ================= 솔스 탭 =================
 
-local SolTab = UI.New({ Title = "SOL's", Icon = "egg" })
+local SolTab = UI.New({ Title = "SOL's", Icon = "Sols" })
 
 SolTab.Label({ Text = "BOSS_보스" })
 
@@ -7104,8 +7356,6 @@ SolTab.Toggle({
         Settings.Sols.autoStunEscape = v
     end
 })
-
-SolTab.Label({ Text = "오토" })
 
 local biomeMacroConnection = nil
 
@@ -7380,6 +7630,14 @@ local function updateBiomeMacroState()
                             local validBiome = isValidBiome(biomeRaw)
                             if validBiome then
                                 sendDiscordWebhook(validBiome, action, timeStr)
+                                
+                                if action == "started" and (validBiome == "GLITCHED" or validBiome == "DREAMSPACE" or validBiome == "CYBERSPACE") then
+                                    task.spawn(function()
+                                        pcall(function()
+                                            performRareBiomePopSequence(validBiome)
+                                        end)
+                                    end)
+                                end
                             end
                         end
                     end
@@ -7505,6 +7763,12 @@ local function updateAutoFishState()
                 end
                 
                 local function doFlexibility()
+                    if Settings.Emergency then
+                        Settings.EmergencyReady = true
+                        while Settings.Emergency do task.wait(0.5) end
+                        Settings.EmergencyReady = false
+                    end
+                    
                     if Settings.Sols.autoBiomeUseReady and Settings.Sols.masterMacroEnabled then
                         local now = tick()
                         local useStrange = (now - lastStrangeControllerUse) >= (10.5 * 60)
@@ -7546,10 +7810,12 @@ local function updateAutoFishState()
                             vim:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
                             task.wait(1.5)
                             vim:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
+                            lastActivityTime = tick() -- [ACT] ESC
                             
                             vim:SendKeyEvent(true, Enum.KeyCode.Tab, false, game)
                             task.wait(1.5)
                             vim:SendKeyEvent(false, Enum.KeyCode.Tab, false, game)
+                            lastActivityTime = tick() -- [ACT] Tab
                             
                             vim:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
                             task.wait(1)
@@ -7565,10 +7831,12 @@ local function updateAutoFishState()
                             vim:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
                             task.wait(1.5)
                             vim:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
+                            lastActivityTime = tick() -- [ACT] ESC
                             
                             vim:SendKeyEvent(true, Enum.KeyCode.Tab, false, game)
                             task.wait(1.5)
                             vim:SendKeyEvent(false, Enum.KeyCode.Tab, false, game)
+                            lastActivityTime = tick() -- [ACT] Tab
                             
                             local hoverSuccess = false
                             if selector then
@@ -7577,6 +7845,7 @@ local function updateAutoFishState()
                                     vim:SendKeyEvent(true, Enum.KeyCode.Down, false, game)
                                     task.wait(0.35)
                                     vim:SendKeyEvent(false, Enum.KeyCode.Down, false, game)
+                                    lastActivityTime = tick() -- [ACT] Down
                                     if selector.GuiState == Enum.GuiState.Hover then
                                         hoverSuccess = true
                                         break
@@ -7589,6 +7858,7 @@ local function updateAutoFishState()
                                         vim:SendKeyEvent(true, Enum.KeyCode.Up, false, game)
                                         task.wait(0.35)
                                         vim:SendKeyEvent(false, Enum.KeyCode.Up, false, game)
+                                        lastActivityTime = tick() -- [ACT] Up
                                         if selector.GuiState == Enum.GuiState.Hover then
                                             hoverSuccess = true
                                             break
@@ -7610,6 +7880,7 @@ local function updateAutoFishState()
                                     vim:SendKeyEvent(true, Enum.KeyCode.Right, false, game)
                                     task.wait(1)
                                     vim:SendKeyEvent(false, Enum.KeyCode.Right, false, game)
+                                    lastActivityTime = tick() -- [ACT] Right
                                 end
                                 
                                 if targetReached then
@@ -7911,6 +8182,7 @@ local function updateAutoFishState()
                                                         if btn:IsA("ImageButton") then
                                                             clickExactly(btn)
                                                             clickedClose = true
+                                                            lastActivityTime = tick() -- [ACT] Safe1 close
                                                             break
                                                         end
                                                     end
@@ -8049,6 +8321,7 @@ local function updateAutoFishState()
                                     for _, desc in ipairs(targetFrame:GetDescendants()) do
                                         if desc:IsA("TextLabel") and string.find(string.lower(desc.Text), "sell") then
                                             clickExactly(desc)
+                                            lastActivityTime = tick() -- [ACT] Sell tab
                                             break
                                         end
                                     end
@@ -8058,6 +8331,11 @@ local function updateAutoFishState()
                             task.wait(0.5)
                             
                             while Settings.Sols.autoFishActive do
+                                if Settings.Emergency then
+                                    local finalShopParent = findFishingShopFrame()
+                                    if finalShopParent then finalShopParent.Visible = false end
+                                    break
+                                end
                                 local fShopParent3 = findFishingShopFrame()
                                 local targetFrame2 = nil
                                 if fShopParent3 then
@@ -8097,7 +8375,10 @@ local function updateAutoFishState()
                                     for _, ch in ipairs(scrollingFrame:GetChildren()) do
                                         if ch:IsA("Frame") and ch.LayoutOrder == 1 then
                                             local imgBtn = ch:FindFirstChildWhichIsA("ImageButton")
-                                            if imgBtn then clickExactly(imgBtn) end
+                                            if imgBtn then
+                                                clickExactly(imgBtn)
+                                                lastActivityTime = tick() -- [ACT] item click
+                                            end
                                             break
                                         end
                                     end
@@ -8117,7 +8398,10 @@ local function updateAutoFishState()
                                             end
                                         end
                                     end
-                                    if sellAllBtn then clickExactly(sellAllBtn) end
+                                    if sellAllBtn then
+                                        clickExactly(sellAllBtn)
+                                        lastActivityTime = tick() -- [ACT] Sell All
+                                    end
                                 end
                                 
                                 task.wait(0.5)
@@ -8131,6 +8415,7 @@ local function updateAutoFishState()
                                                 for _, btn2 in ipairs(frm:GetDescendants()) do
                                                     if btn2:IsA("ImageButton") and math.abs(btn2.Position.X.Scale - 0.235) < 0.05 and math.abs(btn2.Position.Y.Scale - 0.5) < 0.05 then
                                                         clickExactly(btn2)
+                                                        lastActivityTime = tick() -- [ACT] confirm sell
                                                         break
                                                     end
                                                 end
@@ -8165,6 +8450,8 @@ local function updateAutoFishState()
         end
     end
 end
+
+SolTab.Label({ Text = "오토" })
 
 SolTab.Toggle({
     Text = "매크로 시작",
@@ -8203,6 +8490,15 @@ SolTab.Toggle({
         updateAutoFishState()
     end
 })
+
+SolTab.Toggle({
+    Text = "레어 바이옴 자동 팝핑",
+    Enabled = Settings.Sols.autoRareBiomePop,
+    Callback = function(v)
+        Settings.Sols.autoRareBiomePop = v
+    end
+})
+
 SolTab.Label({ Text = "기타" })
 
 SolTab.Toggle({
@@ -8677,6 +8973,32 @@ PERTab.Toggle({
     Callback = function(v)
         ConfigSystem.AutoLoad = v
         SaveConfig()
+    end
+})
+
+PERTab.Label({ Text = "오토 팝핑 여부" })
+
+PERTab.Toggle({
+    Text = "Glitched",
+    Enabled = Settings.Sols.popGlitched,
+    Callback = function(v)
+        Settings.Sols.popGlitched = v
+    end
+})
+
+PERTab.Toggle({
+    Text = "Dreamspace",
+    Enabled = Settings.Sols.popDreamspace,
+    Callback = function(v)
+        Settings.Sols.popDreamspace = v
+    end
+})
+
+PERTab.Toggle({
+    Text = "Cyberspace",
+    Enabled = Settings.Sols.popCyberspace,
+    Callback = function(v)
+        Settings.Sols.popCyberspace = v
     end
 })
 
