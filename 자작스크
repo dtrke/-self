@@ -9222,14 +9222,25 @@ task.spawn(function()
         -- UI 생성까지 대기
         for i = 1, 100 do
             scriptUI = getScriptUI()
-            if scriptUI and scriptUI:FindFirstChild("MainFrame") then
+            if scriptUI and scriptUI:FindFirstChild("MainFrame", true) then
                 break
             end
             task.wait(0.1)
         end
 
-        if scriptUI and scriptUI:FindFirstChild("MainFrame") then
-            local mainFrame = scriptUI.MainFrame
+        if scriptUI and scriptUI:FindFirstChild("MainFrame", true) then
+            local mainFrame = scriptUI:FindFirstChild("MainFrame", true)
+            
+            local isHidden = true
+            
+            -- UI 애니메이션이 Visible을 다시 켜는 것을 방지
+            local forceHideConn
+            forceHideConn = mainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+                if mainFrame.Visible and isHidden then
+                    mainFrame.Visible = false
+                end
+            end)
+            
             mainFrame.Visible = false
             
             local screenGui = Instance.new("ScreenGui")
@@ -9246,8 +9257,6 @@ task.spawn(function()
             textLabel.TextSize = 24
             textLabel.Font = Enum.Font.GothamBold
             textLabel.Parent = screenGui
-            
-            local isHidden = true
             
             task.spawn(function()
                 while isHidden and textLabel.Parent do
@@ -9270,10 +9279,11 @@ task.spawn(function()
             local conn
             conn = uis.InputBegan:Connect(function(input, gp)
                 if not gp and input.KeyCode == Enum.KeyCode.P then
-                    if mainFrame.Visible == false then
-                        mainFrame.Visible = true
+                    if isHidden then
                         isHidden = false
-                        screenGui:Destroy()
+                        if forceHideConn then forceHideConn:Disconnect() end
+                        mainFrame.Visible = true
+                        if screenGui then screenGui:Destroy() end
                         if conn then conn:Disconnect() end
                     end
                 end
