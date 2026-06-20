@@ -197,7 +197,8 @@ local Settings = {
 
     -- 스크립트 제어 (추가됨)
     Persistence = {
-        enabled = true -- 기본적으로 자동 실행 활성화 (원하지 않으면 토글로 끌 수 있음)
+        enabled = true, -- 기본적으로 자동 실행 활성화 (원하지 않으면 토글로 끌 수 있음)
+        autoHideUI = true
     },
 
     -- [통합] 웹후크 설정
@@ -4422,7 +4423,8 @@ local PERMANENT_ITEMS = {
     ["희귀 에그 스폰 웹후크 알림"] = true,
     ["1분마다 상태 및 스크린샷 전송"] = true,
     ["통합 웹후크 URL"] = true,
-    ["브섭 링크"] = true
+    ["브섭 링크"] = true,
+    ["재접속 시 UI 자동 숨김"] = true
 }
 
 -- [ 영구 저장 ] 웹후크 등 항상 유지되어야 하는 설정 로드
@@ -4438,6 +4440,7 @@ pcall(function()
             if decoded["1분마다 상태 및 스크린샷 전송"] ~= nil then Settings.Screenshot.enabled = decoded["1분마다 상태 및 스크린샷 전송"] end
             if decoded["통합 웹후크 URL"] then Settings.Webhook = decoded["통합 웹후크 URL"] end
             if decoded["브섭 링크"] then Settings.PrivateServerLink = decoded["브섭 링크"] end
+            if decoded["재접속 시 UI 자동 숨김"] ~= nil then Settings.Persistence.autoHideUI = decoded["재접속 시 UI 자동 숨김"] end
         end
     end
 end)
@@ -8914,6 +8917,15 @@ PERTab.Label({ Text = "이 탭에 있는 토글들은 영구히 유지됩니다.
 PERTab.Label({ Text = "자작 스크립트" })
 
 PERTab.Toggle({
+    Text = "재접속 시 UI 자동 숨김",
+    Enabled = Settings.Persistence.autoHideUI,
+    Callback = function(v)
+        Settings.Persistence.autoHideUI = v
+        if SaveConfig then SaveConfig() end
+    end
+})
+
+PERTab.Toggle({
     Text = "스크립트 자동 실행",
     Enabled = Settings.Persistence.enabled,
     Callback = function(v)
@@ -9194,7 +9206,7 @@ end)
 -- =============================
 task.spawn(function()
     local isReconnected = (getgenv and getgenv().IS_TELEPORT_LOAD) or false
-    if isReconnected then
+    if isReconnected and Settings.Persistence.autoHideUI then
         local coreGui = game:GetService("CoreGui")
         local scriptUIName = "자작 스크립트 🧊  ~  ▣ ABSOLUTE ▣ ✨"
         
