@@ -8464,41 +8464,6 @@ SolTab.Toggle({
     end
 })
 
-SolTab.Toggle({
-    Text = "바이옴 매크로 (준비)",
-    Enabled = false,
-    Callback = function(v)
-        Settings.Sols.biomeMacroReady = v
-        updateBiomeMacroState()
-    end
-})
-
-SolTab.Toggle({
-    Text = "오토 아이템 사용 (바이옴) (준비)",
-    Enabled = Settings.Sols.autoBiomeUse,
-    Callback = function(v)
-        Settings.Sols.autoBiomeUseReady = v
-        updateAutoBiomeUseState()
-    end
-})
-
-SolTab.Toggle({
-    Text = "자동 낚시 (준비) - Alpha ver.",
-    Enabled = false,
-    Callback = function(v)
-        Settings.Sols.autoFishReady = v
-        updateAutoFishState()
-    end
-})
-
-SolTab.Toggle({
-    Text = "레어 바이옴 자동 팝핑",
-    Enabled = Settings.Sols.autoRareBiomePop,
-    Callback = function(v)
-        Settings.Sols.autoRareBiomePop = v
-    end
-})
-
 SolTab.Label({ Text = "기타" })
 
 SolTab.Toggle({
@@ -8973,6 +8938,43 @@ PERTab.Toggle({
     Callback = function(v)
         ConfigSystem.AutoLoad = v
         SaveConfig()
+    end
+})
+
+PERTab.Label({ Text = "오토 - 설정" })
+
+PERTab.Toggle({
+    Text = "바이옴 매크로 (준비)",
+    Enabled = false,
+    Callback = function(v)
+        Settings.Sols.biomeMacroReady = v
+        updateBiomeMacroState()
+    end
+})
+
+PERTab.Toggle({
+    Text = "오토 아이템 사용 (바이옴) (준비)",
+    Enabled = Settings.Sols.autoBiomeUse,
+    Callback = function(v)
+        Settings.Sols.autoBiomeUseReady = v
+        updateAutoBiomeUseState()
+    end
+})
+
+PERTab.Toggle({
+    Text = "자동 낚시 (준비) - Alpha ver.",
+    Enabled = false,
+    Callback = function(v)
+        Settings.Sols.autoFishReady = v
+        updateAutoFishState()
+    end
+})
+
+PERTab.Toggle({
+    Text = "레어 바이옴 자동 팝핑",
+    Enabled = Settings.Sols.autoRareBiomePop,
+    Callback = function(v)
+        Settings.Sols.autoRareBiomePop = v
     end
 })
 
