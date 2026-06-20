@@ -9205,8 +9205,13 @@ end)
 -- [재접속 UI 숨김 및 안내 텍스트 시스템]
 -- =============================
 task.spawn(function()
+    print("[DEBUG-UIHIDE] Reconnect check started.")
     local isReconnected = (getgenv and getgenv().IS_TELEPORT_LOAD) or false
+    print("[DEBUG-UIHIDE] IS_TELEPORT_LOAD:", isReconnected)
+    print("[DEBUG-UIHIDE] Settings.Persistence.autoHideUI:", Settings.Persistence.autoHideUI)
+    
     if isReconnected and Settings.Persistence.autoHideUI then
+        print("[DEBUG-UIHIDE] Condition met! Searching for UI...")
         local coreGui = game:GetService("CoreGui")
         local scriptUIName = "자작 스크립트 🧊  ~  ▣ ABSOLUTE ▣ ✨"
         
@@ -9223,13 +9228,21 @@ task.spawn(function()
         for i = 1, 100 do
             scriptUI = getScriptUI()
             if scriptUI and scriptUI:FindFirstChild("MainFrame", true) then
+                print("[DEBUG-UIHIDE] Found scriptUI and MainFrame! Attempts:", i)
                 break
             end
             task.wait(0.1)
         end
+        
+        if not scriptUI then
+            print("[DEBUG-UIHIDE] FAILED to find scriptUI within 10 seconds.")
+        elseif not scriptUI:FindFirstChild("MainFrame", true) then
+            print("[DEBUG-UIHIDE] Found scriptUI but FAILED to find MainFrame.")
+        end
 
         if scriptUI and scriptUI:FindFirstChild("MainFrame", true) then
             local mainFrame = scriptUI:FindFirstChild("MainFrame", true)
+            print("[DEBUG-UIHIDE] MainFrame located. Forcing Visible to false.")
             
             local isHidden = true
             
@@ -9237,11 +9250,13 @@ task.spawn(function()
             local forceHideConn
             forceHideConn = mainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
                 if mainFrame.Visible and isHidden then
+                    print("[DEBUG-UIHIDE] MainFrame tried to show! Forcing it back to false.")
                     mainFrame.Visible = false
                 end
             end)
             
             mainFrame.Visible = false
+            print("[DEBUG-UIHIDE] Creating screen prompt.")
             
             local screenGui = Instance.new("ScreenGui")
             screenGui.Name = "ReconnectionPromptGui"
@@ -9279,6 +9294,7 @@ task.spawn(function()
             local conn
             conn = uis.InputBegan:Connect(function(input, gp)
                 if not gp and input.KeyCode == Enum.KeyCode.P then
+                    print("[DEBUG-UIHIDE] P key pressed. Restoring UI.")
                     if isHidden then
                         isHidden = false
                         if forceHideConn then forceHideConn:Disconnect() end
