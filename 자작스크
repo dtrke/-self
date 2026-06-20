@@ -7347,16 +7347,6 @@ SBTab.Button({
 
 local SolTab = UI.New({ Title = "SOL's", Icon = "Sols" })
 
-SolTab.Label({ Text = "BOSS_보스" })
-
-SolTab.Toggle({
-    Text = "보스 스턴 키 자동",
-    Enabled = Settings.Sols.autoStunEscape,
-    Callback = function(v)
-        Settings.Sols.autoStunEscape = v
-    end
-})
-
 local biomeMacroConnection = nil
 
 local CustomWebhooks = {
@@ -8467,6 +8457,14 @@ SolTab.Toggle({
 SolTab.Label({ Text = "기타" })
 
 SolTab.Toggle({
+    Text = "보스 스턴 키 자동",
+    Enabled = Settings.Sols.autoStunEscape,
+    Callback = function(v)
+        Settings.Sols.autoStunEscape = v
+    end
+})
+
+SolTab.Toggle({
     Text = "[ Funny ] Music - 동기화",
     Enabled = Settings.Sols.musicSync,
     Callback = function(v)
@@ -8941,7 +8939,7 @@ PERTab.Toggle({
     end
 })
 
-PERTab.Label({ Text = "오토 - 설정" })
+PERTab.Label({ Text = "솔스 - 오토 설정" })
 
 PERTab.Toggle({
     Text = "바이옴 매크로 (준비)",
@@ -8978,7 +8976,7 @@ PERTab.Toggle({
     end
 })
 
-PERTab.Label({ Text = "오토 팝핑 여부" })
+PERTab.Label({ Text = "솔스 - 오토 팝핑 여부" })
 
 PERTab.Toggle({
     Text = "Glitched",
@@ -9004,7 +9002,7 @@ PERTab.Toggle({
     end
 })
 
-PERTab.Label({ Text = "솔스" })
+PERTab.Label({ Text = "솔스 - 브섭 링크" })
 
 PERTab.TextField({
     Text = "브섭 링크",
