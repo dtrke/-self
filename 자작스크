@@ -281,14 +281,20 @@ task.spawn(UpdatePersistence)
 -- 2. 게임 내에서 다른 서버/장소로 텔레포트할 때만 스크립트를 링크에서 다시 불러옵니다.
 local queue_on_teleport = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport) or getgenv().queue_on_teleport
 if queue_on_teleport then
-    pcall(function()
-        local TELEPORT_AUTO_LOAD = [[
+    local teleportConn
+    teleportConn = game:GetService("Players").LocalPlayer.OnTeleport:Connect(function(State)
+        if Settings.Persistence.enabled and (State == Enum.TeleportState.Started or State == Enum.TeleportState.InProgress) then
+            local TELEPORT_AUTO_LOAD = [[
+                pcall(function()
+                    if getgenv then getgenv().IS_TELEPORT_LOAD = true end
+                    loadstring(game:HttpGet("]] .. myScriptUrl .. [["))()
+                end)
+            ]]
             pcall(function()
-                if getgenv then getgenv().IS_TELEPORT_LOAD = true end
-                loadstring(game:HttpGet("]] .. myScriptUrl .. [["))()
+                queue_on_teleport(TELEPORT_AUTO_LOAD)
             end)
-        ]]
-        queue_on_teleport(TELEPORT_AUTO_LOAD)
+            if teleportConn then teleportConn:Disconnect() end
+        end
     end)
 end
 
