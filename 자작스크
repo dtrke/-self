@@ -4445,7 +4445,7 @@ pcall(function()
         imgLabel.Size = UDim2.new(0, 500, 0, 120)
         imgLabel.Position = UDim2.new(0.5, -250, 1, -150)
         imgLabel.BackgroundTransparency = 1
-        imgLabel.Image = "rbxassetid://124168571847619"
+        imgLabel.Image = "rbxthumb://type=Asset&id=124168571847619&w=420&h=420"
         imgLabel.ScaleType = Enum.ScaleType.Fit
         imgLabel.ImageTransparency = 0.1
         imgLabel.Parent = screenGui
