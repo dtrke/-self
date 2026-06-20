@@ -251,21 +251,7 @@ local Settings = {
 -- =============================
 local myScriptUrl = "https://raw.githubusercontent.com/dtrke/-self/refs/heads/main/%EC%9E%90%EC%9E%91%EC%8A%A4%ED%81%AC"
 
--- 텔레포트 감지 파일 시스템 (queue_on_teleport 실패 또는 autoexec 사용 대비)
-local TELEPORT_FLAG_FILE = "ZajakScript_TeleportFlag.txt"
-local isTeleportedByFile = false
-pcall(function()
-    if isfile and isfile(TELEPORT_FLAG_FILE) then
-        local flagTime = tonumber(readfile(TELEPORT_FLAG_FILE))
-        if flagTime and (os.time() - flagTime < 300) then -- 5분 이내면 인정
-            isTeleportedByFile = true
-        end
-        delfile(TELEPORT_FLAG_FILE)
-    end
-end)
-if getgenv then
-    getgenv().IS_TELEPORT_LOAD = getgenv().IS_TELEPORT_LOAD or isTeleportedByFile
-end
+
 
 -- 1. 처음 스크립트를 켰을 때, 익스플로잇 workspace 폴더에 '링크 파일' 자동 생성 (이미 있으면 생성 안함)
 local function UpdatePersistence()
@@ -295,28 +281,14 @@ task.spawn(UpdatePersistence)
 -- 2. 게임 내에서 다른 서버/장소로 텔레포트할 때만 스크립트를 링크에서 다시 불러옵니다.
 local queue_on_teleport = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport) or getgenv().queue_on_teleport
 if queue_on_teleport then
-    local teleportConn
-    teleportConn = game:GetService("Players").LocalPlayer.OnTeleport:Connect(function(State)
-        -- 퍼시스턴스(자동 실행)가 켜져 있을 때만 다음 서버로 스크립트를 전달합니다.
-        if Settings.Persistence.enabled and (State == Enum.TeleportState.Started or State == Enum.TeleportState.InProgress) then
+    pcall(function()
+        local TELEPORT_AUTO_LOAD = [[
             pcall(function()
-                if writefile then
-                    writefile("ZajakScript_TeleportFlag.txt", tostring(os.time()))
-                end
+                if getgenv then getgenv().IS_TELEPORT_LOAD = true end
+                loadstring(game:HttpGet("]] .. myScriptUrl .. [["))()
             end)
-            local TELEPORT_AUTO_LOAD = [[
-                if not game:IsLoaded() then game.Loaded:Wait() end
-                task.wait(1)
-                pcall(function()
-                    if getgenv then getgenv().IS_TELEPORT_LOAD = true end
-                    loadstring(game:HttpGet("]] .. myScriptUrl .. [["))()
-                end)
-            ]]
-            pcall(function()
-                queue_on_teleport(TELEPORT_AUTO_LOAD)
-            end)
-            if teleportConn then teleportConn:Disconnect() end
-        end
+        ]]
+        queue_on_teleport(TELEPORT_AUTO_LOAD)
     end)
 end
 
@@ -4404,6 +4376,99 @@ Services.RunService.RenderStepped:Connect(function(dt)
         Settings.MusicVisualizerSetting.Gui.Enabled = false
     end
 end)
+
+-- === [UI 로딩 번쩍임 원천 차단 및 숨김 시스템] ===
+pcall(function()
+    local HttpService = game:GetService("HttpService")
+    local PERMANENT_FILE = "ZajakScript_Permanent.json"
+    local autoHideUI = true -- 기본값
+    if isfile and isfile(PERMANENT_FILE) then
+        local data = readfile(PERMANENT_FILE)
+        local decoded = HttpService:JSONDecode(data)
+        if decoded and type(decoded) == "table" and decoded["재접속 시 UI 자동 숨김"] ~= nil then
+            autoHideUI = decoded["재접속 시 UI 자동 숨김"]
+        end
+    end
+    
+    local isRecon = (getgenv and getgenv().IS_TELEPORT_LOAD) or false
+    if autoHideUI and isRecon then
+        local coreGui = game:GetService("CoreGui")
+        local scriptUIName = "자작 스크립트 🧊  ~  ▣ ABSOLUTE ▣ ✨"
+        local isHidden = true
+        local scriptUI
+        local forceHideConn
+        
+        local function hideUI(gui)
+            if gui:IsA("ScreenGui") and isHidden then
+                scriptUI = gui
+                gui.Enabled = false
+                if not forceHideConn then
+                    forceHideConn = gui:GetPropertyChangedSignal("Enabled"):Connect(function()
+                        if isHidden and gui.Enabled then
+                            gui.Enabled = false
+                        end
+                    end)
+                end
+            end
+        end
+
+        local function checkChild(child)
+            if child.Name == scriptUIName then
+                hideUI(child)
+            end
+        end
+
+        coreGui.ChildAdded:Connect(checkChild)
+        for _, child in ipairs(coreGui:GetChildren()) do checkChild(child) end
+        
+        local hiddenUI = coreGui:FindFirstChild("HiddenUI")
+        if hiddenUI then
+            hiddenUI.ChildAdded:Connect(checkChild)
+            for _, child in ipairs(hiddenUI:GetChildren()) do checkChild(child) end
+        end
+        
+        local screenGui = Instance.new("ScreenGui")
+        screenGui.Name = "ReconnectionPromptGui"
+        screenGui.Parent = coreGui
+        
+        local textLabel = Instance.new("TextLabel")
+        textLabel.Size = UDim2.new(1, 0, 0, 60)
+        textLabel.Position = UDim2.new(0, 0, 1, -120)
+        textLabel.BackgroundTransparency = 1
+        textLabel.Text = "P 키를 눌러서 스크립트를 보이게 할 수 있습니다"
+        textLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        textLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        textLabel.TextTransparency = 0.2
+        textLabel.TextStrokeTransparency = 0.2
+        textLabel.TextSize = 35
+        textLabel.Font = Enum.Font.GothamBold
+        textLabel.Parent = screenGui
+        
+        local TS = game:GetService("TweenService")
+        local tweenInfo = TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+        local tween = TS:Create(textLabel, tweenInfo, {
+            TextTransparency = 0.8,
+            TextStrokeTransparency = 0.8
+        })
+        tween:Play()
+        
+        local uis = game:GetService("UserInputService")
+        local conn
+        conn = uis.InputBegan:Connect(function(input, gp)
+            if not gp and input.KeyCode == Enum.KeyCode.P then
+                if isHidden then
+                    isHidden = false
+                    if forceHideConn then forceHideConn:Disconnect() end
+                    if scriptUI then scriptUI.Enabled = true end
+                    if tween then tween:Cancel() end
+                    if screenGui then screenGui:Destroy() end
+                    if conn then conn:Disconnect() end
+                end
+            end
+        end)
+    end
+end)
+-- =======================================
 
 local Material
 local m_success, m_err = pcall(function()
@@ -9220,111 +9285,4 @@ task.spawn(function()
             sendLeaveWebhook()
         end
     end)
-end)
-
--- =============================
--- [재접속 UI 숨김 및 안내 텍스트 시스템]
--- =============================
-task.spawn(function()
-    print("[DEBUG-UIHIDE] Reconnect check started.")
-    local isReconnected = (getgenv and getgenv().IS_TELEPORT_LOAD) or false
-    print("[DEBUG-UIHIDE] IS_TELEPORT_LOAD:", isReconnected)
-    print("[DEBUG-UIHIDE] Settings.Persistence.autoHideUI:", Settings.Persistence.autoHideUI)
-    
-    if isReconnected and Settings.Persistence.autoHideUI then
-        print("[DEBUG-UIHIDE] Condition met! Searching for UI...")
-        local coreGui = game:GetService("CoreGui")
-        local scriptUIName = "자작 스크립트 🧊  ~  ▣ ABSOLUTE ▣ ✨"
-        
-        local function getScriptUI()
-            local hiddenUI = coreGui:FindFirstChild("HiddenUI")
-            if hiddenUI and hiddenUI:FindFirstChild(scriptUIName) then
-                return hiddenUI[scriptUIName]
-            end
-            return coreGui:FindFirstChild(scriptUIName)
-        end
-
-        local scriptUI = nil
-        -- UI 생성까지 대기
-        for i = 1, 100 do
-            scriptUI = getScriptUI()
-            if scriptUI and scriptUI:FindFirstChild("MainFrame", true) then
-                print("[DEBUG-UIHIDE] Found scriptUI and MainFrame! Attempts:", i)
-                break
-            end
-            task.wait(0.1)
-        end
-        
-        if not scriptUI then
-            print("[DEBUG-UIHIDE] FAILED to find scriptUI within 10 seconds.")
-        elseif not scriptUI:FindFirstChild("MainFrame", true) then
-            print("[DEBUG-UIHIDE] Found scriptUI but FAILED to find MainFrame.")
-        end
-
-        if scriptUI and scriptUI:FindFirstChild("MainFrame", true) then
-            local mainFrame = scriptUI:FindFirstChild("MainFrame", true)
-            print("[DEBUG-UIHIDE] MainFrame located. Forcing Visible to false.")
-            
-            local isHidden = true
-            
-            -- UI 애니메이션이 Visible을 다시 켜는 것을 방지
-            local forceHideConn
-            forceHideConn = mainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
-                if mainFrame.Visible and isHidden then
-                    print("[DEBUG-UIHIDE] MainFrame tried to show! Forcing it back to false.")
-                    mainFrame.Visible = false
-                end
-            end)
-            
-            mainFrame.Visible = false
-            print("[DEBUG-UIHIDE] Creating screen prompt.")
-            
-            local screenGui = Instance.new("ScreenGui")
-            screenGui.Name = "ReconnectionPromptGui"
-            screenGui.Parent = coreGui
-            
-            local textLabel = Instance.new("TextLabel")
-            textLabel.Size = UDim2.new(1, 0, 0, 50)
-            textLabel.Position = UDim2.new(0, 0, 1, -100)
-            textLabel.BackgroundTransparency = 1
-            textLabel.Text = "P 키를 눌러서 스크립트를 보이게 할 수 있습니다"
-            textLabel.TextColor3 = Color3.new(1, 1, 1)
-            textLabel.TextStrokeTransparency = 0
-            textLabel.TextSize = 24
-            textLabel.Font = Enum.Font.GothamBold
-            textLabel.Parent = screenGui
-            
-            task.spawn(function()
-                while isHidden and textLabel.Parent do
-                    for i = 0.25, 0.75, 0.05 do
-                        if not isHidden then break end
-                        textLabel.TextTransparency = i
-                        textLabel.TextStrokeTransparency = i
-                        task.wait(0.05)
-                    end
-                    for i = 0.75, 0.25, -0.05 do
-                        if not isHidden then break end
-                        textLabel.TextTransparency = i
-                        textLabel.TextStrokeTransparency = i
-                        task.wait(0.05)
-                    end
-                end
-            end)
-            
-            local uis = game:GetService("UserInputService")
-            local conn
-            conn = uis.InputBegan:Connect(function(input, gp)
-                if not gp and input.KeyCode == Enum.KeyCode.P then
-                    print("[DEBUG-UIHIDE] P key pressed. Restoring UI.")
-                    if isHidden then
-                        isHidden = false
-                        if forceHideConn then forceHideConn:Disconnect() end
-                        mainFrame.Visible = true
-                        if screenGui then screenGui:Destroy() end
-                        if conn then conn:Disconnect() end
-                    end
-                end
-            end)
-        end
-    end
 end)
