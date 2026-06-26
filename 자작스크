@@ -4634,9 +4634,6 @@ end
 -- =============================
 -- Notification Library 로드
 -- =============================
-getgenv().notif = loadstring(game:HttpGet("https://raw.githubusercontent.com/IceMinisterq/Notification-Library/Main/Library.lua"))()
-local notif = getgenv().notif
-
 local function SetupCustomNotif()
     pcall(function()
         if not game:GetService("CoreGui"):FindFirstChild("Notification Library") then
