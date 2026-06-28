@@ -4631,36 +4631,6 @@ local function SaveConfig()
     end)
 end
 
--- =============================
--- Notification Library 로드
--- =============================
-local function SetupCustomNotif()
-    pcall(function()
-        if not game:GetService("CoreGui"):FindFirstChild("Notification Library") then
-            notif:Load()
-        end
-    end)
-    task.spawn(function()
-        local lib = game:GetService("CoreGui"):WaitForChild("Notification Library", 5)
-        if lib then
-            local tFolder = lib:WaitForChild("Templates", 5)
-            if tFolder and not tFolder:FindFirstChild("SkyBlueInfo") then
-                local infoTemp = tFolder:FindFirstChild("Info")
-                if infoTemp then
-                    local sky = infoTemp:Clone()
-                    sky.Name = "SkyBlueInfo"
-                    pcall(function() sky.bar.BackgroundColor3 = Color3.fromRGB(135, 206, 235) end)
-                    pcall(function() sky.Filler.BackgroundColor3 = Color3.fromRGB(135, 206, 235) end)
-                    pcall(function() sky.Header.TextColor3 = Color3.fromRGB(135, 206, 235) end)
-                    sky.Parent = tFolder
-                end
-            end
-        end
-    end)
-end
-SetupCustomNotif()
-
-local GlobalNotifReadyAt = tick() + 2
 
 local original_UI_New = UI.New
 UI.New = function(...)
@@ -4731,14 +4701,7 @@ UI.New = function(...)
                         originalCallback(val)
                     end
                     
-                    if tick() > GlobalNotifReadyAt then
-                        if compName == "Toggle" then
-                            local stateText = val and "활성화됨" or "비활성화됨"
-                            notif:SendNotification('SkyBlueInfo', cName .. ' ' .. stateText, 2)
-                        elseif compName == "Button" then
-                            notif:SendNotification('SkyBlueInfo', cName .. ' 실행됨', 2)
-                        end
-                    end
+
                 end
                 
                 options.Callback = wrappedCallback
@@ -8904,11 +8867,9 @@ local function EnsureMusicFile(Name)
     end)
 
     if not success then
-        notif:SendNotification('Info', 'Downloading ' .. filename .. filetype, 7)
         local filep = game:HttpGet('https://github.com/dtrke/musics/raw/refs/heads/main/' .. filename .. filetype)
         if filep then
             writefile(filepath, filep)
-            notif:SendNotification('Success', 'Downloaded!', 3)
         end
     end
 
@@ -8929,8 +8890,7 @@ local FunnyMusics = {
     "RainShower", "AlephZero", "YouAreMine", "Enough", "PororosDisappearance",
     "VoidsideSwordfight", "AlteredObsidian", "Kamemushi", "WhatOhio", "WaccaUltraDreamMegamix",
     "FindYourFlame", "Throwback", "EnjoyingSceneryAlone", "Menu", "Cuddlemeta",
-    "Tetra", "Alphaterrain", "Aegleseeker", "WeMagiciansStillAliveIn2021",
-    "Username666"
+    "Tetra", "Alphaterrain", "Aegleseeker", "WeMagiciansStillAliveIn2021"
 }
 
 local function PlayFunnyMusic()
@@ -8955,7 +8915,6 @@ FUNNYTab.Dropdown({
     Options = FunnyMusics,
     Callback = function(value)
         getgenv().CurrentFunnyMusic = value
-        notif:SendNotification('SkyBlueInfo', 'Music Selected: ' .. value, 3)
         task.spawn(function()
             EnsureMusicFile(value)
             PlayFunnyMusic()
@@ -9090,13 +9049,6 @@ PERTab.Toggle({
         Settings.Persistence.enabled = v
         UpdatePersistence()
         SaveConfig()
-        
-        Rayfield:Notify({
-            Title = "시스템 설정 변경",
-            Content = v and "스크립트 자동 실행이 활성화되었습니다. 이제 텔레포트 시 스크립트가 유지됩니다." or "스크립트 자동 실행이 비활성화되었습니다. (로더 파일 삭제됨)",
-            Duration = 3,
-            Image = 4483362458
-        })
     end
 })
 
