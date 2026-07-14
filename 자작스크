@@ -8891,7 +8891,7 @@ local FunnyMusics = {
     "VoidsideSwordfight", "AlteredObsidian", "Kamemushi", "WhatOhio", "WaccaUltraDreamMegamix",
     "FindYourFlame", "Throwback", "EnjoyingSceneryAlone", "Menu", "Cuddlemeta",
     "Tetra", "Alphaterrain", "Aegleseeker", "WeMagiciansStillAliveIn2021", "Operationd",
-    "ItDosentEndHere"
+    "ItDosentEndHere", "Kenophobia"
 }
 
 local function PlayFunnyMusic()
