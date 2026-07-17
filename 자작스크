@@ -2100,11 +2100,14 @@ function AntiVoidModule.stop()
 end
 
 function AntiVoidModule.start()
+    AntiVoidModule.stop()
     local char = LocalPlayer.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    if not char then return end
+    local hrp = char:WaitForChild("HumanoidRootPart", 5)
+    if not hrp then return end
 
     Settings.AntiVoid.isFollowing = true
-    Settings.AntiVoid.fixedY = char.HumanoidRootPart.Position.Y - 18
+    Settings.AntiVoid.fixedY = hrp.Position.Y - 18
 
     Settings.AntiVoid.currentPart = Instance.new("Part")
     Settings.AntiVoid.currentPart.Name = "TallFollowPart"
@@ -2119,17 +2122,17 @@ function AntiVoidModule.start()
         if Settings.AntiVoid.currentPart and char:FindFirstChild("HumanoidRootPart") then
             local rootPos = char.HumanoidRootPart.Position
             if Settings.AntiVoid.smartMode then
-                local function getFloorRay(origin)
+                local function getFloorRay(origin, maxDist)
                     local rayParams = RaycastParams.new()
                     rayParams.FilterType = Enum.RaycastFilterType.Exclude
-                    local localExclude = {char, Settings.AntiVoid.currentPart}
-                    
-                    for i = 1, 10 do
+                    local localExclude = { char, Settings.AntiVoid.currentPart }
+
+                    for i = 1, 15 do
                         rayParams.FilterDescendantsInstances = localExclude
-                        local rayResult = workspace:Raycast(origin, Vector3.new(0, -35, 0), rayParams)
+                        local rayResult = workspace:Raycast(origin, Vector3.new(0, -maxDist, 0), rayParams)
                         if rayResult then
-                            -- 투명도가 1인 파트는 무시하고 다시 그 아래로 레이캐스트
-                            if rayResult.Instance.Transparency < 1 then
+                            -- 충돌이 불가능한 파트(공허 파트 등)와 투명도가 1인 파트는 무시
+                            if rayResult.Instance.CanCollide and rayResult.Instance.Transparency < 1 then
                                 return rayResult
                             else
                                 table.insert(localExclude, rayResult.Instance)
@@ -2140,38 +2143,57 @@ function AntiVoidModule.start()
                     end
                     return nil
                 end
-                
-                local cf = char.HumanoidRootPart.CFrame
-                local offsets = {
-                    Vector3.new(0, 0, 0),
-                    cf.LookVector * 4, -- 앞쪽
-                    cf.LookVector * -2, -- 뒤쪽
-                    cf.RightVector * 3, -- 오른쪽
-                    cf.RightVector * -3 -- 왼쪽
-                }
-                
-                local highestY = -math.huge
-                local found = false
-                
-                for _, offset in ipairs(offsets) do
-                    -- 살짝 위에서 쏴서 계단 등 오르막을 감지
-                    local origin = rootPos + Vector3.new(offset.X, 2, offset.Z)
-                    local hit = getFloorRay(origin)
-                    if hit and hit.Position.Y > highestY then
-                        highestY = hit.Position.Y
-                        found = true
+
+                -- 진짜 바닥이 발 아래에 있는지 확인 (경사로 등에서 걷고 있는지 파악)
+                local directFloor = getFloorRay(rootPos + Vector3.new(0, 2, 0), 15)
+
+                if directFloor then
+                    -- 바닥 위에 있을 때는 파트 모서리가 튀어나오지 않게 바닥 아래로 숨김
+                    Settings.AntiVoid.fixedY = directFloor.Position.Y - 18
+                else
+                    -- 허공에 완전히 떠있을 때만 주변 바닥을 감지하여 오르내림 적용
+                    local cf = char.HumanoidRootPart.CFrame
+                    local offsets = {
+                        Vector3.new(0, 0, 0),
+                        cf.LookVector * 4,  -- 앞쪽
+                        cf.LookVector * -2, -- 뒤쪽
+                        cf.RightVector * 3, -- 오른쪽
+                        cf.RightVector * -3 -- 왼쪽
+                    }
+
+                    local highestY = -math.huge
+                    local found = false
+
+                    for _, offset in ipairs(offsets) do
+                        -- 거리 제한을 없앰 (매우 깊게 감지)
+                        local origin = rootPos + Vector3.new(offset.X, 2, offset.Z)
+                        local hit = getFloorRay(origin, 5000)
+                        if hit and hit.Position.Y > highestY then
+                            highestY = hit.Position.Y
+                            found = true
+                        end
                     end
-                end
-                
-                if found then
-                    -- 가장 높은 바닥의 Y좌표에 완벽히 맞춤
-                    Settings.AntiVoid.fixedY = highestY - 15
+
+                    if found then
+                        -- 가장 높은 바닥의 Y좌표에 완벽히 맞춤
+                        Settings.AntiVoid.fixedY = highestY - 15
+                    end
                 end
             end
             Settings.AntiVoid.currentPart.Position = Vector3.new(rootPos.X, Settings.AntiVoid.fixedY, rootPos.Z)
         end
     end)
 end
+
+-- 캐릭터가 리스폰/리셋되었을 때 떨어짐 방지가 켜져있다면 다시 자동으로 적용
+LocalPlayer.CharacterAdded:Connect(function(newChar)
+    if Settings.AntiVoid.enabled then
+        task.wait(0.5) -- 캐릭터가 완전히 스폰되고 맵에 떨어질 때까지 대기
+        if Settings.AntiVoid.enabled then
+            AntiVoidModule.start()
+        end
+    end
+end)
 
 -- =============================
 -- 플레이어 락 모듈 (레그돌 체크 추가됨)
