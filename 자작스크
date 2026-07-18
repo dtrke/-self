@@ -909,13 +909,39 @@ end
 function AimModule.isPartVisible(targetPart)
     if not targetPart then return false end
     local origin = Camera.CFrame.Position
-    local dir = (targetPart.Position - origin)
+    local targetPos = targetPart.Position
+    local dir = (targetPos - origin)
+    local distance = dir.Magnitude
+    local rayDir = dir.Unit
+
     local raycastParams = RaycastParams.new()
     raycastParams.FilterDescendantsInstances = { LocalPlayer.Character, targetPart.Parent }
     raycastParams.FilterType = Enum.RaycastFilterType.Exclude
     raycastParams.IgnoreWater = true
-    local result = workspace:Raycast(origin, dir, raycastParams)
-    return result == nil
+
+    local currentOrigin = origin
+    local distCovered = 0
+    local iterations = 0
+
+    while distCovered < distance and iterations < 15 do
+        iterations = iterations + 1
+        local result = workspace:Raycast(currentOrigin, rayDir * (distance - distCovered), raycastParams)
+        if result then
+            -- 완전히 투명하고(1) 충돌이 없는(false) 파트만 통과
+            if result.Instance.Transparency >= 1 and not result.Instance.CanCollide then
+                local newFilter = raycastParams.FilterDescendantsInstances
+                table.insert(newFilter, result.Instance)
+                raycastParams.FilterDescendantsInstances = newFilter
+                currentOrigin = result.Position + rayDir * 0.1
+                distCovered = (currentOrigin - origin).Magnitude
+            else
+                return false
+            end
+        else
+            break
+        end
+    end
+    return true
 end
 
 function AimModule.getClosestPlayer2D()
