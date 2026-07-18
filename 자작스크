@@ -105,7 +105,14 @@ local Settings = {
         forced = false,
         forcedSensitivity = 0.5,
         predictionEnabled = false,
-        predictionMs = 100
+        predictionMs = 100,
+        antiTeleport = false,
+        teleportThreshold = 50,
+        autoTargetVisible = false,
+        unlockBehindWall = false,
+        autoShoot = false,
+        lastTargetPos = nil,
+        lastShootTime = 0
     },
 
     Camera = {
@@ -898,6 +905,17 @@ function AimModule.isCurrentTargetAlive()
     local hum = Settings.Aim.currentTarget.Character:FindFirstChild("Humanoid")
     return hum and hum.Health > 0
 end
+function AimModule.isPartVisible(targetPart)
+    if not targetPart then return false end
+    local origin = Camera.CFrame.Position
+    local dir = (targetPart.Position - origin)
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, targetPart.Parent}
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.IgnoreWater = true
+    local result = workspace:Raycast(origin, dir, raycastParams)
+    return result == nil
+end
 
 function AimModule.getClosestPlayer2D()
     local closest, shortest = nil, math.huge
@@ -919,6 +937,23 @@ function AimModule.getClosestPlayer2D()
                     if score < shortest then
                         shortest, closest = score, p
                     end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+function AimModule.getClosestVisiblePlayer3D()
+    local closest, shortest = nil, math.huge
+
+    for _, p in ipairs(Services.Players:GetPlayers()) do
+        if p ~= LocalPlayer and AimModule.isTargetValid(p) then
+            local part = AimModule.getAimPart(p.Character)
+            if part and AimModule.isPartVisible(part) then
+                local worldDist = (part.Position - Camera.CFrame.Position).Magnitude
+                if worldDist < shortest then
+                    shortest, closest = worldDist, p
                 end
             end
         end
@@ -1493,13 +1528,51 @@ Services.RunService.RenderStepped:Connect(function()
         return
     end
 
-    if Settings.Aim.enabled and AimModule.isCurrentTargetAlive() then
-        local targetChar = Settings.Aim.currentTarget.Character
-        local part = AimModule.getAimPart(targetChar)
-        if part then
-            local predictedPos = part.Position
+    if Settings.Aim.enabled then
+        if Settings.Aim.autoTargetVisible then
+            local closestVisible = AimModule.getClosestVisiblePlayer3D()
+            if closestVisible then
+                Settings.Aim.currentTarget = closestVisible
+            end
+        end
 
-            if Settings.Aim.predictionEnabled then
+        if AimModule.isCurrentTargetAlive() then
+            local targetChar = Settings.Aim.currentTarget.Character
+            local part = AimModule.getAimPart(targetChar)
+            if part then
+                if Settings.Aim.unlockBehindWall then
+                    if not AimModule.isPartVisible(part) then
+                        Settings.Aim.currentTarget = nil
+                        Settings.Aim.lastTargetPos = nil
+                        return
+                    end
+                end
+
+                if Settings.Aim.antiTeleport then
+                    if Settings.Aim.lastTargetPos and (part.Position - Settings.Aim.lastTargetPos).Magnitude > Settings.Aim.teleportThreshold then
+                        Settings.Aim.currentTarget = nil
+                        Settings.Aim.lastTargetPos = nil
+                        return
+                    end
+                    Settings.Aim.lastTargetPos = part.Position
+                end
+
+                if Settings.Aim.autoShoot and tick() - Settings.Aim.lastShootTime >= 0.1 then
+                    Settings.Aim.lastShootTime = tick()
+                    local center = AimModule.getScreenCenter()
+                    local vim = game:GetService("VirtualInputManager")
+                    if vim then
+                        vim:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 0)
+                        task.spawn(function()
+                            task.wait(0.05)
+                            vim:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 0)
+                        end)
+                    end
+                end
+
+                local predictedPos = part.Position
+
+                if Settings.Aim.predictionEnabled then
                 local velocity = part.AssemblyLinearVelocity
                 predictedPos = predictedPos + (velocity * (Settings.Aim.predictionMs / 1000))
             end
@@ -1529,6 +1602,7 @@ Services.RunService.RenderStepped:Connect(function()
             else
                 Camera.CFrame = CFrame.new(Camera.CFrame.Position, predictedPos)
             end
+        end
         end
     end
 end)
@@ -5726,6 +5800,48 @@ AllSettingTab.Slider({
     Def = 100,
     Callback = function(Value)
         Settings.Aim.predictionMs = Value
+    end
+})
+
+AllSettingTab.Toggle({
+    Text = "텔레포트 시 에임 해제",
+    Default = false,
+    Callback = function(Value)
+        Settings.Aim.antiTeleport = Value
+    end
+})
+
+AllSettingTab.Slider({
+    Text = "텔레포트 감지 거리",
+    Min = 10,
+    Max = 300,
+    Def = 50,
+    Callback = function(Value)
+        Settings.Aim.teleportThreshold = Value
+    end
+})
+
+AllSettingTab.Toggle({
+    Text = "자동 에임 (보이는 적 자동 타겟)",
+    Default = false,
+    Callback = function(Value)
+        Settings.Aim.autoTargetVisible = Value
+    end
+})
+
+AllSettingTab.Toggle({
+    Text = "벽 뒤로 숨으면 에임 해제",
+    Default = false,
+    Callback = function(Value)
+        Settings.Aim.unlockBehindWall = Value
+    end
+})
+
+AllSettingTab.Toggle({
+    Text = "자동 쏘기",
+    Default = false,
+    Callback = function(Value)
+        Settings.Aim.autoShoot = Value
     end
 })
 
