@@ -370,7 +370,7 @@ Services.RunService.Heartbeat:Connect(function()
         end
 
         if Settings.Aim.enabled then
-            Settings.Aim.enabled = false
+            -- Settings.Aim.enabled = false -- 수정: 오토에임 기능이 스스로 꺼지지 않도록 주석 처리
             Settings.Aim.currentTarget = nil
         end
 
@@ -989,9 +989,14 @@ function AimModule.getClosestVisiblePlayer3D()
 end
 
 -- 에임 UI 생성
+if LocalPlayer.PlayerGui:FindFirstChild("TargetHUD") then
+    LocalPlayer.PlayerGui.TargetHUD:Destroy()
+end
 local aimGUI = Instance.new("ScreenGui", LocalPlayer.PlayerGui)
 aimGUI.Name = "TargetHUD"
+aimGUI.DisplayOrder = 9999999
 aimGUI.ResetOnSpawn = false
+aimGUI.IgnoreGuiInset = true
 
 local function CreateText(parent, size, align, font)
     local t = Instance.new("TextLabel")
@@ -1034,6 +1039,19 @@ UIElements.targetHighlight.FillTransparency = 0.65
 UIElements.targetHighlight.OutlineTransparency = 0                         -- 아웃라인 다시 추가
 UIElements.targetHighlight.Enabled = false
 UIElements.targetHighlight.Parent = aimGUI
+
+-- [NEW] 오토 에임 활성화 상태 표시 점 (파란색)
+UIElements.aimIndicator = Instance.new("Frame")
+UIElements.aimIndicator.Name = "AimIndicator"
+UIElements.aimIndicator.Size = UDim2.new(0, 16, 0, 16)
+UIElements.aimIndicator.Position = UDim2.new(1, -20, 0, 50) -- 전체 스크린 기준 오른쪽 위
+UIElements.aimIndicator.AnchorPoint = Vector2.new(1, 0)
+UIElements.aimIndicator.BackgroundColor3 = Color3.fromRGB(50, 150, 255) -- 연한 파란색
+UIElements.aimIndicator.BackgroundTransparency = 0.45 -- 투명도 낮춤 (더 진하게)
+UIElements.aimIndicator.Visible = false
+local aimIndicatorCorner = Instance.new("UICorner", UIElements.aimIndicator)
+aimIndicatorCorner.CornerRadius = UDim.new(1, 0)
+UIElements.aimIndicator.Parent = aimGUI
 
 UIElements.enterValue.Value = 1
 
@@ -1188,7 +1206,53 @@ local function PulseHUD(isWeak, customColor)
 end
 
 -- HUD 렌더 루프
+
+local function CreateAimRipple(isSmall)
+    if not UIElements.aimIndicator then return end
+    local pulse = Instance.new("Frame")
+    pulse.Name = "AimPulse"
+    pulse.AnchorPoint = Vector2.new(0.5, 0.5)
+    pulse.Position = UDim2.new(0.5, 0, 0.5, 0)
+    pulse.Size = UDim2.new(1, 0, 1, 0)
+    pulse.BackgroundColor3 = Color3.fromRGB(50, 150, 255)
+    pulse.BackgroundTransparency = 0 -- 완전히 불투명하게 시작
+    pulse.ZIndex = 0
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(1, 0)
+    corner.Parent = pulse
+    
+    pulse.Parent = UIElements.aimIndicator
+
+    local targetSize = isSmall and UDim2.new(2, 0, 2, 0) or UDim2.new(3, 0, 3, 0)
+    local duration = isSmall and 0.4 or 0.6
+    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local goal = {
+        Size = targetSize,
+        BackgroundTransparency = 1
+    }
+    local tween = Services.TweenService:Create(pulse, tweenInfo, goal)
+    tween:Play()
+    Services.Debris:AddItem(pulse, duration)
+end
+
+local wasAimEnabled = false
+local lastSmallRippleTime = 0
 Services.RunService.RenderStepped:Connect(function()
+    if UIElements.aimIndicator then
+        UIElements.aimIndicator.Visible = Settings.Aim.enabled
+        if Settings.Aim.enabled then
+            if not wasAimEnabled then
+                CreateAimRipple(false) -- 켤 때 큰 파동
+                lastSmallRippleTime = os.clock()
+            elseif os.clock() - lastSmallRippleTime >= 1 then
+                CreateAimRipple(true) -- 1초마다 작은 파동
+                lastSmallRippleTime = os.clock()
+            end
+        end
+        wasAimEnabled = Settings.Aim.enabled
+    end
+
     if Settings.Aim.enabled and not AimModule.isCurrentTargetAlive() then
         if not UIElements.isDeathAnimating and Settings.Aim.currentTarget then
             -- 데스 모션 시작
@@ -1333,9 +1397,9 @@ Services.RunService.RenderStepped:Connect(function()
             end
 
             task.delay(0.6, function()
-                if Settings.Aim.singlePlayerMode then
-                    Settings.Aim.enabled = false
-                end
+                -- if Settings.Aim.singlePlayerMode then
+                --     Settings.Aim.enabled = false
+                -- end
                 Settings.Aim.currentTarget = nil
                 UIElements.isDeathAnimating = false
                 UIElements.isInstantKill = false
@@ -1644,9 +1708,9 @@ end)
 
 Services.Players.PlayerRemoving:Connect(function(plr)
     if plr == Settings.Aim.currentTarget then
-        if Settings.Aim.singlePlayerMode then
-            Settings.Aim.enabled = false
-        end
+        -- if Settings.Aim.singlePlayerMode then
+        --     Settings.Aim.enabled = false
+        -- end
         Settings.Aim.currentTarget = nil
         ObstacleManager.restoreAll()
     end
