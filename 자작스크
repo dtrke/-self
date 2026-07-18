@@ -905,12 +905,13 @@ function AimModule.isCurrentTargetAlive()
     local hum = Settings.Aim.currentTarget.Character:FindFirstChild("Humanoid")
     return hum and hum.Health > 0
 end
+
 function AimModule.isPartVisible(targetPart)
     if not targetPart then return false end
     local origin = Camera.CFrame.Position
     local dir = (targetPart.Position - origin)
     local raycastParams = RaycastParams.new()
-    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, targetPart.Parent}
+    raycastParams.FilterDescendantsInstances = { LocalPlayer.Character, targetPart.Parent }
     raycastParams.FilterType = Enum.RaycastFilterType.Exclude
     raycastParams.IgnoreWater = true
     local result = workspace:Raycast(origin, dir, raycastParams)
@@ -1566,7 +1567,7 @@ Services.RunService.RenderStepped:Connect(function()
                     Settings.Aim.lastTargetPos = part.Position
                 end
 
-                if Settings.Aim.autoShoot and tick() - Settings.Aim.lastShootTime >= 0.1 then
+                if Settings.Aim.autoShoot and tick() - Settings.Aim.lastShootTime >= 0.01 then
                     Settings.Aim.lastShootTime = tick()
                     local center = AimModule.getScreenCenter()
                     local vim = game:GetService("VirtualInputManager")
@@ -1582,36 +1583,36 @@ Services.RunService.RenderStepped:Connect(function()
                 local predictedPos = part.Position
 
                 if Settings.Aim.predictionEnabled then
-                local velocity = part.AssemblyLinearVelocity
-                predictedPos = predictedPos + (velocity * (Settings.Aim.predictionMs / 1000))
+                    local velocity = part.AssemblyLinearVelocity
+                    predictedPos = predictedPos + (velocity * (Settings.Aim.predictionMs / 1000))
+                end
+
+                if Settings.Aim.forced and mousemoverel then
+                    local currentLook = Camera.CFrame.LookVector
+                    local targetLook = (predictedPos - Camera.CFrame.Position).Unit
+
+                    -- Calculate angles
+                    local dotX = currentLook:Dot(targetLook)
+                    local currentRight = Camera.CFrame.RightVector
+                    local currentUp = Camera.CFrame.UpVector
+
+                    local deltaX = currentRight:Dot(targetLook)
+                    local deltaY = currentUp:Dot(targetLook)
+
+                    -- Convert to pixel movement based on FOV and ViewportSize
+                    local viewportSize = Camera.ViewportSize
+                    local fovRatio = math.tan(math.rad(Camera.FieldOfView / 2))
+
+                    -- The sensitivity multiplier ensures it doesn't snap instantly
+                    local sens = Settings.Aim.forcedSensitivity
+                    local moveX = (deltaX / fovRatio) * (viewportSize.X / 2) * sens
+                    local moveY = -(deltaY / fovRatio) * (viewportSize.X / 2) * sens
+
+                    mousemoverel(moveX, moveY)
+                else
+                    Camera.CFrame = CFrame.new(Camera.CFrame.Position, predictedPos)
+                end
             end
-
-            if Settings.Aim.forced and mousemoverel then
-                local currentLook = Camera.CFrame.LookVector
-                local targetLook = (predictedPos - Camera.CFrame.Position).Unit
-
-                -- Calculate angles
-                local dotX = currentLook:Dot(targetLook)
-                local currentRight = Camera.CFrame.RightVector
-                local currentUp = Camera.CFrame.UpVector
-
-                local deltaX = currentRight:Dot(targetLook)
-                local deltaY = currentUp:Dot(targetLook)
-
-                -- Convert to pixel movement based on FOV and ViewportSize
-                local viewportSize = Camera.ViewportSize
-                local fovRatio = math.tan(math.rad(Camera.FieldOfView / 2))
-
-                -- The sensitivity multiplier ensures it doesn't snap instantly
-                local sens = Settings.Aim.forcedSensitivity
-                local moveX = (deltaX / fovRatio) * (viewportSize.X / 2) * sens
-                local moveY = -(deltaY / fovRatio) * (viewportSize.X / 2) * sens
-
-                mousemoverel(moveX, moveY)
-            else
-                Camera.CFrame = CFrame.new(Camera.CFrame.Position, predictedPos)
-            end
-        end
         end
     end
 end)
