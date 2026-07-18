@@ -1529,10 +1529,12 @@ Services.RunService.RenderStepped:Connect(function()
     end
 
     if Settings.Aim.enabled then
-        if Settings.Aim.autoTargetVisible then
+        if Settings.Aim.autoTargetVisible and not AimModule.isCurrentTargetAlive() then
             local closestVisible = AimModule.getClosestVisiblePlayer3D()
             if closestVisible then
                 Settings.Aim.currentTarget = closestVisible
+                Settings.Aim.lastTargetPos = nil
+                Settings.Aim.lastTargetChar = closestVisible.Character
             end
         end
 
@@ -1540,10 +1542,16 @@ Services.RunService.RenderStepped:Connect(function()
             local targetChar = Settings.Aim.currentTarget.Character
             local part = AimModule.getAimPart(targetChar)
             if part then
+                if Settings.Aim.lastTargetChar ~= targetChar then
+                    Settings.Aim.lastTargetPos = nil
+                    Settings.Aim.lastTargetChar = targetChar
+                end
+
                 if Settings.Aim.unlockBehindWall then
                     if not AimModule.isPartVisible(part) then
                         Settings.Aim.currentTarget = nil
                         Settings.Aim.lastTargetPos = nil
+                        Settings.Aim.lastTargetChar = nil
                         return
                     end
                 end
@@ -1552,6 +1560,7 @@ Services.RunService.RenderStepped:Connect(function()
                     if Settings.Aim.lastTargetPos and (part.Position - Settings.Aim.lastTargetPos).Magnitude > Settings.Aim.teleportThreshold then
                         Settings.Aim.currentTarget = nil
                         Settings.Aim.lastTargetPos = nil
+                        Settings.Aim.lastTargetChar = nil
                         return
                     end
                     Settings.Aim.lastTargetPos = part.Position
