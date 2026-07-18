@@ -1530,11 +1530,10 @@ Services.RunService.RenderStepped:Connect(function()
     end
 
     if Settings.Aim.enabled then
-        if Settings.Aim.autoTargetVisible and not AimModule.isCurrentTargetAlive() then
+        if Settings.Aim.autoTargetVisible then
             local closestVisible = AimModule.getClosestVisiblePlayer3D()
             if closestVisible then
                 Settings.Aim.currentTarget = closestVisible
-                Settings.Aim.lastTargetPos = nil
                 Settings.Aim.lastTargetChar = closestVisible.Character
             end
         end
