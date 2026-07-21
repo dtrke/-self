@@ -9086,7 +9086,7 @@ SolTab.Button({
     end
 })
 
-SolTab.Label({ Text = "설정" })
+SolTab.Label({ Text = "영구설정 - permanent" })
 
 SolTab.Label({ Text = "솔스 - 오토 설정" })
 
