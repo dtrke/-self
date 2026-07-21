@@ -9096,6 +9096,7 @@ SolTab.Toggle({
     Callback = function(v)
         Settings.Sols.biomeMacroReady = v
         updateBiomeMacroState()
+        if SaveConfig then SaveConfig() end
     end
 })
 
@@ -9105,6 +9106,7 @@ SolTab.Toggle({
     Callback = function(v)
         Settings.Sols.autoBiomeUseReady = v
         updateAutoBiomeUseState()
+        if SaveConfig then SaveConfig() end
     end
 })
 
@@ -9114,6 +9116,7 @@ SolTab.Toggle({
     Callback = function(v)
         Settings.Sols.autoFishReady = v
         updateAutoFishState()
+        if SaveConfig then SaveConfig() end
     end
 })
 
@@ -9122,6 +9125,7 @@ SolTab.Toggle({
     Enabled = Settings.Sols.autoRareBiomePop,
     Callback = function(v)
         Settings.Sols.autoRareBiomePop = v
+        if SaveConfig then SaveConfig() end
     end
 })
 
@@ -9132,6 +9136,7 @@ SolTab.Toggle({
     Enabled = Settings.Sols.popGlitched,
     Callback = function(v)
         Settings.Sols.popGlitched = v
+        if SaveConfig then SaveConfig() end
     end
 })
 
@@ -9140,6 +9145,7 @@ SolTab.Toggle({
     Enabled = Settings.Sols.popDreamspace,
     Callback = function(v)
         Settings.Sols.popDreamspace = v
+        if SaveConfig then SaveConfig() end
     end
 })
 
@@ -9148,6 +9154,7 @@ SolTab.Toggle({
     Enabled = Settings.Sols.popCyberspace,
     Callback = function(v)
         Settings.Sols.popCyberspace = v
+        if SaveConfig then SaveConfig() end
     end
 })
 
