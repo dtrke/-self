@@ -1044,10 +1044,10 @@ UIElements.targetHighlight.Parent = aimGUI
 UIElements.aimIndicator = Instance.new("Frame")
 UIElements.aimIndicator.Name = "AimIndicator"
 UIElements.aimIndicator.Size = UDim2.new(0, 16, 0, 16)
-UIElements.aimIndicator.Position = UDim2.new(1, -50, 0, 50)             -- 전체 스크린 기준 오른쪽 위
+UIElements.aimIndicator.Position = UDim2.new(1, -50, 0, 50) -- 전체 스크린 기준 오른쪽 위
 UIElements.aimIndicator.AnchorPoint = Vector2.new(1, 0)
 UIElements.aimIndicator.BackgroundColor3 = Color3.fromRGB(25, 100, 255) -- 연한 파란색
-UIElements.aimIndicator.BackgroundTransparency = 0.25                   -- 투명도 낮춤 (더 진하게)
+UIElements.aimIndicator.BackgroundTransparency = 0.25 -- 투명도 낮춤 (더 진하게)
 UIElements.aimIndicator.Visible = false
 local aimIndicatorCorner = Instance.new("UICorner", UIElements.aimIndicator)
 aimIndicatorCorner.CornerRadius = UDim.new(1, 0)
@@ -1217,11 +1217,11 @@ local function CreateAimRipple(isSmall)
     pulse.BackgroundColor3 = Color3.fromRGB(50, 150, 255)
     pulse.BackgroundTransparency = 0 -- 완전히 불투명하게 시작
     pulse.ZIndex = 0
-
+    
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(1, 0)
     corner.Parent = pulse
-
+    
     pulse.Parent = UIElements.aimIndicator
 
     local targetSize = isSmall and UDim2.new(2, 0, 2, 0) or UDim2.new(3, 0, 3, 0)
@@ -9086,90 +9086,6 @@ SolTab.Button({
     end
 })
 
-SolTab.Label({ Text = "영구설정 - permanent" })
-
-SolTab.Label({ Text = "솔스 - 오토 설정" })
-
-SolTab.Toggle({
-    Text = "바이옴 매크로 (준비)",
-    Enabled = false,
-    Callback = function(v)
-        Settings.Sols.biomeMacroReady = v
-        updateBiomeMacroState()
-        if SaveConfig then SaveConfig() end
-    end
-})
-
-SolTab.Toggle({
-    Text = "오토 아이템 사용 (바이옴) (준비)",
-    Enabled = Settings.Sols.autoBiomeUse,
-    Callback = function(v)
-        Settings.Sols.autoBiomeUseReady = v
-        updateAutoBiomeUseState()
-        if SaveConfig then SaveConfig() end
-    end
-})
-
-SolTab.Toggle({
-    Text = "자동 낚시 (준비) - Alpha ver.",
-    Enabled = false,
-    Callback = function(v)
-        Settings.Sols.autoFishReady = v
-        updateAutoFishState()
-        if SaveConfig then SaveConfig() end
-    end
-})
-
-SolTab.Toggle({
-    Text = "레어 바이옴 자동 팝핑",
-    Enabled = Settings.Sols.autoRareBiomePop,
-    Callback = function(v)
-        Settings.Sols.autoRareBiomePop = v
-        if SaveConfig then SaveConfig() end
-    end
-})
-
-SolTab.Label({ Text = "솔스 - 오토 팝핑 여부" })
-
-SolTab.Toggle({
-    Text = "Glitched",
-    Enabled = Settings.Sols.popGlitched,
-    Callback = function(v)
-        Settings.Sols.popGlitched = v
-        if SaveConfig then SaveConfig() end
-    end
-})
-
-SolTab.Toggle({
-    Text = "Dreamspace",
-    Enabled = Settings.Sols.popDreamspace,
-    Callback = function(v)
-        Settings.Sols.popDreamspace = v
-        if SaveConfig then SaveConfig() end
-    end
-})
-
-SolTab.Toggle({
-    Text = "Cyberspace",
-    Enabled = Settings.Sols.popCyberspace,
-    Callback = function(v)
-        Settings.Sols.popCyberspace = v
-        if SaveConfig then SaveConfig() end
-    end
-})
-
-SolTab.Label({ Text = "솔스 - 브섭 링크" })
-
-SolTab.TextField({
-    Text = "브섭 링크",
-    Default = Settings.PrivateServerLink or "",
-    Type = "Default",
-    Callback = function(v)
-        Settings.PrivateServerLink = v
-        if SaveConfig then SaveConfig() end
-    end
-})
-
 -- ================= 기타 게임들 탭 =================
 local OtherGameTab = UI.New({ Title = "기타 게임들", Icon = "gamepad-2" })
 
@@ -9638,6 +9554,81 @@ PERTab.Toggle({
     Enabled = Settings.Persistence.autoHideUI,
     Callback = function(v)
         Settings.Persistence.autoHideUI = v
+        if SaveConfig then SaveConfig() end
+    end
+})
+
+PERTab.Label({ Text = "솔스 - 오토 설정" })
+
+PERTab.Toggle({
+    Text = "바이옴 매크로 (준비)",
+    Enabled = false,
+    Callback = function(v)
+        Settings.Sols.biomeMacroReady = v
+        updateBiomeMacroState()
+    end
+})
+
+PERTab.Toggle({
+    Text = "오토 아이템 사용 (바이옴) (준비)",
+    Enabled = Settings.Sols.autoBiomeUse,
+    Callback = function(v)
+        Settings.Sols.autoBiomeUseReady = v
+        updateAutoBiomeUseState()
+    end
+})
+
+PERTab.Toggle({
+    Text = "자동 낚시 (준비) - Alpha ver.",
+    Enabled = false,
+    Callback = function(v)
+        Settings.Sols.autoFishReady = v
+        updateAutoFishState()
+    end
+})
+
+PERTab.Toggle({
+    Text = "레어 바이옴 자동 팝핑",
+    Enabled = Settings.Sols.autoRareBiomePop,
+    Callback = function(v)
+        Settings.Sols.autoRareBiomePop = v
+    end
+})
+
+PERTab.Label({ Text = "솔스 - 오토 팝핑 여부" })
+
+PERTab.Toggle({
+    Text = "Glitched",
+    Enabled = Settings.Sols.popGlitched,
+    Callback = function(v)
+        Settings.Sols.popGlitched = v
+    end
+})
+
+PERTab.Toggle({
+    Text = "Dreamspace",
+    Enabled = Settings.Sols.popDreamspace,
+    Callback = function(v)
+        Settings.Sols.popDreamspace = v
+    end
+})
+
+PERTab.Toggle({
+    Text = "Cyberspace",
+    Enabled = Settings.Sols.popCyberspace,
+    Callback = function(v)
+        Settings.Sols.popCyberspace = v
+    end
+})
+
+PERTab.Label({ Text = "솔스 - 브섭 링크" })
+
+PERTab.TextField({
+    Text = "브섭 링크",
+    Default = Settings.PrivateServerLink or "",
+    Type = "Default",
+    Callback = function(v)
+        Settings.PrivateServerLink = v
         if SaveConfig then SaveConfig() end
     end
 })
