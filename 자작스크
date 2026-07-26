@@ -255,103 +255,6 @@ local Settings = {
 }
 
 -- =============================
--- 키바인드 차단기 (인게임 입력 방지)
--- =============================
-local lastBlockedKeys = {}
-
-local function updateKeyBlocker()
-    local keysToBlock = {}
-    
-    local function addKey(kc)
-        if not kc then return end
-        if typeof(kc) == "string" then
-            local success, keyCode = pcall(function() return Enum.KeyCode[kc:upper()] end)
-            if success and keyCode then
-                keysToBlock[keyCode] = true
-            end
-        elseif typeof(kc) == "EnumItem" and kc.EnumType == Enum.KeyCode then
-            keysToBlock[kc] = true
-        end
-    end
-    
-    -- Settings 테이블을 동적으로 스캔하여 활성화된 기능의 키만 차단 리스트에 추가
-    for featureName, featureSettings in pairs(Settings) do
-        if typeof(featureSettings) == "table" then
-            local isEnabled = false
-            for k, v in pairs(featureSettings) do
-                local nameLower = string.lower(k)
-                if nameLower == "enabled" or nameLower == "masterenabled" or nameLower == "toggleenabled" or nameLower == "mastertoggle" then
-                    if v == true then
-                        isEnabled = true
-                    end
-                end
-            end
-            
-            if isEnabled then
-                for k, v in pairs(featureSettings) do
-                    local nameLower = string.lower(k)
-                    if nameLower == "key" or nameLower == "keyname" or nameLower == "activationkey" or nameLower == "onepovkey" or nameLower == "lockkey" then
-                        addKey(v)
-                    end
-                end
-            end
-        end
-    end
-    
-    -- 차단할 키 목록의 변화를 확인
-    local keysChanged = false
-    local newKeysCount = 0
-    for kc in pairs(keysToBlock) do
-        newKeysCount = newKeysCount + 1
-        if not lastBlockedKeys[kc] then
-            keysChanged = true
-        end
-    end
-    
-    local oldKeysCount = 0
-    for kc in pairs(lastBlockedKeys) do
-        oldKeysCount = oldKeysCount + 1
-        if not keysToBlock[kc] then
-            keysChanged = true
-        end
-    end
-    
-    -- 변경 사항이 있을 때만 ContextActionService 재바인딩 수행
-    if keysChanged or oldKeysCount ~= newKeysCount then
-        lastBlockedKeys = keysToBlock
-        Services.ContextActionService:UnbindAction("BlockGameKeys")
-        
-        local keysArray = {}
-        for kc in pairs(keysToBlock) do
-            table.insert(keysArray, kc)
-        end
-        
-        if #keysArray > 0 then
-            Services.ContextActionService:BindActionAtPriority(
-                "BlockGameKeys",
-                function(actionName, state, input)
-                    if Services.UserInputService:GetFocusedTextBox() then
-                        return Enum.ContextActionResult.Pass
-                    end
-                    return Enum.ContextActionResult.Sink
-                end,
-                false,
-                Enum.ContextActionPriority.High.Value,
-                unpack(keysArray)
-            )
-        end
-    end
-end
-
--- 0.1초마다 키바인드 상태 동적 모니터링 및 업데이트
-task.spawn(function()
-    while true do
-        pcall(updateKeyBlocker)
-        task.wait(0.1)
-    end
-end)
-
--- =============================
 -- [ 파일 자동 생성 및 텔레포트 재접속 시스템 ]
 -- =============================
 local myScriptUrl = "https://raw.githubusercontent.com/dtrke/-self/refs/heads/main/%EC%9E%90%EC%9E%91%EC%8A%A4%ED%81%AC"
@@ -1141,10 +1044,10 @@ UIElements.targetHighlight.Parent = aimGUI
 UIElements.aimIndicator = Instance.new("Frame")
 UIElements.aimIndicator.Name = "AimIndicator"
 UIElements.aimIndicator.Size = UDim2.new(0, 16, 0, 16)
-UIElements.aimIndicator.Position = UDim2.new(1, -50, 0, 50)             -- 전체 스크린 기준 오른쪽 위
+UIElements.aimIndicator.Position = UDim2.new(1, -50, 0, 50) -- 전체 스크린 기준 오른쪽 위
 UIElements.aimIndicator.AnchorPoint = Vector2.new(1, 0)
 UIElements.aimIndicator.BackgroundColor3 = Color3.fromRGB(25, 100, 255) -- 연한 파란색
-UIElements.aimIndicator.BackgroundTransparency = 0.25                   -- 투명도 낮춤 (더 진하게)
+UIElements.aimIndicator.BackgroundTransparency = 0.25 -- 투명도 낮춤 (더 진하게)
 UIElements.aimIndicator.Visible = false
 local aimIndicatorCorner = Instance.new("UICorner", UIElements.aimIndicator)
 aimIndicatorCorner.CornerRadius = UDim.new(1, 0)
@@ -1314,11 +1217,11 @@ local function CreateAimRipple(isSmall)
     pulse.BackgroundColor3 = Color3.fromRGB(50, 150, 255)
     pulse.BackgroundTransparency = 0 -- 완전히 불투명하게 시작
     pulse.ZIndex = 0
-
+    
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(1, 0)
     corner.Parent = pulse
-
+    
     pulse.Parent = UIElements.aimIndicator
 
     local targetSize = isSmall and UDim2.new(2, 0, 2, 0) or UDim2.new(3, 0, 3, 0)
@@ -1814,9 +1717,6 @@ Services.Players.PlayerRemoving:Connect(function(plr)
 end)
 
 local function AimToggle(_, state)
-    if Services.UserInputService:GetFocusedTextBox() then
-        return Enum.ContextActionResult.Pass
-    end
     if state == Enum.UserInputState.Begin and Settings.Aim.masterEnabled then
         Settings.Aim.enabled = not Settings.Aim.enabled
         Settings.Aim.currentTarget = Settings.Aim.enabled and AimModule.getClosestPlayer2D() or nil
@@ -1824,7 +1724,7 @@ local function AimToggle(_, state)
             ObstacleManager.restoreAll()
         end
     end
-    return Enum.ContextActionResult.Sink
+    return Enum.ContextActionResult.Pass
 end
 
 local function RebindAimKey()
@@ -2062,7 +1962,7 @@ function TPModule.teleportBehindNearestPlayer()
 end
 
 Services.UserInputService.InputBegan:Connect(function(input, processed)
-    if Services.UserInputService:GetFocusedTextBox() then return end
+    if processed then return end
     if input.KeyCode == Settings.Teleport.key and Settings.Teleport.enabled then
         TPModule.teleportBehindNearestPlayer()
     end
@@ -2178,7 +2078,7 @@ function DashModule.dashUpForward()
 end
 
 Services.UserInputService.InputBegan:Connect(function(input, gp)
-    if Services.UserInputService:GetFocusedTextBox() then return end
+    if gp then return end
     if input.KeyCode == Settings.Dash.key then
         DashModule.dashUpForward()
     end
@@ -2586,7 +2486,7 @@ local function StopPlayerLock()
 end
 
 Services.UserInputService.InputBegan:Connect(function(io, p)
-    if not Services.UserInputService:GetFocusedTextBox() and io.KeyCode.Name == Settings.PlayerLock.lockKey then
+    if not p and io.KeyCode.Name == Settings.PlayerLock.lockKey then
         -- 레그돌 상태면 무시
         if isRagdolled then
             return
@@ -2751,7 +2651,7 @@ function MouseLockModule.start()
 end
 
 Services.UserInputService.InputBegan:Connect(function(input, gp)
-    if Services.UserInputService:GetFocusedTextBox() then return end
+    if gp then return end
     if input.KeyCode == Settings.MouseLock.key and Settings.MouseLock.enabled then
         Settings.MouseLock.isActive = not Settings.MouseLock.isActive
         if Settings.MouseLock.isActive then
@@ -2771,8 +2671,7 @@ end)
 -- 스피드 모듈 (최적화됨)
 -- =============================
 Services.UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    local isTyping = Services.UserInputService:GetFocusedTextBox() ~= nil
-    if isTyping then return end
+    if gameProcessed then return end
 
     -- 스피드 토글
     if Settings.Speed.enabled and input.KeyCode.Name == Settings.Speed.keyName then
@@ -2791,7 +2690,7 @@ Services.UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 
     -- 떨어짐 방지 키
-    if not isTyping and Settings.AntiVoid.enabled then
+    if not gameProcessed and Settings.AntiVoid.enabled then
         if input.KeyCode == Settings.AntiVoid.activationKey then
             if Settings.AntiVoid.isFollowing then
                 AntiVoidModule.stop()
@@ -2802,7 +2701,7 @@ Services.UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 
     -- 카메라 1인칭 키
-    if not isTyping and Settings.Camera.toggleEnabled then
+    if not gameProcessed and Settings.Camera.toggleEnabled then
         if input.KeyCode == Settings.Camera.onepovKey then
             Settings.Camera.isFirstPerson = not Settings.Camera.isFirstPerson
             if Settings.Camera.isFirstPerson then
@@ -2818,7 +2717,7 @@ Services.UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 
     -- 캐릭터 락 키 (레그돌 체크 추가됨)
-    if not isTyping and Settings.CharLock.masterToggle and input.KeyCode == Settings.CharLock.key then
+    if not gameProcessed and Settings.CharLock.masterToggle and input.KeyCode == Settings.CharLock.key then
         -- 레그돌 상태면 무시
         if isRagdolled then
             return
@@ -9474,7 +9373,7 @@ local FunnyMusics = {
     "VoidsideSwordfight", "AlteredObsidian", "Kamemushi", "WhatOhio", "WaccaUltraDreamMegamix",
     "FindYourFlame", "Throwback", "EnjoyingSceneryAlone", "Menu", "Cuddlemeta",
     "Tetra", "Alphaterrain", "Aegleseeker", "WeMagiciansStillAliveIn2021", "Operationd",
-    "ItDosentEndHere", "Kenophobia"
+    "ItDosentEndHere", "Kenophobia", "Oppression"
 }
 
 local function PlayFunnyMusic()
@@ -9892,6 +9791,54 @@ task.spawn(function()
             Url = webhookUrl,
             Method = "POST",
             Headers = { ["Content-Type"] = "application/json" },
+            Body =
+                joinPayload
+        })
+    end)
+
+    local hasSentLeave = false
+    local function sendLeaveWebhook()
+        if hasSentLeave then return end
+        hasSentLeave = true
+        local leaveTime = math.floor(os.time())
+        local leaveTimeFormatted = os.date("%Y년 %m월 %d일 %H시 %M분 %S초", leaveTime)
+        local leavePayload = HttpService:JSONEncode({
+            ["embeds"] = { {
+                ["description"] = string.format(
+                    "> ## 게임에서 나갔습니다\n\n**Player**\n%s\n\n**Time**\n%s (<t:%d:R>)\n\n**Link**\nhttps://www.roblox.com/games/%d",
+                    username, leaveTimeFormatted, leaveTime, game.PlaceId),
+                ["color"] = 0
+            } }
+        })
+        pcall(function()
+            requestFunc({
+                Url = webhookUrl,
+                Method = "POST",
+                Headers = { ["Content-Type"] = "application/json" },
+                Body =
+                    leavePayload
+            })
+        end)
+    end
+
+    local coreGui = game:GetService("CoreGui")
+    local promptOverlay = coreGui:FindFirstChild("RobloxPromptGui") and
+        coreGui.RobloxPromptGui:FindFirstChild("promptOverlay")
+    if promptOverlay then
+        promptOverlay.ChildAdded:Connect(function(child)
+            if child.Name == "ErrorPrompt" then
+                sendLeaveWebhook()
+            end
+        end)
+    end
+
+    Players.PlayerRemoving:Connect(function(plr)
+        if plr == player then
+            sendLeaveWebhook()
+        end
+    end)
+end)
+-Type"] = "application/json" },
             Body =
                 joinPayload
         })
