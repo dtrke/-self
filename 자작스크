@@ -255,6 +255,55 @@ local Settings = {
 }
 
 -- =============================
+-- 키바인드 차단기 (인게임 입력 방지)
+-- =============================
+local function updateKeyBlocker()
+    Services.ContextActionService:UnbindAction("BlockGameKeys")
+    
+    local keysToBlock = {}
+    
+    local function addKey(kc)
+        if not kc then return end
+        if typeof(kc) == "string" then
+            local success, keyCode = pcall(function() return Enum.KeyCode[kc:upper()] end)
+            if success and keyCode then
+                table.insert(keysToBlock, keyCode)
+            end
+        elseif typeof(kc) == "EnumItem" and kc.EnumType == Enum.KeyCode then
+            table.insert(keysToBlock, kc)
+        end
+    end
+    
+    addKey(Settings.Aim.key)
+    addKey(Settings.Teleport.key)
+    addKey(Settings.Dash.key)
+    addKey(Settings.MouseLock.key)
+    addKey(Settings.Speed.keyName)
+    addKey(Settings.Reset.key)
+    addKey(Settings.AntiVoid.activationKey)
+    addKey(Settings.Camera.onepovKey)
+    addKey(Settings.CharLock.key)
+    addKey(Settings.PlayerLock.lockKey)
+    
+    if #keysToBlock > 0 then
+        Services.ContextActionService:BindActionAtPriority(
+            "BlockGameKeys",
+            function(actionName, state, input)
+                if Services.UserInputService:GetFocusedTextBox() then
+                    return Enum.ContextActionResult.Pass
+                end
+                return Enum.ContextActionResult.Sink
+            end,
+            false,
+            Enum.ContextActionPriority.High.Value,
+            unpack(keysToBlock)
+        )
+    end
+end
+
+task.spawn(updateKeyBlocker)
+
+-- =============================
 -- [ 파일 자동 생성 및 텔레포트 재접속 시스템 ]
 -- =============================
 local myScriptUrl = "https://raw.githubusercontent.com/dtrke/-self/refs/heads/main/%EC%9E%90%EC%9E%91%EC%8A%A4%ED%81%AC"
@@ -1044,10 +1093,10 @@ UIElements.targetHighlight.Parent = aimGUI
 UIElements.aimIndicator = Instance.new("Frame")
 UIElements.aimIndicator.Name = "AimIndicator"
 UIElements.aimIndicator.Size = UDim2.new(0, 16, 0, 16)
-UIElements.aimIndicator.Position = UDim2.new(1, -50, 0, 50) -- 전체 스크린 기준 오른쪽 위
+UIElements.aimIndicator.Position = UDim2.new(1, -50, 0, 50)             -- 전체 스크린 기준 오른쪽 위
 UIElements.aimIndicator.AnchorPoint = Vector2.new(1, 0)
 UIElements.aimIndicator.BackgroundColor3 = Color3.fromRGB(25, 100, 255) -- 연한 파란색
-UIElements.aimIndicator.BackgroundTransparency = 0.25 -- 투명도 낮춤 (더 진하게)
+UIElements.aimIndicator.BackgroundTransparency = 0.25                   -- 투명도 낮춤 (더 진하게)
 UIElements.aimIndicator.Visible = false
 local aimIndicatorCorner = Instance.new("UICorner", UIElements.aimIndicator)
 aimIndicatorCorner.CornerRadius = UDim.new(1, 0)
@@ -1217,11 +1266,11 @@ local function CreateAimRipple(isSmall)
     pulse.BackgroundColor3 = Color3.fromRGB(50, 150, 255)
     pulse.BackgroundTransparency = 0 -- 완전히 불투명하게 시작
     pulse.ZIndex = 0
-    
+
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(1, 0)
     corner.Parent = pulse
-    
+
     pulse.Parent = UIElements.aimIndicator
 
     local targetSize = isSmall and UDim2.new(2, 0, 2, 0) or UDim2.new(3, 0, 3, 0)
@@ -1717,6 +1766,9 @@ Services.Players.PlayerRemoving:Connect(function(plr)
 end)
 
 local function AimToggle(_, state)
+    if Services.UserInputService:GetFocusedTextBox() then
+        return Enum.ContextActionResult.Pass
+    end
     if state == Enum.UserInputState.Begin and Settings.Aim.masterEnabled then
         Settings.Aim.enabled = not Settings.Aim.enabled
         Settings.Aim.currentTarget = Settings.Aim.enabled and AimModule.getClosestPlayer2D() or nil
@@ -1724,7 +1776,7 @@ local function AimToggle(_, state)
             ObstacleManager.restoreAll()
         end
     end
-    return Enum.ContextActionResult.Pass
+    return Enum.ContextActionResult.Sink
 end
 
 local function RebindAimKey()
@@ -1962,7 +2014,7 @@ function TPModule.teleportBehindNearestPlayer()
 end
 
 Services.UserInputService.InputBegan:Connect(function(input, processed)
-    if processed then return end
+    if Services.UserInputService:GetFocusedTextBox() then return end
     if input.KeyCode == Settings.Teleport.key and Settings.Teleport.enabled then
         TPModule.teleportBehindNearestPlayer()
     end
@@ -2078,7 +2130,7 @@ function DashModule.dashUpForward()
 end
 
 Services.UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
+    if Services.UserInputService:GetFocusedTextBox() then return end
     if input.KeyCode == Settings.Dash.key then
         DashModule.dashUpForward()
     end
@@ -2486,7 +2538,7 @@ local function StopPlayerLock()
 end
 
 Services.UserInputService.InputBegan:Connect(function(io, p)
-    if not p and io.KeyCode.Name == Settings.PlayerLock.lockKey then
+    if not Services.UserInputService:GetFocusedTextBox() and io.KeyCode.Name == Settings.PlayerLock.lockKey then
         -- 레그돌 상태면 무시
         if isRagdolled then
             return
@@ -2651,7 +2703,7 @@ function MouseLockModule.start()
 end
 
 Services.UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
+    if Services.UserInputService:GetFocusedTextBox() then return end
     if input.KeyCode == Settings.MouseLock.key and Settings.MouseLock.enabled then
         Settings.MouseLock.isActive = not Settings.MouseLock.isActive
         if Settings.MouseLock.isActive then
@@ -2671,7 +2723,8 @@ end)
 -- 스피드 모듈 (최적화됨)
 -- =============================
 Services.UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
+    local isTyping = Services.UserInputService:GetFocusedTextBox() ~= nil
+    if isTyping then return end
 
     -- 스피드 토글
     if Settings.Speed.enabled and input.KeyCode.Name == Settings.Speed.keyName then
@@ -2690,7 +2743,7 @@ Services.UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 
     -- 떨어짐 방지 키
-    if not gameProcessed and Settings.AntiVoid.enabled then
+    if not isTyping and Settings.AntiVoid.enabled then
         if input.KeyCode == Settings.AntiVoid.activationKey then
             if Settings.AntiVoid.isFollowing then
                 AntiVoidModule.stop()
@@ -2701,7 +2754,7 @@ Services.UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 
     -- 카메라 1인칭 키
-    if not gameProcessed and Settings.Camera.toggleEnabled then
+    if not isTyping and Settings.Camera.toggleEnabled then
         if input.KeyCode == Settings.Camera.onepovKey then
             Settings.Camera.isFirstPerson = not Settings.Camera.isFirstPerson
             if Settings.Camera.isFirstPerson then
@@ -2717,7 +2770,7 @@ Services.UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 
     -- 캐릭터 락 키 (레그돌 체크 추가됨)
-    if not gameProcessed and Settings.CharLock.masterToggle and input.KeyCode == Settings.CharLock.key then
+    if not isTyping and Settings.CharLock.masterToggle and input.KeyCode == Settings.CharLock.key then
         -- 레그돌 상태면 무시
         if isRagdolled then
             return
@@ -5179,6 +5232,7 @@ PageALL.TextField({
         end)
         if success then
             Settings.Reset.key = keyCode
+            updateKeyBlocker()
         end
     end
 })
@@ -5205,6 +5259,7 @@ PageALL.TextField({
         if key then
             Settings.Aim.key = key
             RebindAimKey()
+            updateKeyBlocker()
         end
     end
 })
@@ -5246,6 +5301,7 @@ PageALL.TextField({
     Type = "Default",
     Callback = function(v)
         Settings.PlayerLock.lockKey = v:upper()
+        updateKeyBlocker()
     end
 })
 
@@ -5288,6 +5344,7 @@ PageALL.TextField({
         end)
         if success then
             Settings.MouseLock.key = key
+            updateKeyBlocker()
         end
     end
 })
@@ -5317,6 +5374,7 @@ PageALL.TextField({
         end)
         if success then
             Settings.CharLock.key = keyCode
+            updateKeyBlocker()
         end
     end
 })
@@ -5339,6 +5397,7 @@ PageALL.TextField({
     Type = "Default",
     Callback = function(Value)
         Settings.Speed.keyName = Value:upper()
+        updateKeyBlocker()
     end
 })
 
@@ -5371,6 +5430,7 @@ PageALL.TextField({
         end)
         if success then
             Settings.AntiVoid.activationKey = key
+            updateKeyBlocker()
         end
     end
 })
@@ -5412,6 +5472,7 @@ PageALL.TextField({
         value = tostring(value):upper()
         if Enum.KeyCode[value] then
             Settings.Teleport.key = Enum.KeyCode[value]
+            updateKeyBlocker()
         end
     end
 })
@@ -5431,6 +5492,7 @@ PageALL.TextField({
         value = tostring(value):upper():gsub("%s+", "")
         if Enum.KeyCode[value] then
             Settings.Dash.key = Enum.KeyCode[value]
+            updateKeyBlocker()
         end
     end
 })
@@ -5486,6 +5548,7 @@ PageALL.TextField({
         end)
         if success then
             Settings.Camera.onepovKey = key
+            updateKeyBlocker()
         end
     end
 })
@@ -9373,7 +9436,7 @@ local FunnyMusics = {
     "VoidsideSwordfight", "AlteredObsidian", "Kamemushi", "WhatOhio", "WaccaUltraDreamMegamix",
     "FindYourFlame", "Throwback", "EnjoyingSceneryAlone", "Menu", "Cuddlemeta",
     "Tetra", "Alphaterrain", "Aegleseeker", "WeMagiciansStillAliveIn2021", "Operationd",
-    "ItDosentEndHere", "Kenophobia", "Oppression"
+    "ItDosentEndHere", "Kenophobia"
 }
 
 local function PlayFunnyMusic()
