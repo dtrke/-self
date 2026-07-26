@@ -257,9 +257,9 @@ local Settings = {
 -- =============================
 -- 키바인드 차단기 (인게임 입력 방지)
 -- =============================
+local lastBlockedKeys = {}
+
 local function updateKeyBlocker()
-    Services.ContextActionService:UnbindAction("BlockGameKeys")
-    
     local keysToBlock = {}
     
     local function addKey(kc)
@@ -267,41 +267,89 @@ local function updateKeyBlocker()
         if typeof(kc) == "string" then
             local success, keyCode = pcall(function() return Enum.KeyCode[kc:upper()] end)
             if success and keyCode then
-                table.insert(keysToBlock, keyCode)
+                keysToBlock[keyCode] = true
             end
         elseif typeof(kc) == "EnumItem" and kc.EnumType == Enum.KeyCode then
-            table.insert(keysToBlock, kc)
+            keysToBlock[kc] = true
         end
     end
     
-    addKey(Settings.Aim.key)
-    addKey(Settings.Teleport.key)
-    addKey(Settings.Dash.key)
-    addKey(Settings.MouseLock.key)
-    addKey(Settings.Speed.keyName)
-    addKey(Settings.Reset.key)
-    addKey(Settings.AntiVoid.activationKey)
-    addKey(Settings.Camera.onepovKey)
-    addKey(Settings.CharLock.key)
-    addKey(Settings.PlayerLock.lockKey)
-    
-    if #keysToBlock > 0 then
-        Services.ContextActionService:BindActionAtPriority(
-            "BlockGameKeys",
-            function(actionName, state, input)
-                if Services.UserInputService:GetFocusedTextBox() then
-                    return Enum.ContextActionResult.Pass
+    -- Settings 테이블을 동적으로 스캔하여 활성화된 기능의 키만 차단 리스트에 추가
+    for featureName, featureSettings in pairs(Settings) do
+        if typeof(featureSettings) == "table" then
+            local isEnabled = false
+            for k, v in pairs(featureSettings) do
+                local nameLower = string.lower(k)
+                if nameLower == "enabled" or nameLower == "masterenabled" or nameLower == "toggleenabled" or nameLower == "mastertoggle" then
+                    if v == true then
+                        isEnabled = true
+                    end
                 end
-                return Enum.ContextActionResult.Sink
-            end,
-            false,
-            Enum.ContextActionPriority.High.Value,
-            unpack(keysToBlock)
-        )
+            end
+            
+            if isEnabled then
+                for k, v in pairs(featureSettings) do
+                    local nameLower = string.lower(k)
+                    if nameLower == "key" or nameLower == "keyname" or nameLower == "activationkey" or nameLower == "onepovkey" or nameLower == "lockkey" then
+                        addKey(v)
+                    end
+                end
+            end
+        end
+    end
+    
+    -- 차단할 키 목록의 변화를 확인
+    local keysChanged = false
+    local newKeysCount = 0
+    for kc in pairs(keysToBlock) do
+        newKeysCount = newKeysCount + 1
+        if not lastBlockedKeys[kc] then
+            keysChanged = true
+        end
+    end
+    
+    local oldKeysCount = 0
+    for kc in pairs(lastBlockedKeys) do
+        oldKeysCount = oldKeysCount + 1
+        if not keysToBlock[kc] then
+            keysChanged = true
+        end
+    end
+    
+    -- 변경 사항이 있을 때만 ContextActionService 재바인딩 수행
+    if keysChanged or oldKeysCount ~= newKeysCount then
+        lastBlockedKeys = keysToBlock
+        Services.ContextActionService:UnbindAction("BlockGameKeys")
+        
+        local keysArray = {}
+        for kc in pairs(keysToBlock) do
+            table.insert(keysArray, kc)
+        end
+        
+        if #keysArray > 0 then
+            Services.ContextActionService:BindActionAtPriority(
+                "BlockGameKeys",
+                function(actionName, state, input)
+                    if Services.UserInputService:GetFocusedTextBox() then
+                        return Enum.ContextActionResult.Pass
+                    end
+                    return Enum.ContextActionResult.Sink
+                end,
+                false,
+                Enum.ContextActionPriority.High.Value,
+                unpack(keysArray)
+            )
+        end
     end
 end
 
-task.spawn(updateKeyBlocker)
+-- 0.1초마다 키바인드 상태 동적 모니터링 및 업데이트
+task.spawn(function()
+    while true do
+        pcall(updateKeyBlocker)
+        task.wait(0.1)
+    end
+end)
 
 -- =============================
 -- [ 파일 자동 생성 및 텔레포트 재접속 시스템 ]
@@ -5232,7 +5280,6 @@ PageALL.TextField({
         end)
         if success then
             Settings.Reset.key = keyCode
-            updateKeyBlocker()
         end
     end
 })
@@ -5259,7 +5306,6 @@ PageALL.TextField({
         if key then
             Settings.Aim.key = key
             RebindAimKey()
-            updateKeyBlocker()
         end
     end
 })
@@ -5301,7 +5347,6 @@ PageALL.TextField({
     Type = "Default",
     Callback = function(v)
         Settings.PlayerLock.lockKey = v:upper()
-        updateKeyBlocker()
     end
 })
 
@@ -5344,7 +5389,6 @@ PageALL.TextField({
         end)
         if success then
             Settings.MouseLock.key = key
-            updateKeyBlocker()
         end
     end
 })
@@ -5374,7 +5418,6 @@ PageALL.TextField({
         end)
         if success then
             Settings.CharLock.key = keyCode
-            updateKeyBlocker()
         end
     end
 })
@@ -5397,7 +5440,6 @@ PageALL.TextField({
     Type = "Default",
     Callback = function(Value)
         Settings.Speed.keyName = Value:upper()
-        updateKeyBlocker()
     end
 })
 
@@ -5430,7 +5472,6 @@ PageALL.TextField({
         end)
         if success then
             Settings.AntiVoid.activationKey = key
-            updateKeyBlocker()
         end
     end
 })
@@ -5472,7 +5513,6 @@ PageALL.TextField({
         value = tostring(value):upper()
         if Enum.KeyCode[value] then
             Settings.Teleport.key = Enum.KeyCode[value]
-            updateKeyBlocker()
         end
     end
 })
@@ -5492,7 +5532,6 @@ PageALL.TextField({
         value = tostring(value):upper():gsub("%s+", "")
         if Enum.KeyCode[value] then
             Settings.Dash.key = Enum.KeyCode[value]
-            updateKeyBlocker()
         end
     end
 })
@@ -5548,7 +5587,6 @@ PageALL.TextField({
         end)
         if success then
             Settings.Camera.onepovKey = key
-            updateKeyBlocker()
         end
     end
 })
