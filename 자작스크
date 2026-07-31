@@ -236,6 +236,11 @@ local Settings = {
         originalState = nil
     },
 
+    -- Rooms Helper 설정
+    RoomsHelper = {
+        enabled = false
+    },
+
     -- 음악 비주얼라이저 설정
     MusicVisualizerSetting = {
         color = "#FFFFFF",
@@ -1044,10 +1049,10 @@ UIElements.targetHighlight.Parent = aimGUI
 UIElements.aimIndicator = Instance.new("Frame")
 UIElements.aimIndicator.Name = "AimIndicator"
 UIElements.aimIndicator.Size = UDim2.new(0, 16, 0, 16)
-UIElements.aimIndicator.Position = UDim2.new(1, -50, 0, 50) -- 전체 스크린 기준 오른쪽 위
+UIElements.aimIndicator.Position = UDim2.new(1, -50, 0, 50)             -- 전체 스크린 기준 오른쪽 위
 UIElements.aimIndicator.AnchorPoint = Vector2.new(1, 0)
 UIElements.aimIndicator.BackgroundColor3 = Color3.fromRGB(25, 100, 255) -- 연한 파란색
-UIElements.aimIndicator.BackgroundTransparency = 0.25 -- 투명도 낮춤 (더 진하게)
+UIElements.aimIndicator.BackgroundTransparency = 0.25                   -- 투명도 낮춤 (더 진하게)
 UIElements.aimIndicator.Visible = false
 local aimIndicatorCorner = Instance.new("UICorner", UIElements.aimIndicator)
 aimIndicatorCorner.CornerRadius = UDim.new(1, 0)
@@ -1217,11 +1222,11 @@ local function CreateAimRipple(isSmall)
     pulse.BackgroundColor3 = Color3.fromRGB(50, 150, 255)
     pulse.BackgroundTransparency = 0 -- 완전히 불투명하게 시작
     pulse.ZIndex = 0
-    
+
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(1, 0)
     corner.Parent = pulse
-    
+
     pulse.Parent = UIElements.aimIndicator
 
     local targetSize = isSmall and UDim2.new(2, 0, 2, 0) or UDim2.new(3, 0, 3, 0)
@@ -9086,8 +9091,226 @@ SolTab.Button({
     end
 })
 
+-- ================= Rooms Helper (Doors) =================
+local roomsHelperGui = nil
+local activeRoomsEntities = {}
+local roomsHelperConnections = {}
+
+local function getRoomsHelperGui()
+    if roomsHelperGui and roomsHelperGui.Parent then
+        return roomsHelperGui
+    end
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "RoomsHelperGui"
+    gui.ResetOnSpawn = false
+    gui.DisplayOrder = 999
+
+    local parentObj = nil
+    pcall(function()
+        if gethui then
+            parentObj = gethui()
+        elseif game:GetService("CoreGui") then
+            parentObj = game:GetService("CoreGui")
+        end
+    end)
+    if not parentObj then
+        parentObj = Services.Players.LocalPlayer:WaitForChild("PlayerGui")
+    end
+    gui.Parent = parentObj
+    roomsHelperGui = gui
+    return gui
+end
+
+local function updateRoomsHelperDisplay()
+    local showA60 = false
+    local showA120 = false
+
+    for model, entityType in pairs(activeRoomsEntities) do
+        if model and model.Parent then
+            if entityType == "A60" then
+                showA60 = true
+            elseif entityType == "A120" then
+                showA120 = true
+            end
+        else
+            activeRoomsEntities[model] = nil
+        end
+    end
+
+    local gui = getRoomsHelperGui()
+
+    for _, child in ipairs(gui:GetChildren()) do
+        child:Destroy()
+    end
+
+    if not showA60 and not showA120 then
+        return
+    end
+
+    local container = Instance.new("Frame")
+    container.Name = "RoomsContainer"
+    container.Size = UDim2.new(0, 420, 0, 200)
+    container.Position = UDim2.new(0, 20, 1, -20)
+    container.AnchorPoint = Vector2.new(0, 1)
+    container.BackgroundTransparency = 1
+    container.Parent = gui
+
+    local uiListLayout = Instance.new("UIListLayout")
+    uiListLayout.FillDirection = Enum.FillDirection.Horizontal
+    uiListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+    uiListLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+    uiListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    uiListLayout.Padding = UDim.new(0, 15)
+    uiListLayout.Parent = container
+
+    if showA60 then
+        local imgFrame = Instance.new("Frame")
+        imgFrame.Name = "A60Frame"
+        imgFrame.Size = UDim2.new(0, 180, 0, 180)
+        imgFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        imgFrame.BackgroundTransparency = 0.3
+        imgFrame.BorderSizePixel = 0
+        imgFrame.Parent = container
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 10)
+        corner.Parent = imgFrame
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(255, 50, 50)
+        stroke.Thickness = 2
+        stroke.Parent = imgFrame
+
+        local img = Instance.new("ImageLabel")
+        img.Name = "A60Image"
+        img.Size = UDim2.new(1, -10, 1, -30)
+        img.Position = UDim2.new(0, 5, 0, 5)
+        img.BackgroundTransparency = 1
+        img.Image = "rbxassetid://91326038597102"
+        img.ScaleType = Enum.ScaleType.Fit
+        img.Parent = imgFrame
+
+        local label = Instance.new("TextLabel")
+        label.Name = "A60Label"
+        label.Size = UDim2.new(1, 0, 0, 20)
+        label.Position = UDim2.new(0, 0, 1, -22)
+        label.BackgroundTransparency = 1
+        label.Text = "A60"
+        label.TextColor3 = Color3.fromRGB(255, 80, 80)
+        label.TextScaled = true
+        label.Font = Enum.Font.SourceSansBold
+        label.Parent = imgFrame
+    end
+
+    if showA120 then
+        local imgFrame = Instance.new("Frame")
+        imgFrame.Name = "A120Frame"
+        imgFrame.Size = UDim2.new(0, 180, 0, 180)
+        imgFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        imgFrame.BackgroundTransparency = 0.3
+        imgFrame.BorderSizePixel = 0
+        imgFrame.Parent = container
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 10)
+        corner.Parent = imgFrame
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(255, 170, 0)
+        stroke.Thickness = 2
+        stroke.Parent = imgFrame
+
+        local img = Instance.new("ImageLabel")
+        img.Name = "A120Image"
+        img.Size = UDim2.new(1, -10, 1, -30)
+        img.Position = UDim2.new(0, 5, 0, 5)
+        img.BackgroundTransparency = 1
+        img.Image = "rbxassetid://73899451329620"
+        img.ScaleType = Enum.ScaleType.Fit
+        img.Parent = imgFrame
+
+        local label = Instance.new("TextLabel")
+        label.Name = "A120Label"
+        label.Size = UDim2.new(1, 0, 0, 20)
+        label.Position = UDim2.new(0, 0, 1, -22)
+        label.BackgroundTransparency = 1
+        label.Text = "A120"
+        label.TextColor3 = Color3.fromRGB(255, 180, 50)
+        label.TextScaled = true
+        label.Font = Enum.Font.SourceSansBold
+        label.Parent = imgFrame
+    end
+end
+
+local function stopRoomsHelper()
+    for _, conn in ipairs(roomsHelperConnections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    table.clear(roomsHelperConnections)
+    table.clear(activeRoomsEntities)
+    if roomsHelperGui then
+        pcall(function() roomsHelperGui:Destroy() end)
+        roomsHelperGui = nil
+    end
+end
+
+local function checkAndAddEntity(inst)
+    if not inst then return end
+    local entityType = nil
+    local name = inst.Name
+    if name == "A60" or name == "A-60" or string.find(name, "A60") then
+        entityType = "A60"
+    elseif name == "A120" or name == "A-120" or string.find(name, "A120") then
+        entityType = "A120"
+    end
+
+    if entityType then
+        activeRoomsEntities[inst] = entityType
+        updateRoomsHelperDisplay()
+
+        local conn
+        conn = inst.AncestryChanged:Connect(function(_, parent)
+            if not parent or not inst:IsDescendantOf(workspace) then
+                activeRoomsEntities[inst] = nil
+                updateRoomsHelperDisplay()
+                if conn then conn:Disconnect() end
+            end
+        end)
+        table.insert(roomsHelperConnections, conn)
+    end
+end
+
+local function startRoomsHelper()
+    stopRoomsHelper()
+
+    for _, descendant in ipairs(workspace:GetDescendants()) do
+        checkAndAddEntity(descendant)
+    end
+
+    local conn = workspace.DescendantAdded:Connect(function(descendant)
+        checkAndAddEntity(descendant)
+    end)
+    table.insert(roomsHelperConnections, conn)
+end
+
 -- ================= 기타 게임들 탭 =================
 local OtherGameTab = UI.New({ Title = "기타 게임들", Icon = "gamepad-2" })
+
+OtherGameTab.Label({ Text = "Doors" })
+
+OtherGameTab.Toggle({
+    Text = "Rooms Helper",
+    Enabled = false,
+    Callback = function(value)
+        Settings.RoomsHelper.enabled = value
+        if value then
+            startRoomsHelper()
+        else
+            stopRoomsHelper()
+        end
+    end
+})
 
 OtherGameTab.Label({ Text = "TSB" })
 
