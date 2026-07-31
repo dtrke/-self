@@ -9352,7 +9352,7 @@ local function checkAndAddEntity(inst)
     local name = inst.Name
     if name == "A60" or name == "A-60" or string.find(name, "A60") then
         entityType = "A60"
-    elseif name == "A90" or name == "A-90" or string.find(name, "A90") then
+    elseif name == "HitByA90" then
         entityType = "A90"
     elseif name == "A120" or name == "A-120" or string.find(name, "A120") then
         entityType = "A120"
@@ -9364,7 +9364,11 @@ local function checkAndAddEntity(inst)
 
         local conn
         conn = inst.AncestryChanged:Connect(function(_, parent)
-            if not parent or not inst:IsDescendantOf(workspace) then
+            local validParent = false
+            if inst:IsDescendantOf(workspace) then validParent = true end
+            if inst:IsDescendantOf(game.Players.LocalPlayer) then validParent = true end
+            
+            if not parent or not validParent then
                 activeRoomsEntities[inst] = nil
                 updateRoomsHelperDisplay()
                 if conn then conn:Disconnect() end
@@ -9381,10 +9385,212 @@ local function startRoomsHelper()
         checkAndAddEntity(child)
     end
 
-    local conn = workspace.ChildAdded:Connect(function(child)
+    local conn1 = workspace.ChildAdded:Connect(function(child)
         checkAndAddEntity(child)
     end)
-    table.insert(roomsHelperConnections, conn)
+    table.insert(roomsHelperConnections, conn1)
+    
+    local lp = game.Players.LocalPlayer
+    if lp then
+        for _, desc in ipairs(lp:GetDescendants()) do
+            checkAndAddEntity(desc)
+        end
+        local conn2 = lp.DescendantAdded:Connect(function(desc)
+            checkAndAddEntity(desc)
+        end)
+        table.insert(roomsHelperConnections, conn2)
+    end
+end
+
+-- ================= Hideplace ESP =================
+local hideplaceESPActive = false
+local activeLockerHighlights = {}
+
+local function startHideplaceESP()
+    if hideplaceESPActive then return end
+    hideplaceESPActive = true
+    
+    task.spawn(function()
+        while hideplaceESPActive do
+            local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            local currentRooms = workspace:FindFirstChild("CurrentRooms")
+            
+            if hrp and currentRooms then
+                local closestRoomNum = nil
+                local closestDist = math.huge
+
+                for _, room in ipairs(currentRooms:GetChildren()) do
+                    local roomNum = tonumber(room.Name)
+                    if roomNum then
+                        local cf, size = room:GetBoundingBox()
+                        local dist = (hrp.Position - cf.Position).Magnitude
+                        if dist < closestDist then
+                            closestDist = dist
+                            closestRoomNum = roomNum
+                        end
+                    end
+                end
+
+                if closestRoomNum then
+                    local targetRooms = {
+                        [closestRoomNum - 1] = true,
+                        [closestRoomNum] = true,
+                        [closestRoomNum + 1] = true
+                    }
+
+                    local currentValidLockers = {}
+
+                    for _, room in ipairs(currentRooms:GetChildren()) do
+                        local roomNum = tonumber(room.Name)
+                        if roomNum and targetRooms[roomNum] then
+                            local assets = room:FindFirstChild("Assets")
+                            if assets then
+                                for _, asset in ipairs(assets:GetDescendants()) do
+                                    local isTarget = false
+                                    local fColor, oColor, fTrans = nil, nil, nil
+
+                                    if asset.Name == "Rooms_Locker" and asset:IsA("Model") then
+                                        isTarget = true
+                                        fColor = Color3.fromRGB(255, 255, 255)
+                                        oColor = Color3.fromRGB(255, 255, 255)
+                                        fTrans = 0.85
+                                    elseif asset.Name == "GoldPile" then
+                                        isTarget = true
+                                        fColor = Color3.fromRGB(255, 228, 89)
+                                        oColor = Color3.fromRGB(255, 228, 89)
+                                        fTrans = 0.5
+                                    elseif asset.Name == "Bandage" then
+                                        isTarget = true
+                                        fColor = Color3.fromRGB(200, 161, 142)
+                                        oColor = Color3.fromRGB(200, 161, 142)
+                                        fTrans = 0.5
+                                    elseif asset.Name == "Battery" then
+                                        isTarget = true
+                                        fColor = Color3.fromRGB(94, 75, 71)
+                                        oColor = Color3.fromRGB(94, 75, 71)
+                                        fTrans = 0.5
+                                    end
+
+                                    if isTarget then
+                                        local validLoot = true
+                                        if asset.Name ~= "Rooms_Locker" then
+                                            local isLoot = false
+                                            local p = asset.Parent
+                                            while p and p ~= assets do
+                                                if p.Name == "RoomsLootItem" then
+                                                    isLoot = true
+                                                    break
+                                                end
+                                                p = p.Parent
+                                            end
+                                            validLoot = isLoot
+                                        end
+
+                                        if validLoot then
+                                            currentValidLockers[asset] = true
+                                            if not activeLockerHighlights[asset] then
+                                                local hl = Instance.new("Highlight")
+                                                hl.Name = "InteractESP_Highlight"
+                                                hl.FillColor = fColor
+                                                hl.OutlineColor = oColor
+                                                hl.FillTransparency = fTrans
+                                                hl.OutlineTransparency = 0
+                                                hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                                                hl.Parent = asset
+                                                activeLockerHighlights[asset] = hl
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+
+                    for asset, hl in pairs(activeLockerHighlights) do
+                        if not currentValidLockers[asset] then
+                            if hl and hl.Parent then
+                                hl:Destroy()
+                            end
+                            activeLockerHighlights[asset] = nil
+                        end
+                    end
+                end
+            end
+            task.wait(0.2)
+        end
+        
+        -- Cleanup
+        for asset, hl in pairs(activeLockerHighlights) do
+            if hl and hl.Parent then
+                hl:Destroy()
+            end
+        end
+        table.clear(activeLockerHighlights)
+    end)
+end
+
+local function stopHideplaceESP()
+    hideplaceESPActive = false
+end
+
+-- ================= Light =================
+local lightActive = false
+local lightConnection = nil
+
+local function applyLight(character)
+    if not character then return end
+    local hrp = character:WaitForChild("HumanoidRootPart", 5)
+    if hrp then
+        local pl = hrp:FindFirstChild("CustomPointLight")
+        if not pl then
+            pl = Instance.new("PointLight")
+            pl.Name = "CustomPointLight"
+            pl.Brightness = 1
+            pl.Range = 150
+            pl.Color = Color3.fromRGB(255, 234, 211)
+            pl.Shadows = true
+            pl.Parent = hrp
+        end
+    end
+end
+
+local function removeLight(character)
+    if not character then return end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        local pl = hrp:FindFirstChild("CustomPointLight")
+        if pl then
+            pl:Destroy()
+        end
+    end
+end
+
+local function startLight()
+    if lightActive then return end
+    lightActive = true
+    
+    local player = game.Players.LocalPlayer
+    if player.Character then
+        applyLight(player.Character)
+    end
+    
+    lightConnection = player.CharacterAdded:Connect(function(char)
+        if lightActive then
+            applyLight(char)
+        end
+    end)
+end
+
+local function stopLight()
+    lightActive = false
+    if lightConnection then
+        lightConnection:Disconnect()
+        lightConnection = nil
+    end
+    local player = game.Players.LocalPlayer
+    if player.Character then
+        removeLight(player.Character)
+    end
 end
 
 -- ================= 기타 게임들 탭 =================
@@ -9401,6 +9607,34 @@ OtherGameTab.Toggle({
             startRoomsHelper()
         else
             stopRoomsHelper()
+        end
+    end
+})
+
+OtherGameTab.Toggle({
+    Text = "Interact ESP",
+    Enabled = false,
+    Callback = function(value)
+        Settings.HideplaceESP = Settings.HideplaceESP or {}
+        Settings.HideplaceESP.enabled = value
+        if value then
+            startHideplaceESP()
+        else
+            stopHideplaceESP()
+        end
+    end
+})
+
+OtherGameTab.Toggle({
+    Text = "Light",
+    Enabled = false,
+    Callback = function(value)
+        Settings.Light = Settings.Light or {}
+        Settings.Light.enabled = value
+        if value then
+            startLight()
+        else
+            stopLight()
         end
     end
 })
