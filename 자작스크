@@ -1402,9 +1402,9 @@ Services.RunService.RenderStepped:Connect(function()
             end
 
             task.delay(0.6, function()
-                -- if Settings.Aim.singlePlayerMode then
-                --     Settings.Aim.enabled = false
-                -- end
+                if Settings.Aim.singlePlayerMode or not Settings.Aim.autoRetarget then
+                    Settings.Aim.enabled = false
+                end
                 Settings.Aim.currentTarget = nil
                 UIElements.isDeathAnimating = false
                 UIElements.isInstantKill = false
