@@ -9173,10 +9173,6 @@ local function updateRoomsHelperDisplay()
         imgFrame.BorderSizePixel = 0
         imgFrame.Parent = container
 
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 10)
-        corner.Parent = imgFrame
-
         local stroke = Instance.new("UIStroke")
         stroke.Color = Color3.fromRGB(255, 50, 50)
         stroke.Thickness = 2
@@ -9212,12 +9208,8 @@ local function updateRoomsHelperDisplay()
         imgFrame.BorderSizePixel = 0
         imgFrame.Parent = container
 
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 10)
-        corner.Parent = imgFrame
-
         local stroke = Instance.new("UIStroke")
-        stroke.Color = Color3.fromRGB(255, 170, 0)
+        stroke.Color = Color3.fromRGB(255, 255, 255)
         stroke.Thickness = 2
         stroke.Parent = imgFrame
 
@@ -9236,7 +9228,7 @@ local function updateRoomsHelperDisplay()
         label.Position = UDim2.new(0, 0, 1, -22)
         label.BackgroundTransparency = 1
         label.Text = "A120"
-        label.TextColor3 = Color3.fromRGB(255, 180, 50)
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
         label.TextScaled = true
         label.Font = Enum.Font.SourceSansBold
         label.Parent = imgFrame
@@ -9300,7 +9292,7 @@ local OtherGameTab = UI.New({ Title = "기타 게임들", Icon = "gamepad-2" })
 OtherGameTab.Label({ Text = "Doors" })
 
 OtherGameTab.Toggle({
-    Text = "Rooms Helper",
+    Text = "룸즈 헬퍼 [ Rooms Helper ]",
     Enabled = false,
     Callback = function(value)
         Settings.RoomsHelper.enabled = value
