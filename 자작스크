@@ -9469,6 +9469,11 @@ local function startHideplaceESP()
                                         fColor = Color3.fromRGB(94, 75, 71)
                                         oColor = Color3.fromRGB(94, 75, 71)
                                         fTrans = 0.5
+                                    elseif asset.Name == "StardustPickup" then
+                                        isTarget = true
+                                        fColor = Color3.fromRGB(255, 202, 156) -- Apricot (Inside)
+                                        oColor = Color3.fromRGB(255, 152, 162) -- Pink (Outline)
+                                        fTrans = 0.5
                                     end
 
                                     if isTarget then
