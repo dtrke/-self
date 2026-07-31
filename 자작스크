@@ -9124,12 +9124,15 @@ end
 
 local function updateRoomsHelperDisplay()
     local showA60 = false
+    local showA90 = false
     local showA120 = false
 
     for model, entityType in pairs(activeRoomsEntities) do
         if model and model.Parent then
             if entityType == "A60" then
                 showA60 = true
+            elseif entityType == "A90" then
+                showA90 = true
             elseif entityType == "A120" then
                 showA120 = true
             end
@@ -9144,7 +9147,7 @@ local function updateRoomsHelperDisplay()
         child:Destroy()
     end
 
-    if not showA60 and not showA120 then
+    if not showA60 and not showA90 and not showA120 then
         return
     end
 
@@ -9174,9 +9177,17 @@ local function updateRoomsHelperDisplay()
         imgFrame.Parent = container
 
         local stroke = Instance.new("UIStroke")
-        stroke.Color = Color3.fromRGB(255, 50, 50)
+        stroke.Color = Color3.fromRGB(255, 255, 255)
         stroke.Thickness = 2
         stroke.Parent = imgFrame
+
+        local strokeGradient = Instance.new("UIGradient")
+        strokeGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(150, 150, 150)), -- Gray
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0))      -- Red
+        })
+        strokeGradient.Rotation = 60
+        strokeGradient.Parent = stroke
 
         local img = Instance.new("ImageLabel")
         img.Name = "A60Image"
@@ -9193,7 +9204,68 @@ local function updateRoomsHelperDisplay()
         label.Position = UDim2.new(0, 0, 1, -22)
         label.BackgroundTransparency = 1
         label.Text = "A60"
-        label.TextColor3 = Color3.fromRGB(255, 80, 80)
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        
+        local labelGradient = Instance.new("UIGradient")
+        labelGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(150, 150, 150)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0))
+        })
+        labelGradient.Rotation = 60
+        labelGradient.Parent = label
+        
+        label.TextScaled = true
+        label.Font = Enum.Font.SourceSansBold
+        label.Parent = imgFrame
+    end
+
+    if showA90 then
+        local imgFrame = Instance.new("Frame")
+        imgFrame.Name = "A90Frame"
+        imgFrame.Size = UDim2.new(0, 180, 0, 180)
+        imgFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        imgFrame.BackgroundTransparency = 0.3
+        imgFrame.BorderSizePixel = 0
+        imgFrame.Parent = container
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(255, 255, 255)
+        stroke.Thickness = 2
+        stroke.Parent = imgFrame
+
+        local gradient = Instance.new("UIGradient")
+        gradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 0, 0)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255))
+        })
+        gradient.Rotation = 60
+        gradient.Parent = stroke
+
+        local img = Instance.new("ImageLabel")
+        img.Name = "A90Image"
+        img.Size = UDim2.new(1, -10, 1, -30)
+        img.Position = UDim2.new(0, 5, 0, 5)
+        img.BackgroundTransparency = 1
+        img.Image = "rbxassetid://116765227934004"
+        img.ScaleType = Enum.ScaleType.Fit
+        img.Parent = imgFrame
+
+        local label = Instance.new("TextLabel")
+        label.Name = "A90Label"
+        label.Size = UDim2.new(1, 0, 0, 20)
+        label.Position = UDim2.new(0, 0, 1, -22)
+        label.BackgroundTransparency = 1
+        label.Text = "A90"
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        
+        local labelGradient = Instance.new("UIGradient")
+        labelGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 0, 0)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255))
+        })
+        labelGradient.Rotation = 60
+        labelGradient.Parent = label
+        
         label.TextScaled = true
         label.Font = Enum.Font.SourceSansBold
         label.Parent = imgFrame
@@ -9213,6 +9285,19 @@ local function updateRoomsHelperDisplay()
         stroke.Thickness = 2
         stroke.Parent = imgFrame
 
+        local strokeGradient = Instance.new("UIGradient")
+        strokeGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(0.4, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(0.45, Color3.fromRGB(0, 255, 255)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(0.55, Color3.fromRGB(255, 0, 255)),
+            ColorSequenceKeypoint.new(0.6, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255))
+        })
+        strokeGradient.Rotation = 60
+        strokeGradient.Parent = stroke
+
         local img = Instance.new("ImageLabel")
         img.Name = "A120Image"
         img.Size = UDim2.new(1, -10, 1, -30)
@@ -9229,6 +9314,20 @@ local function updateRoomsHelperDisplay()
         label.BackgroundTransparency = 1
         label.Text = "A120"
         label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        
+        local labelGradient = Instance.new("UIGradient")
+        labelGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(0.4, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(0.45, Color3.fromRGB(0, 255, 255)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(0.55, Color3.fromRGB(255, 0, 255)),
+            ColorSequenceKeypoint.new(0.6, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255))
+        })
+        labelGradient.Rotation = 60
+        labelGradient.Parent = label
+
         label.TextScaled = true
         label.Font = Enum.Font.SourceSansBold
         label.Parent = imgFrame
@@ -9253,6 +9352,8 @@ local function checkAndAddEntity(inst)
     local name = inst.Name
     if name == "A60" or name == "A-60" or string.find(name, "A60") then
         entityType = "A60"
+    elseif name == "A90" or name == "A-90" or string.find(name, "A90") then
+        entityType = "A90"
     elseif name == "A120" or name == "A-120" or string.find(name, "A120") then
         entityType = "A120"
     end
@@ -9276,12 +9377,12 @@ end
 local function startRoomsHelper()
     stopRoomsHelper()
 
-    for _, descendant in ipairs(workspace:GetDescendants()) do
-        checkAndAddEntity(descendant)
+    for _, child in ipairs(workspace:GetChildren()) do
+        checkAndAddEntity(child)
     end
 
-    local conn = workspace.DescendantAdded:Connect(function(descendant)
-        checkAndAddEntity(descendant)
+    local conn = workspace.ChildAdded:Connect(function(child)
+        checkAndAddEntity(child)
     end)
     table.insert(roomsHelperConnections, conn)
 end
@@ -9292,7 +9393,7 @@ local OtherGameTab = UI.New({ Title = "기타 게임들", Icon = "gamepad-2" })
 OtherGameTab.Label({ Text = "Doors" })
 
 OtherGameTab.Toggle({
-    Text = "룸즈 헬퍼 [ Rooms Helper ]",
+    Text = "엔티티 감시자 [ Entity Overseer ]",
     Enabled = false,
     Callback = function(value)
         Settings.RoomsHelper.enabled = value
