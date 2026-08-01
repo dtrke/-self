@@ -9126,6 +9126,8 @@ local function updateRoomsHelperDisplay()
     local showA60 = false
     local showA90 = false
     local showA120 = false
+    local showRushMoving = false
+    local showAmbushMoving = false
 
     for model, entityType in pairs(activeRoomsEntities) do
         if model and model.Parent then
@@ -9135,6 +9137,10 @@ local function updateRoomsHelperDisplay()
                 showA90 = true
             elseif entityType == "A120" then
                 showA120 = true
+            elseif entityType == "RushMoving" then
+                showRushMoving = true
+            elseif entityType == "AmbushMoving" then
+                showAmbushMoving = true
             end
         else
             activeRoomsEntities[model] = nil
@@ -9147,7 +9153,7 @@ local function updateRoomsHelperDisplay()
         child:Destroy()
     end
 
-    if not showA60 and not showA90 and not showA120 then
+    if not showA60 and not showA90 and not showA120 and not showRushMoving and not showAmbushMoving then
         return
     end
 
@@ -9332,6 +9338,110 @@ local function updateRoomsHelperDisplay()
         label.Font = Enum.Font.SourceSansBold
         label.Parent = imgFrame
     end
+
+    if showRushMoving then
+        local imgFrame = Instance.new("Frame")
+        imgFrame.Name = "RushMovingFrame"
+        imgFrame.Size = UDim2.new(0, 180, 0, 180)
+        imgFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        imgFrame.BackgroundTransparency = 0.3
+        imgFrame.BorderSizePixel = 0
+        imgFrame.Parent = container
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(255, 255, 255)
+        stroke.Thickness = 2
+        stroke.Parent = imgFrame
+
+        local strokeGradient = Instance.new("UIGradient")
+        strokeGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(150, 150, 150)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 0))
+        })
+        strokeGradient.Rotation = 60
+        strokeGradient.Parent = stroke
+
+        local img = Instance.new("ImageLabel")
+        img.Name = "RushMovingImage"
+        img.Size = UDim2.new(1, -10, 1, -30)
+        img.Position = UDim2.new(0, 5, 0, 5)
+        img.BackgroundTransparency = 1
+        img.Image = "rbxassetid://127481872306832"
+        img.ScaleType = Enum.ScaleType.Fit
+        img.Parent = imgFrame
+
+        local label = Instance.new("TextLabel")
+        label.Name = "RushMovingLabel"
+        label.Size = UDim2.new(1, 0, 0, 20)
+        label.Position = UDim2.new(0, 0, 1, -22)
+        label.BackgroundTransparency = 1
+        label.Text = "Rush"
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        
+        local labelGradient = Instance.new("UIGradient")
+        labelGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(150, 150, 150)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 0))
+        })
+        labelGradient.Rotation = 60
+        labelGradient.Parent = label
+        
+        label.TextScaled = true
+        label.Font = Enum.Font.SourceSansBold
+        label.Parent = imgFrame
+    end
+
+    if showAmbushMoving then
+        local imgFrame = Instance.new("Frame")
+        imgFrame.Name = "AmbushMovingFrame"
+        imgFrame.Size = UDim2.new(0, 180, 0, 180)
+        imgFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        imgFrame.BackgroundTransparency = 0.3
+        imgFrame.BorderSizePixel = 0
+        imgFrame.Parent = container
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(255, 255, 255)
+        stroke.Thickness = 2
+        stroke.Parent = imgFrame
+
+        local strokeGradient = Instance.new("UIGradient")
+        strokeGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 119, 85)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 0))
+        })
+        strokeGradient.Rotation = 60
+        strokeGradient.Parent = stroke
+
+        local img = Instance.new("ImageLabel")
+        img.Name = "AmbushMovingImage"
+        img.Size = UDim2.new(1, -10, 1, -30)
+        img.Position = UDim2.new(0, 5, 0, 5)
+        img.BackgroundTransparency = 1
+        img.Image = "rbxassetid://127488564788251"
+        img.ScaleType = Enum.ScaleType.Fit
+        img.Parent = imgFrame
+
+        local label = Instance.new("TextLabel")
+        label.Name = "AmbushMovingLabel"
+        label.Size = UDim2.new(1, 0, 0, 20)
+        label.Position = UDim2.new(0, 0, 1, -22)
+        label.BackgroundTransparency = 1
+        label.Text = "Ambush"
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        
+        local labelGradient = Instance.new("UIGradient")
+        labelGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 119, 85)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 0))
+        })
+        labelGradient.Rotation = 60
+        labelGradient.Parent = label
+        
+        label.TextScaled = true
+        label.Font = Enum.Font.SourceSansBold
+        label.Parent = imgFrame
+    end
 end
 
 local function stopRoomsHelper()
@@ -9356,6 +9466,10 @@ local function checkAndAddEntity(inst)
         entityType = "A90"
     elseif name == "A120" or name == "A-120" or string.find(name, "A120") then
         entityType = "A120"
+    elseif name == "RushMoving" or string.find(name, "RushMoving") then
+        entityType = "RushMoving"
+    elseif name == "AmbushMoving" or string.find(name, "AmbushMoving") then
+        entityType = "AmbushMoving"
     end
 
     if entityType then
