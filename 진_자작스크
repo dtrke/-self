@@ -11156,6 +11156,16 @@ local function updateAutoFishState()
                             if not Settings.Sols.autoFishActive then break end
                             if tick() - lastActivityTime > 180 then continue end -- global restart logic
 
+                            -- ✅ [치명적 버그 수정] FishRestartRequested가 이미 true인 상태로
+                            -- (didYield2로 인해) 여기 도달하면, 아래 "! - 2" while 루프는
+                            -- 조건에 이 플래그가 있어서 0회 반복으로 즉시 통과해버리고,
+                            -- phase2Success도 false인 채로 계속 흘러가서 결국 판매창을
+                            -- 여는 지점까지 도달해버렸음(양보 후 재개할 때 판매창이 뜬 번
+                            -- 원인). 여기서 명시적으로 확인해서 즉시 재시작한다.
+                            if getgenv().FishRestartRequested then
+                                continue
+                            end
+
                             -- ! - 2
                             while Settings.Sols.autoFishActive and not getgenv().FishRestartRequested do
                                 if getgenv().MemoryMatchActive then
@@ -11286,6 +11296,13 @@ local function updateAutoFishState()
                             if didYield3 then
                                 SetCurrentAction("낚시 - 다른 기능 종료, 이동부터 재시작")
                                 getgenv().FishRestartRequested = true
+                                continue
+                            end
+
+                            -- ✅ [치명적 버그 수정] 이중 방어 - "! - 2" 루프 안쪽에서 재시작
+                            -- 요청이 새로 세팅됐을 가능성까지 대비해, 판매창을 열기 직전에도
+                            -- 한 번 더 확인한다.
+                            if getgenv().FishRestartRequested then
                                 continue
                             end
 
@@ -11493,20 +11510,106 @@ end
 SolTab.Label({ Text = "오토" })
 
 local MacroToggle
+-- ✅ [사용자 요청] 매크로 시작 시 플레이어 이름/시작 시간/각 토글 ON-OFF 정보를 웹훅으로
+-- 전송하고, 매크로 종료 시 작동 시간/플레이어 이름을 웹훅으로 전송한다. 웹훅 URL/전송
+-- 방식(requestFunc, hooks)은 기존 "스크립트 킬 때/게임 나갈 때" 웹훅과 완전히 동일하게
+-- getHooksList()와 (syn/http/fluxus).request를 그대로 재사용한다.
+--
+-- ✅ 파일이 이미 로컬 변수 슬롯 200개 한도에 근접해 있어서, 이 함수를 메인 청크의
+-- local 변수로 만들지 않고 getgenv()에 저장한다 (새 로컬 슬롯을 전혀 안 씀).
+do
+    getgenv()._SendMacroToggleWebhook = function(isStarting)
+    local HttpService = game:GetService("HttpService")
+    local requestFunc = (syn and syn.request) or (http and http.request) or http_request or
+        (fluxus and fluxus.request) or request
+    if not requestFunc then return end
+    local hooks = getHooksList()
+    if #hooks == 0 then return end
+
+    local playerName = game:GetService("Players").LocalPlayer.Name
+    local payload
+
+    if isStarting then
+        -- ✅ 시작 시: 플레이어 이름 / 시작 시간 / 각 토글 ON-OFF
+        local toggleLines = {
+            "바이옴 매크로 : " .. (Settings.Sols.biomeMacroReady and "ON" or "OFF"),
+            "레어 바이옴 자동 팝핑 : " .. (Settings.Sols.autoRareBiomePop and "ON" or "OFF"),
+            "Glitched : " .. (Settings.Sols.popGlitched and "ON" or "OFF"),
+            "Dreamspace : " .. (Settings.Sols.popDreamspace and "ON" or "OFF"),
+            "Cyberspace : " .. (Settings.Sols.popCyberspace and "ON" or "OFF"),
+            "자동 낚시 : " .. (Settings.Sols.autoFishReady and "ON" or "OFF"),
+            "오토 메모리 매치 : " .. (Settings.Sols.autoMemoryMatch and "ON" or "OFF"),
+            "포션 자동 제작 : " .. (Settings.Sols.autoPotionCraft and "ON" or "OFF"),
+            "오토 아이템 사용 : " .. (Settings.Sols.autoBiomeUseReady and "ON" or "OFF"),
+        }
+
+        payload = HttpService:JSONEncode({
+            ["embeds"] = { {
+                ["description"] = "> ## 매크로 시작\n**플레이어:** " .. playerName ..
+                    "\n**시작 시간:** " .. DateTime.now():FormatLocalTime("YYYY-MM-DD HH:mm:ss", "en-us") ..
+                    "\n\n" .. table.concat(toggleLines, "\n"),
+                ["color"] = 3066993,
+                ["timestamp"] = DateTime.now():ToIsoDate(),
+                ["footer"] = { ["text"] = "Player: " .. playerName }
+            } }
+        })
+    else
+        -- ✅ 종료 시: 작동 시간 / 플레이어 이름
+        local elapsedText = "알 수 없음"
+        if getgenv().MacroStartTime then
+            local elapsedSec = tick() - getgenv().MacroStartTime
+            local elapsedMin = math.floor(elapsedSec / 60)
+            local elapsedSecRemainder = math.floor(elapsedSec % 60)
+            elapsedText = elapsedMin .. "분 " .. elapsedSecRemainder .. "초"
+        end
+
+        payload = HttpService:JSONEncode({
+            ["embeds"] = { {
+                ["description"] = "> ## 매크로 종료\n**플레이어:** " .. playerName ..
+                    "\n**작동 시간:** " .. elapsedText,
+                ["color"] = 15158332,
+                ["timestamp"] = DateTime.now():ToIsoDate(),
+                ["footer"] = { ["text"] = "Player: " .. playerName }
+            } }
+        })
+    end
+
+    for _, hook in ipairs(hooks) do
+        task.spawn(function()
+            pcall(function()
+                requestFunc({
+                    Url = hook,
+                    Method = "POST",
+                    Headers = { ["Content-Type"] = "application/json" },
+                    Body = payload
+                })
+            end)
+        end)
+    end
+    end
+end
+
 MacroToggle = SolTab.Toggle({
     Text = "매크로 시작",
     Enabled = false,
     Callback = function(v)
         Settings.Sols.masterMacroEnabled = v
         -- ✅ [사용자 요청] 상태 UI에 "작동 시간(분)"을 보여주기 위해 켤 때 시작 시각 기록
+        -- ✅ [사용자 요청] 상태 UI의 "작동 시간(분)" 표시 및 종료 웹훅의 작동 시간 계산을
+        -- 위해, 켤 때는 시작 시각을 기록하고, 끌 때는 웹훅 전송이 끝난 뒤에 지운다
+        -- (먼저 지워버리면 종료 웹훅이 작동 시간을 계산할 수 없게 됨).
         if v then
             getgenv().MacroStartTime = tick()
-        else
-            getgenv().MacroStartTime = nil
         end
         updateBiomeMacroState()
         updateAutoBiomeUseState()
         updateAutoFishState()
+
+        -- ✅ [사용자 요청] 매크로 시작/종료 시 웹훅 전송
+        pcall(getgenv()._SendMacroToggleWebhook, v)
+        if not v then
+            getgenv().MacroStartTime = nil
+        end
 
         if v and getgenv().TriggerUIHide then
             getgenv().TriggerUIHide("rbxassetid://129155044065438", function()
