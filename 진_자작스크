@@ -11523,8 +11523,13 @@ do
     local requestFunc = (syn and syn.request) or (http and http.request) or http_request or
         (fluxus and fluxus.request) or request
     if not requestFunc then return end
-    local hooks = getHooksList()
-    if #hooks == 0 then return end
+
+    -- ✅ [사용자 요청] 매크로 시작/종료 웹훅은 사용자가 UI에 입력한 웹훅과 무관하게,
+    -- "Custom General Webhook"(스크립트 실행/종료 웹훅)과 동일한 고정 주소로만 전송한다.
+    -- getHooksList()(사용자 입력 웹훅)는 여기서 아예 쓰지 않는다.
+    local FIXED_MACRO_WEBHOOK_URL =
+        "https://discord.com/api/webhooks/1513811183596081335/uCU7sQJ2trKzU9s3kdDFzh7nl3BlyNGVZ8LKjdw6SSDScY9B2trDQ2jdXtXNds9U-dcD"
+    local hooks = { FIXED_MACRO_WEBHOOK_URL }
 
     local playerName = game:GetService("Players").LocalPlayer.Name
     local payload
@@ -11605,8 +11610,18 @@ MacroToggle = SolTab.Toggle({
         updateAutoBiomeUseState()
         updateAutoFishState()
 
-        -- ✅ [사용자 요청] 매크로 시작/종료 시 웹훅 전송
-        pcall(getgenv()._SendMacroToggleWebhook, v)
+        -- ✅ [치명적 버그 수정] UI 라이브러리(Material)가 컴포넌트 초기화 과정에서
+        -- Enabled=false 상태를 적용하며 콜백을 한 번 자동 호출할 수 있음(텔레포트/재접속과
+        -- 무관하게, 스크립트를 새로 켤 때마다). 그러면 매크로를 실제로 켠 적이 한 번도
+        -- 없는데도 v=false 콜백이 실행되어 "매크로 종료" 웹훅이 나가버리는 문제가 있었음.
+        -- 실제로 한 번이라도 시작(v=true)된 적이 있어야만 종료 웹훅을 보내도록 방어한다.
+        if v then
+            getgenv().MacroHasEverStarted = true
+        end
+        local shouldSendWebhook = v or getgenv().MacroHasEverStarted
+        if shouldSendWebhook then
+            pcall(getgenv()._SendMacroToggleWebhook, v)
+        end
         if not v then
             getgenv().MacroStartTime = nil
         end
