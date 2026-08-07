@@ -1059,7 +1059,14 @@ task.spawn(function()
 
         -- ✅ [사용자 요청] 현재 인식중인 바이옴이 뭔지 (바이옴 매크로/레어 바이옴 자동
         -- 팝핑과 동일한 방식으로 감지된 getgenv().CurrentBiomeName을 그대로 표시)
-        biomeLabel.Text = richLine("인식중인 바이옴:", getgenv().CurrentBiomeName or "없음")
+        -- ✅ [사용자 요청] 알림 텍스트 원본의 바이옴 색을 그대로 가져와서 표시.
+        -- 색이 없으면(감지 안 된 상태) 기본 값 색을 그대로 씀.
+        local biomeColorHex = nil
+        if getgenv().CurrentBiomeColor then
+            local c = getgenv().CurrentBiomeColor
+            biomeColorHex = string.format("#%02X%02X%02X", c.R * 255, c.G * 255, c.B * 255)
+        end
+        biomeLabel.Text = richLine("인식중인 바이옴:", getgenv().CurrentBiomeName or "없음", biomeColorHex)
 
         -- ✅ [사용자 요청] 메모리 매치의 제외 아이템들 - 글자 없이 이미지만 표시
         local hasExcluded = RefreshExcludedItemIcons()
@@ -1150,8 +1157,12 @@ do
                                         if validBiome then
                                             if action == "started" then
                                                 getgenv().CurrentBiomeName = validBiome
+                                                -- ✅ [사용자 요청] 알림 텍스트 자체에 있는 바이옴 색을
+                                                -- 그대로 가져와서 상태 UI에서도 같은 색으로 표시.
+                                                getgenv().CurrentBiomeColor = child.TextColor3
                                             elseif action == "ended" and getgenv().CurrentBiomeName == validBiome then
                                                 getgenv().CurrentBiomeName = nil
+                                                getgenv().CurrentBiomeColor = nil
                                             end
                                         end
                                     end
@@ -1166,6 +1177,7 @@ do
                     biomeWatchConn = nil
                 end
                 getgenv().CurrentBiomeName = nil
+                getgenv().CurrentBiomeColor = nil
             end
         end
     end)
