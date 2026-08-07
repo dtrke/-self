@@ -854,18 +854,25 @@ excludedItemsHeaderLabel.Text = string.format('<font color="%s">메모리 매치
 -- (10번 자리는 메모리 매치 제외 아이템 이미지 컨테이너 - 아래에서 LayoutOrder=10로 생성,
 -- 라벨 바로 다음 줄에 이미지들이 오도록)
 local divider3 = createDivider(11)
-local biomeLabel = createStatusLine(12, 24, 6)
-local divider4 = createDivider(13)
+local autoPopHeaderLabel = createStatusLine(12, 22, 6)
+autoPopHeaderLabel.Text = string.format('<font color="%s">자동 팝핑 바이옴:</font>', LABEL_COLOR)
+-- ✅ [사용자 요청] 각 바이옴을 지정된 색으로 표시 (Glitched=하얀색, Dreamspace/Cyberspace=지정 RGB)
+local glitchedPopLabel = createStatusLine(13, 22)
+local dreamspacePopLabel = createStatusLine(14, 22)
+local cyberspacePopLabel = createStatusLine(15, 22)
+local divider3b = createDivider(16)
+local biomeLabel = createStatusLine(17, 24, 6)
+local divider4 = createDivider(18)
 -- ✅ 이 둘은 글자 크기 1.5배 작게 (24 / 1.5 = 16)
 local SMALL_TEXT_SIZE = 24 / 1.5
-local enabledFeaturesHeaderLabel = createStatusLine(14, SMALL_TEXT_SIZE, 6)
+local enabledFeaturesHeaderLabel = createStatusLine(19, SMALL_TEXT_SIZE, 6)
 enabledFeaturesHeaderLabel.Text = string.format('<font color="%s">켜져 있는 기능:</font>', LABEL_COLOR)
-local webhookGroupLabel = createStatusLine(15, SMALL_TEXT_SIZE)
-local alwaysGroupLabel = createStatusLine(16, SMALL_TEXT_SIZE)
-local singleGroupLabel = createStatusLine(17, SMALL_TEXT_SIZE)
-local emergencyGroupLabel = createStatusLine(18, SMALL_TEXT_SIZE)
-local emergencyBiomeListLabel = createStatusLine(19, SMALL_TEXT_SIZE)
-local uptimeLabel = createStatusLine(20, SMALL_TEXT_SIZE)
+local webhookGroupLabel = createStatusLine(20, SMALL_TEXT_SIZE)
+local alwaysGroupLabel = createStatusLine(21, SMALL_TEXT_SIZE)
+local singleGroupLabel = createStatusLine(22, SMALL_TEXT_SIZE)
+local emergencyGroupLabel = createStatusLine(23, SMALL_TEXT_SIZE)
+local emergencyBiomeListLabel = createStatusLine(24, SMALL_TEXT_SIZE)
+local uptimeLabel = createStatusLine(25, SMALL_TEXT_SIZE)
 
 -- ✅ 메모리 매치 제외 아이템은 텍스트 없이 이미지만 표시 (라벨은 위에서 별도 줄로 이미
 -- 추가했음). 가로로 나열되는 별도 컨테이너를 만들고, 그 안에 이미지 아이콘만 매번 새로 채운다.
@@ -905,7 +912,9 @@ local statusUIVisible = false -- 트윈 중복 실행을 막기 위해 마지막
 local AllStatusLabels = {
     currentActionLabel, runningLabel, queueLabel,
     itemUseCooldownHeaderLabel, strangeControllerLabel, biomeRandomizerLabel,
-    excludedItemsHeaderLabel, biomeLabel,
+    excludedItemsHeaderLabel,
+    autoPopHeaderLabel, glitchedPopLabel, dreamspacePopLabel, cyberspacePopLabel,
+    biomeLabel,
     enabledFeaturesHeaderLabel, webhookGroupLabel, alwaysGroupLabel, singleGroupLabel,
     emergencyGroupLabel, emergencyBiomeListLabel, uptimeLabel
 }
@@ -914,7 +923,7 @@ local AllStatusLabels = {
 -- 매크로를 꺼도 텍스트/이미지는 다 투명해지는데 구분선 4개만 계속 옅게 남아있는
 -- 문제가 있었음. 구분선은 텍스트/이미지와 목표 투명도가 다르므로(0.9 vs 0) 별도
 -- 리스트로 관리한다.
-local AllDividers = { divider1, divider2, divider3, divider4 }
+local AllDividers = { divider1, divider2, divider3, divider3b, divider4 }
 
 local function FadeStatusUI(shouldShow)
     if shouldShow == statusUIVisible then return end
@@ -1099,6 +1108,29 @@ task.spawn(function()
             uptimeLabel.Text = richLine("작동 시간:", elapsedMin .. "분")
         else
             uptimeLabel.Text = richLine("작동 시간:", "-")
+        end
+
+        -- ✅ [사용자 요청] "자동 팝핑 바이옴" - 각 바이옴을 지정된 색으로 표시하고,
+        -- 해당 바이옴을 팝핑하는 토글이 꺼져 있으면 그 줄은 숨긴다.
+        if Settings.Sols.popGlitched then
+            glitchedPopLabel.Visible = true
+            glitchedPopLabel.Text = richLine("Glitched -", "하얀색", "#FFFFFF")
+        else
+            glitchedPopLabel.Visible = false
+        end
+
+        if Settings.Sols.popDreamspace then
+            dreamspacePopLabel.Visible = true
+            dreamspacePopLabel.Text = richLine("Dreamspace -", "242, 88, 199", "#F258C7")
+        else
+            dreamspacePopLabel.Visible = false
+        end
+
+        if Settings.Sols.popCyberspace then
+            cyberspacePopLabel.Visible = true
+            cyberspacePopLabel.Text = richLine("Cyberspace -", "19, 19, 235", "#1313EB")
+        else
+            cyberspacePopLabel.Visible = false
         end
 
         -- ✅ [사용자 요청] 현재 인식중인 바이옴이 뭔지 (바이옴 매크로/레어 바이옴 자동
@@ -3976,6 +4008,10 @@ local function showPremiumIndicator(x, y)
     local sg = Instance.new("ScreenGui")
     sg.Name = "TacticalIndicatorGui"
     sg.IgnoreGuiInset = true
+    -- ✅ [버그 수정] 상태 UI(MacroStatusDisplay)가 DisplayOrder를 최댓값으로 고정해둬서,
+    -- 이 클릭 표시기가 DisplayOrder 없이(기본값 0) 그려지면 항상 상태 UI 뒤에 가려짐.
+    -- 표시기도 최상단에 그려지도록 동일하게 최댓값으로 고정한다.
+    sg.DisplayOrder = 2147483647
     sg.Parent = LocalPlayer.PlayerGui
 
     local container = Instance.new("Frame")
@@ -4397,9 +4433,9 @@ local function HandlePotionCraftEmergencyBoundary()
     if hum then hum.Health = 0 end
     task.wait(3)
 
-    -- Emergency 행동이 다 끝날 때까지 대기 (넉넉한 리미트 3분)
+    -- Emergency 행동이 다 끝날 때까지 대기 (넉넉한 리미트 10분)
     local emergencyWaitStart = tick()
-    while Settings.Emergency and (tick() - emergencyWaitStart) < 180 do
+    while Settings.Emergency and (tick() - emergencyWaitStart) < 600 do
         task.wait(0.5)
     end
     Settings.EmergencyReady = false
@@ -10026,9 +10062,9 @@ local function updateAutoFishState()
 
                     if Settings.Emergency then
                         Settings.EmergencyReady = true
-                        -- ✅ [버그 수정] 무한 루프 방지용 넉넉한 리미트 (최대 90초)
+                        -- ✅ [버그 수정] 무한 루프 방지용 넉넉한 리미트 (최대 10분)
                         local emergencyWaitStart = tick()
-                        while Settings.Emergency and (tick() - emergencyWaitStart) < 180 do
+                        while Settings.Emergency and (tick() - emergencyWaitStart) < 600 do
                             task.wait(0.5)
                         end
                         Settings.EmergencyReady = false
@@ -10320,6 +10356,24 @@ local function updateAutoFishState()
                                 -- ! - Flexibility
                                 doFlexibility()
 
+                                -- ✅ [치명적 버그 수정] doFlexibility() 안에서 다른 기능(메모리
+                                -- 매치/포션 제작/아이템 사용)에게 자리를 넘겨줬다가 다시 되찾는데,
+                                -- doFlexibility()를 부른 쪽은 그 결과(진짜로 자리를 되찾았는지)를
+                                -- 확인 안 하고 그냥 아래 while 루프로 진입했었음. 그러면 실제로는
+                                -- 아직 Place1에 도착도 못 했거나 자리가 없는 상태인데 "물고기
+                                -- 잡히길 기다리는 중"이라고 표시되며 그 다음 로직을 진행해버리는
+                                -- 문제가 있었음. 자리를 진짜로 쥐고 있을 때까지 여기서 기다린다.
+                                while Settings.Sols.autoFishActive and not MacroPriority.IsActive.Fishing do
+                                    SetCurrentAction("낚시 - 다른 기능에 자리 확인 중")
+                                    task.wait(0.5)
+                                    if IsAnySingleActionSignaled() then
+                                        YieldFishingForSingleActions()
+                                    else
+                                        StartMacro("Fishing")
+                                    end
+                                end
+                                if not Settings.Sols.autoFishActive then continue end
+
                                 while Settings.Sols.autoFishActive and not getgenv().FishRestartRequested do
                                     if getgenv().MemoryMatchActive then
                                         task.wait(0.5)
@@ -10540,6 +10594,18 @@ local function updateAutoFishState()
 
                                             -- ! - Flexibility
                                             doFlexibility()
+
+                                            -- ✅ [치명적 버그 수정] 위와 동일한 이유로, 자리를
+                                            -- 진짜로 되찾을 때까지 기다린다.
+                                            while Settings.Sols.autoFishActive and not MacroPriority.IsActive.Fishing do
+                                                SetCurrentAction("낚시 - 다른 기능에 자리 확인 중")
+                                                task.wait(0.5)
+                                                if IsAnySingleActionSignaled() then
+                                                    YieldFishingForSingleActions()
+                                                else
+                                                    StartMacro("Fishing")
+                                                end
+                                            end
                                         else
                                             task.wait(0.5)
                                         end
@@ -10662,6 +10728,18 @@ local function updateAutoFishState()
 
                             -- Flexibility
                             doFlexibility()
+
+                            -- ✅ [치명적 버그 수정] 판매창을 열기 전에 자리를 진짜로
+                            -- 되찾았는지 확인한다.
+                            while Settings.Sols.autoFishActive and not MacroPriority.IsActive.Fishing do
+                                SetCurrentAction("낚시 - 다른 기능에 자리 확인 중")
+                                task.wait(0.5)
+                                if IsAnySingleActionSignaled() then
+                                    YieldFishingForSingleActions()
+                                else
+                                    StartMacro("Fishing")
+                                end
+                            end
 
                             SetCurrentAction("낚시 - 판매창 여는 중")
                             local fShopParent = findFishingShopFrame()
@@ -10831,6 +10909,18 @@ local function updateAutoFishState()
 
                             -- ! - Flexibility
                             doFlexibility()
+
+                            -- ✅ [치명적 버그 수정] 사이클을 다시 시작하기 전에 자리를
+                            -- 진짜로 되찾았는지 확인한다.
+                            while Settings.Sols.autoFishActive and not MacroPriority.IsActive.Fishing do
+                                SetCurrentAction("낚시 - 다른 기능에 자리 확인 중")
+                                task.wait(0.5)
+                                if IsAnySingleActionSignaled() then
+                                    YieldFishingForSingleActions()
+                                else
+                                    StartMacro("Fishing")
+                                end
+                            end
 
                             -- Loop goes back to ! - 1
                         end
@@ -13052,9 +13142,9 @@ local function RunAutoMemoryMatchLogic()
                     -- Emergency 진행
                     Settings.EmergencyReady = true
                     SetCurrentAction("메모리 매치 - Emergency 처리 중")
-                    -- ✅ [버그 수정] 무한 루프 방지용 넉넉한 리미트 (최대 90초)
+                    -- ✅ [버그 수정] 무한 루프 방지용 넉넉한 리미트 (최대 10분)
                     local emergencyWaitStart2 = tick()
-                    while Settings and Settings.Emergency and (tick() - emergencyWaitStart2) < 180 do
+                    while Settings and Settings.Emergency and (tick() - emergencyWaitStart2) < 600 do
                         task.wait(0.5)
                     end
                     Settings.EmergencyReady = false
