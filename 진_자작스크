@@ -1,4 +1,22 @@
 local scriptStartTime = tick()
+
+-- ✅ [치명적 버그 수정] getgenv().IS_TELEPORT_LOAD를 파일 여러 곳(isRecon 지역 변수,
+-- ConfigSystem.IsTeleportLoad 등)에서 각자 다시 읽고 있었는데, 이 값을 읽는 시점과
+-- 리셋하는 시점이 파일 곳곳에 흩어져 있어서, 리셋이 실행되기도 전에 다른 코드가
+-- 먼저 값을 읽어버리는 순서 문제가 있었을 뿐 아니라, 이전 세션에서 스크립트가
+-- 끝까지 실행되지 못해(에러 등) 리셋 자체가 누락되면 그 값이 계속 살아남아 텔레포트를
+-- 전혀 안 했는데도 다음 실행에서 "레어 바이옴 자동 팝핑"이나 "Cyberspace" 같은 토글이
+-- 이전 세션 값으로 조용히 자동 복원되는 문제가 있었음.
+--
+-- 파일에서 가장 먼저(다른 무엇보다 앞서) 값을 한 번만 읽어서 getgenv()의 별도 키에
+-- 스냅샷으로 저장하고(메인 청크의 로컬 변수 슬롯을 새로 안 쓰기 위해 local 대신 이
+-- 방식을 씀 - 파일이 이미 로컬 슬롯 200개 한도에 근접해 있음), 원래 플래그는 즉시
+-- 지운다. 이후 파일의 모든 코드는 getgenv().IS_TELEPORT_LOAD_SNAPSHOT만 참조해야 한다.
+if getgenv then
+    getgenv().IS_TELEPORT_LOAD_SNAPSHOT = getgenv().IS_TELEPORT_LOAD or false
+    getgenv().IS_TELEPORT_LOAD = nil
+end
+
 local Rayfield
 local success, err = pcall(function()
     Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
@@ -7010,7 +7028,7 @@ pcall(function()
         end
     end
 
-    local isRecon = (getgenv and getgenv().IS_TELEPORT_LOAD) or false
+    local isRecon = (getgenv and getgenv().IS_TELEPORT_LOAD_SNAPSHOT) or false
 
     if autoHideUI and isRecon then
         getgenv().TriggerUIHide()
@@ -7046,19 +7064,10 @@ local ConfigSystem = {
     PermanentStates = {},
     Components = {},
     Callbacks = {},
-    IsTeleportLoad = (getgenv and getgenv().IS_TELEPORT_LOAD) or false
+    -- ✅ [치명적 버그 수정] getgenv().IS_TELEPORT_LOAD를 여기서 다시 읽으면 파일 최상단의
+    -- 리셋 때문에 항상 nil이 나온다. 파일 맨 앞에서 저장해둔 스냅샷을 대신 쓴다.
+    IsTeleportLoad = (getgenv and getgenv().IS_TELEPORT_LOAD_SNAPSHOT) or false
 }
-
--- ✅ [치명적 버그 수정] 기존엔 이 리셋이 파일 맨 끝(UI 생성이 전부 끝난 뒤)에서만
--- 실행됐음. 만약 이전 실행에서 스크립트가 에러나 강제 종료 등으로 파일 끝까지
--- 도달하지 못하면, getgenv().IS_TELEPORT_LOAD가 true로 계속 남아있게 되어 - 텔레포트를
--- 전혀 안 했는데도 다음 실행(심지어 그냥 처음 스크립트를 켠 경우)에서 "매크로 시작"이나
--- "레어 바이옴 자동 팝핑" 같은 토글이 이전 세션 값으로 자동 복원되며 조용히 켜지는
--- 문제가 있었음. 값을 읽은 직후 즉시 리셋해서, 이 세션 안에서는 로컬 복사본
--- (ConfigSystem.IsTeleportLoad)만 참조하고 전역 플래그는 더 이상 영향을 주지 않게 한다.
-if getgenv then
-    getgenv().IS_TELEPORT_LOAD = nil
-end
 
 -- Define permanent items list
 local PERMANENT_ITEMS = {
