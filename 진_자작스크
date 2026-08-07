@@ -734,7 +734,7 @@ StatusFrame.Position = UDim2.new(1, -20, 0.5, 0)
 -- ✅ [사용자 요청] 내용에 맞춰 자동으로 높이가 늘어나게 함 (고정 550이면 항목이 늘어날 때
 -- 넘치거나, 줄 때 밑에 빈 공간이 생겨서 답답해 보였음). 가로는 고정.
 StatusFrame.AutomaticSize = Enum.AutomaticSize.Y
-StatusFrame.Size = UDim2.new(0, 420, 0, 0)
+StatusFrame.Size = UDim2.new(0, 560, 0, 0)
 StatusFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
 -- ✅ 자연스러운 페이드를 위해 시작은 완전히 투명한 상태로 둠.
 -- 목표(보일 때) 투명도인 0.15는 아래 TargetFrameTransparency에 따로 저장해둠.
@@ -858,8 +858,14 @@ local biomeLabel = createStatusLine(12, 24, 6)
 local divider4 = createDivider(13)
 -- ✅ 이 둘은 글자 크기 1.5배 작게 (24 / 1.5 = 16)
 local SMALL_TEXT_SIZE = 24 / 1.5
-local enabledFeaturesLabel = createStatusLine(14, SMALL_TEXT_SIZE, 6)
-local uptimeLabel = createStatusLine(15, SMALL_TEXT_SIZE)
+local enabledFeaturesHeaderLabel = createStatusLine(14, SMALL_TEXT_SIZE, 6)
+enabledFeaturesHeaderLabel.Text = string.format('<font color="%s">켜져 있는 기능:</font>', LABEL_COLOR)
+local webhookGroupLabel = createStatusLine(15, SMALL_TEXT_SIZE)
+local alwaysGroupLabel = createStatusLine(16, SMALL_TEXT_SIZE)
+local singleGroupLabel = createStatusLine(17, SMALL_TEXT_SIZE)
+local emergencyGroupLabel = createStatusLine(18, SMALL_TEXT_SIZE)
+local emergencyBiomeListLabel = createStatusLine(19, SMALL_TEXT_SIZE)
+local uptimeLabel = createStatusLine(20, SMALL_TEXT_SIZE)
 
 -- ✅ 메모리 매치 제외 아이템은 텍스트 없이 이미지만 표시 (라벨은 위에서 별도 줄로 이미
 -- 추가했음). 가로로 나열되는 별도 컨테이너를 만들고, 그 안에 이미지 아이콘만 매번 새로 채운다.
@@ -899,7 +905,9 @@ local statusUIVisible = false -- 트윈 중복 실행을 막기 위해 마지막
 local AllStatusLabels = {
     currentActionLabel, runningLabel, queueLabel,
     itemUseCooldownHeaderLabel, strangeControllerLabel, biomeRandomizerLabel,
-    excludedItemsHeaderLabel, biomeLabel, enabledFeaturesLabel, uptimeLabel
+    excludedItemsHeaderLabel, biomeLabel,
+    enabledFeaturesHeaderLabel, webhookGroupLabel, alwaysGroupLabel, singleGroupLabel,
+    emergencyGroupLabel, emergencyBiomeListLabel, uptimeLabel
 }
 
 -- ✅ [치명적 버그 수정] 구분선(Divider)들이 FadeStatusUI의 트윈 대상에서 빠져있어서,
@@ -1022,13 +1030,49 @@ task.spawn(function()
         currentActionLabel.Text = richLine("현재 행동:", actionText, ACCENT_COLOR)
         queueLabel.Text = richLine("대기열인 기능:", queueStr)
 
-        -- ✅ [사용자 요청] 현재 켜져 있는 기능들 (토글 기준, 실행 여부와 무관)
-        local enabledNames = {}
-        if Settings.Sols.autoMemoryMatch then table.insert(enabledNames, "메모리 매치") end
-        if Settings.Sols.autoPotionCraft then table.insert(enabledNames, "포션 제작") end
-        if Settings.Sols.autoBiomeUseReady then table.insert(enabledNames, "아이템 사용") end
-        if Settings.Sols.autoFishReady then table.insert(enabledNames, "자동 낚시") end
-        enabledFeaturesLabel.Text = richLine("켜져 있는 기능:", (#enabledNames > 0) and table.concat(enabledNames, ", ") or "없음")
+        -- ✅ [사용자 요청] 현재 켜져 있는 기능들을 성격별로 4그룹으로 나눠서 표시
+        -- (웹훅 기능 / 상시 기능 / 단일성 기능 / 긴급 기능). 기존엔 4개 토글만 확인해서
+        -- 바이옴 매크로/레어 바이옴 자동 팝핑 같은 건 켜도 UI에 전혀 안 떴었음.
+
+        -- > 웹후크 기능
+        local webhookNames = {}
+        if Settings.Sols.biomeMacroReady then table.insert(webhookNames, "바이옴 매크로") end
+        webhookGroupLabel.Text = (#webhookNames > 0)
+            and richLine("[웹후크 기능]", table.concat(webhookNames, ", "))
+            or string.format('<font color="%s">[웹후크 기능] 없음</font>', LABEL_COLOR)
+
+        -- > 상시 기능
+        local alwaysNames = {}
+        if Settings.Sols.autoFishReady then table.insert(alwaysNames, "자동 낚시") end
+        alwaysGroupLabel.Text = (#alwaysNames > 0)
+            and richLine("[상시 기능]", table.concat(alwaysNames, ", "))
+            or string.format('<font color="%s">[상시 기능] 없음</font>', LABEL_COLOR)
+
+        -- > 단일성 기능
+        local singleNames = {}
+        if Settings.Sols.autoMemoryMatch then table.insert(singleNames, "메모리 매치") end
+        if Settings.Sols.autoPotionCraft then table.insert(singleNames, "포션 자동 제작") end
+        if Settings.Sols.autoBiomeUseReady then table.insert(singleNames, "아이템 사용") end
+        singleGroupLabel.Text = (#singleNames > 0)
+            and richLine("[단일성 기능]", table.concat(singleNames, ", "))
+            or string.format('<font color="%s">[단일성 기능] 없음</font>', LABEL_COLOR)
+
+        -- > 긴급 기능 (+ 하위 팝핑 대상 바이옴 목록)
+        if Settings.Sols.autoRareBiomePop then
+            emergencyGroupLabel.Text = richLine("[긴급 기능]", "레어 바이옴 자동 팝핑")
+
+            local rareBiomeNames = {}
+            if Settings.Sols.popGlitched then table.insert(rareBiomeNames, "Glitched") end
+            if Settings.Sols.popDreamspace then table.insert(rareBiomeNames, "Dreamspace") end
+            if Settings.Sols.popCyberspace then table.insert(rareBiomeNames, "Cyberspace") end
+            emergencyBiomeListLabel.Visible = true
+            emergencyBiomeListLabel.Text = (#rareBiomeNames > 0)
+                and richLine("　•", table.concat(rareBiomeNames, ", "))
+                or string.format('<font color="%s">　• 대상 바이옴 없음</font>', LABEL_COLOR)
+        else
+            emergencyGroupLabel.Text = string.format('<font color="%s">[긴급 기능] 없음</font>', LABEL_COLOR)
+            emergencyBiomeListLabel.Visible = false
+        end
 
         -- ✅ [사용자 요청] 아이템 사용 쿨타임을 Strange Controller / Biome Randomizer 두 줄로 분리
         local function fmtTime(sec)
