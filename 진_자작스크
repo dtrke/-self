@@ -522,6 +522,7 @@ end
 local function YieldFishingForSingleActions()
     if not IsAnySingleActionSignaled() then return end
 
+    SetCurrentAction("낚시 - 다른 기능에 자리 양보 중")
     local prevFlex = getgenv().IsFlexibilityState
     getgenv().IsFlexibilityState = true
     StopMacro("Fishing")
@@ -532,7 +533,25 @@ local function YieldFishingForSingleActions()
     end
 
     getgenv().IsFlexibilityState = prevFlex or false
-    if Settings.Sols.autoFishActive then StartMacro("Fishing") end
+
+    -- ✅ [치명적 버그 수정] StartMacro는 CanStartMacro가 실패하면 조용히 아무 것도
+    -- 안 하고 그냥 리턴한다. 기존엔 이걸 확인 안 하고 무조건 "자리를 되찾았다"고
+    -- 가정한 채로 넘어가버려서, 실제로는 자리를 못 되찾았는데도(다른 기능이 그 사이
+    -- 또 끼어든 경우 등) 캐스팅/릴링/판매를 계속 진행해버리는 문제가 있었음
+    -- (자리 없이 낚시가 계속 도는 문제, 그리고 반대로 자리를 못 잡은 채 계속
+    -- 대기만 반복해서 다른 기능이 끝나도 낚시가 이어지지 않는 문제 둘 다의 원인).
+    -- 진짜로 자리를 되찾을 때까지 최대 30초 재시도한다.
+    if Settings.Sols.autoFishActive then
+        local reclaimStart = tick()
+        while not MacroPriority.IsActive.Fishing and (tick() - reclaimStart) < 30 do
+            StartMacro("Fishing")
+            if MacroPriority.IsActive.Fishing then break end
+            task.wait(0.2)
+        end
+        if MacroPriority.IsActive.Fishing then
+            SetCurrentAction("낚시 - 자리 되찾음, 이어서 진행")
+        end
+    end
 end
 
 -- ✅ [치명적 버그 수정] CanStartMacro가 통과해도, 그건 "지금 자리가 비어있다"는 뜻일
@@ -9675,6 +9694,7 @@ local function updateAutoFishState()
                         getgenv().FishRestartRequested = false
                     end
                     if getgenv().MemoryMatchActive or (getgenv().CurrentActiveFeature and getgenv().CurrentActiveFeature ~= "Fishing") then
+                        SetCurrentAction("낚시 - 다른 기능 진행 중, 대기")
                         task.wait(0.5)
                         continue
                     end
@@ -9684,11 +9704,22 @@ local function updateAutoFishState()
                     -- 이동을 시작조차 하지 않게 함 - 이게 없으면 낚시가 메뉴 조작/이동을 이미
                     -- 시작한 뒤에야 신호를 발견해서 캐릭터 리셋과 겹치는 사고가 났었음)
                     if IsAnySingleActionSignaled() then
+                        SetCurrentAction("낚시 - 다른 기능에 자리 확인 중")
                         task.wait(0.5)
                         continue
                     end
 
+                    SetCurrentAction("낚시 - 캐스팅 준비 중")
                     StartMacro("Fishing")
+                    -- ✅ [치명적 버그 수정] StartMacro가 CanStartMacro 실패로 조용히
+                    -- 아무 것도 안 했을 가능성을 확인 안 하고 그냥 캐스팅을 진행해버리면,
+                    -- 자리 없이(다른 기능이 자리를 쥔 채로) 던지기/릴링/판매가 계속되는
+                    -- 문제가 생김. 자리를 못 잡았으면 이번 사이클은 건너뛰고 재시도한다.
+                    if not MacroPriority.IsActive.Fishing then
+                        SetCurrentAction("낚시 - 자리를 못 잡아 대기")
+                        task.wait(0.5)
+                        continue
+                    end
                     local lastActivityTime = tick()
 
                     local pathExists = false
