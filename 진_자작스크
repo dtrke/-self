@@ -6152,25 +6152,36 @@ do
 
     -- ===== 이동 패턴 =====
     SetCurrentAction("포션 제작 - Place4로 이동 중")
-    -- Place4로 이동 및 캐릭터가 1.5초간 멈춰 있으면 Place5로 이동
-    MoveToPlaceClickStyle(Vector3.new(531, 113, -210), "Place4")
-    WaitUntilStationary(1.5)
-    SetCurrentAction("포션 제작 - Place5로 이동 중")
-    MoveToPlaceClickStyle(Vector3.new(-4648.5, 146, -232.5), "Place5")
+    -- Place4로 이동 및 캐릭터가 1.5초간 멈춰 있으면 경유지로 이동
+    -- ✅ [사용자 요청] 실제 실행 순서가 코드 순서와 다르게(경유지 -> Place4 -> Place5) 나온
+    -- 문제를 해결하기 위해, 이름표는 그대로 두고 두 좌표값 자체를 맞바꿨다. 이렇게 하면
+    -- 게임의 클릭-투-이동 처리 순서와 무관하게, 실제 목표 좌표가 원하는 순서(Place4 위치 ->
+    -- 경유지 위치 -> Place6)로 실행된다.
+    MoveToPlaceClickStyle(Vector3.new(399.3959, 100.5000, -251.8907), "Place4")
     WaitUntilStationary(1.5)
 
-    -- ✅ [사용자 요청] 캐릭터가 멈춰 있어도 실제로 Place5 파트와 겹쳐있는지 확인.
-    -- 겹쳐있지 않으면(이동 실패) 시작 패턴부터 처음부터 다시 시도.
-    local place5Part = workspace:FindFirstChild("ScriptParts") and workspace.ScriptParts:FindFirstChild("Place5")
-    local reachedPlace5 = false
-    if place5Part then
+    -- ✅ [사용자 요청] 이름표 변경 - 경유지(기존 파트 이름 PotionWaypoint)를 Place5로.
+    SetCurrentAction("포션 제작 - Place5로 이동 중")
+    MoveToPlaceClickStyle(Vector3.new(531, 113, -210), "Place5")
+    WaitUntilStationary(1.5)
+
+    -- ✅ [사용자 요청] 이름표 변경 - 기존 Place5를 Place6으로.
+    SetCurrentAction("포션 제작 - Place6로 이동 중")
+    MoveToPlaceClickStyle(Vector3.new(-4648.5, 146, -232.5), "Place6")
+    WaitUntilStationary(1.5)
+
+    -- ✅ [사용자 요청] 캐릭터가 멈춰 있어도 실제로 최종 목적지(이제 이름이 Place6으로
+    -- 바뀐) 파트와 겹쳐있는지 확인. 겹쳐있지 않으면(이동 실패) 시작 패턴부터 처음부터 다시 시도.
+    local place6Part = workspace:FindFirstChild("ScriptParts") and workspace.ScriptParts:FindFirstChild("Place6")
+    local reachedPlace6 = false
+    if place6Part then
         local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if hrp and (hrp.Position - place5Part.Position).Magnitude < 10 then
-            reachedPlace5 = true
+        if hrp and (hrp.Position - place6Part.Position).Magnitude < 10 then
+            reachedPlace6 = true
         end
     end
 
-    if not reachedPlace5 then
+    if not reachedPlace6 then
         if IsPotionCraftToggleOff() then
             StopPotionCraftCleanly()
             return
@@ -6324,6 +6335,49 @@ RegisterSingleAction({
 })
 
 
+-- ✅ [사용자 요청] 아이템이 시간이 지날수록 늘어나면서, 카테고리 버튼(QuickCategory,
+-- LayoutOrder로 특정 분류를 찾는 방식)에 의존하는 기존 방식은 그 카테고리 안에서도
+-- 원하는 아이템을 못 찾을 위험이 커짐. 포션 자동 제작(ScrollToPotionButton)과 동일한
+-- 원리로, 목표 아이템의 실제 화면 좌표를 계산해서 스크롤 프레임을 정확히 그 위치로
+-- 이동시키는 방식으로 통일한다. ItemGridScrollingFrame은 Roblox의 ScrollingFrame이라
+-- CanvasPosition으로 직접 스크롤한다(포션 제작 쪽의 Position 이동과 원리는 동일하고,
+-- ScrollingFrame이라는 실제 타입에 맞는 표준 스크롤 속성을 사용).
+-- ✅ 파일이 이미 로컬 변수 슬롯 200개 한도에 근접해 있어서, getgenv()에 저장한다.
+getgenv()._ScrollToInventoryItem = function(targetItem, scrollingFrame)
+    if not (targetItem and scrollingFrame) then return end
+
+    local btnPos = targetItem.AbsolutePosition
+    local btnSize = targetItem.AbsoluteSize
+    local viewportPos = scrollingFrame.AbsolutePosition
+    local viewportSize = scrollingFrame.AbsoluteSize
+
+    local deltaY = (btnPos.Y + btnSize.Y / 2) - (viewportPos.Y + viewportSize.Y / 2)
+
+    local currentCanvas = scrollingFrame.CanvasPosition
+    local newY = currentCanvas.Y + deltaY
+
+    local maxScrollY = math.max(0, scrollingFrame.AbsoluteCanvasSize.Y - viewportSize.Y)
+    newY = math.clamp(newY, 0, maxScrollY)
+
+    scrollingFrame.CanvasPosition = Vector2.new(currentCanvas.X, newY)
+end
+
+-- ✅ [사용자 요청] 인벤토리 전체(카테고리 필터 없이)에서 이름으로 아이템을 찾는 헬퍼.
+-- 카테고리 버튼을 거치지 않으므로, 아이템이 늘어나도 항상 정확하게 찾을 수 있다.
+getgenv()._FindInventoryItemByName = function(scrollingFrame, itemName)
+    for _, item in pairs(scrollingFrame:GetChildren()) do
+        if item.Name == itemName or item:FindFirstChild(itemName, true) then
+            return item
+        end
+        for _, desc in pairs(item:GetDescendants()) do
+            if desc:IsA("TextLabel") and string.find(desc.Text, itemName) then
+                return item
+            end
+        end
+    end
+    return nil
+end
+
 local function useSpecificItemByName(itemName)
     local inventory = LocalPlayer.PlayerGui.MainInterface:FindFirstChild("Inventory")
     if not inventory then return false end
@@ -6332,24 +6386,15 @@ local function useSpecificItemByName(itemName)
         inventory.Items.ItemGrid:FindFirstChild("ItemGridScrollingFrame")
     if not scrollingFrame then return false end
 
-    local targetItem = nil
-    for _, item in pairs(scrollingFrame:GetChildren()) do
-        if item.Name == itemName or item:FindFirstChild(itemName, true) then
-            targetItem = item
-        else
-            for _, desc in pairs(item:GetDescendants()) do
-                if desc:IsA("TextLabel") and string.find(desc.Text, itemName) then
-                    targetItem = item
-                    break
-                end
-            end
-        end
-        if targetItem then break end
-    end
+    local targetItem = getgenv()._FindInventoryItemByName(scrollingFrame, itemName)
 
     if targetItem then
+        -- ✅ [사용자 요청] 클릭 전에 정확한 위치로 스크롤 (포션 자동 제작과 동일한 방식)
+        getgenv()._ScrollToInventoryItem(targetItem, scrollingFrame)
+        task.wait(0.2)
         clickExactly(targetItem)
-        task.wait(0.5)
+        -- ✅ [사용자 요청] 클릭 후 대기 시간이 체감될 만큼 길었음. 0.5 -> 0.3으로 단축.
+        task.wait(0.3)
         local itemIndex = inventory:WaitForChild("Index"):WaitForChild("ItemIndex")
         local useAmount = itemIndex:WaitForChild("UseHolder"):WaitForChild("UseAmount")
         local useButton = itemIndex.UseHolder:WaitForChild("UseButton")
@@ -6410,8 +6455,12 @@ local function useSpecificItemByNameWithAmount(itemName, useAmountNum)
             end
         end
 
+        -- ✅ [사용자 요청] 클릭 전에 정확한 위치로 스크롤 (포션 자동 제작과 동일한 방식)
+        getgenv()._ScrollToInventoryItem(targetItem, scrollingFrame)
+        task.wait(0.2)
         clickExactly(targetItem)
-        task.wait(0.5)
+        -- ✅ [사용자 요청] 클릭 후 대기 시간이 체감될 만큼 길었음. 0.5 -> 0.3으로 단축.
+        task.wait(0.3)
         local itemIndex = inventory:WaitForChild("Index"):WaitForChild("ItemIndex")
         local useAmountBox = itemIndex:WaitForChild("UseHolder"):WaitForChild("UseAmount")
         local useButton = itemIndex.UseHolder:WaitForChild("UseButton")
@@ -6425,6 +6474,83 @@ local function useSpecificItemByNameWithAmount(itemName, useAmountNum)
     end
     return false
 end
+
+-- ✅ [사용자 요청] 바이옴별로 어떤 포션을 어떤 순서(우선순위)로, 얼마나 사용할지를
+-- 테이블로 관리한다. 새 바이옴을 추가하려면 이 테이블에 새 키를 추가하면 되고, 특정
+-- 바이옴에 포션을 추가/순서 변경하려면 그 목록의 항목을 추가/재배치하면 된다 - 코드
+-- 로직(performRareBiomePopSequence)을 건드릴 필요가 없다.
+--
+-- 각 항목의 필드:
+--   name: 인벤토리에서 찾을 아이템 이름 (useSpecificItemByNameWithAmount에 그대로 전달)
+--   amount: 사용량. 숫자 또는 "ALL"(가진 만큼 전부). 함수를 넣으면 실행 시점에 호출되어
+--           그 반환값을 사용량으로 쓴다 - 함수는 (hasItem, getAmount) 두 헬퍼를 인자로
+--           받아서 다른 아이템의 소지 여부/개수에 따라 동적으로 계산할 수 있다.
+--   condition: (선택) 함수(hasItem, getAmount) -> boolean. 이 항목을 시도할지 여부를
+--              결정한다. 생략하면 항상 hasItem(name)만으로 판정한다.
+--
+-- 목록 안에서 위에 있을수록(배열 순서상 앞쪽) 먼저 시도된다 = 우선순위가 높다.
+-- ✅ 파일이 이미 로컬 변수 슬롯 200개 한도에 근접해 있어서, getgenv()에 저장한다.
+getgenv()._RareBiomePotionTable = {
+    GLITCHED = {
+        { name = "Warp Potion", amount = 1 },
+        { name = "Oblivion Potion", amount = "ALL" },
+        { name = "Godlike Potion", amount = "ALL" },
+        { name = "Heavenly Potion", amount = "ALL" },
+        { name = "Potion of Bound", amount = "ALL" },
+        { name = "Popping Potion", amount = "ALL" },
+    },
+    DREAMSPACE = {
+        { name = "Warp Potion", amount = 1 },
+        { name = "Oblivion Potion", amount = "ALL" },
+        { name = "Godlike Potion", amount = "ALL" },
+        { name = "Heavenly Potion", amount = "ALL" },
+        { name = "Potion of Bound", amount = "ALL" },
+        { name = "Popping Potion", amount = "ALL" },
+    },
+    CYBERSPACE = {
+        -- ✅ [사용자 요청] 우선순위 트리 (위에서부터 하나만 실행됨 - 서로 배타적):
+        --   1. 워프 포션이 10개 이상 있으면 -> 워프 포션 10개를 쓰기
+        --   2. (아니면) 트랜센던트 포션이 있으면 -> 트랜센던트 포션 1개를 쓰기
+        --   3. (아니면) Tidal Shifter Potion이 2개 이상 있으면 -> Tidal Shifter Potion 1개를 쓰기
+        --   4. (아니면) 워프 포션이 있기라도 하면 -> 가진 워프 포션 전부(최대 10개)를 쓰기
+        -- 각 조건은 앞 단계들이 전부 해당 안 됐을 때만 만족하도록 짜여있어, 실제로는
+        -- 이 목록에서 딱 하나의 항목만 실행된다.
+        {
+            name = "Warp Potion",
+            amount = 10,
+            condition = function(hasItem, getAmount)
+                return getAmount("Warp Potion") >= 10
+            end,
+        },
+        {
+            name = "Transcendent Potion",
+            amount = 1,
+            condition = function(hasItem, getAmount)
+                return getAmount("Warp Potion") < 10 and hasItem("Transcendent Potion")
+            end,
+        },
+        {
+            name = "Tidal Shifter Potion",
+            amount = 1,
+            condition = function(hasItem, getAmount)
+                return getAmount("Warp Potion") < 10
+                    and not hasItem("Transcendent Potion")
+                    and getAmount("Tidal Shifter Potion") > 1
+            end,
+        },
+        {
+            name = "Warp Potion",
+            amount = 10,
+            condition = function(hasItem, getAmount)
+                local w = getAmount("Warp Potion")
+                return w < 10
+                    and not hasItem("Transcendent Potion")
+                    and getAmount("Tidal Shifter Potion") <= 1
+                    and w > 0
+            end,
+        },
+    },
+}
 
 local function performRareBiomePopSequence(biomeName)
     if not Settings.Sols.autoRareBiomePop then return end
@@ -6476,7 +6602,7 @@ local function performRareBiomePopSequence(biomeName)
             for _, btn in pairs(sideButtons:GetChildren()) do
                 if btn.Name == "TextButton" and btn:FindFirstChild("Usage") and btn.Usage.Text == "Inventory" then
                     clickExactly(btn)
-                    task.wait(0.8)
+                    task.wait(0.5)
                     break
                 end
             end
@@ -6485,23 +6611,18 @@ local function performRareBiomePopSequence(biomeName)
     if not inventory.Visible then
         Settings.Emergency = false; StopMacro("Emergency"); return
     end
-    task.wait(0.5)
+    -- ✅ [사용자 요청] 인벤토리 대기 시간이 체감될 만큼 길었음. 0.5 -> 0.3으로 단축.
+    task.wait(0.3)
 
     -- ItemsTab 클릭
     local itemsTab = inventory:FindFirstChild("Items") and inventory.Items:FindFirstChild("ItemsTab")
     if itemsTab then clickExactly(itemsTab) end
     task.wait(0.3)
 
-    -- LayoutOrder 10001 (포션류) 필터
-    local quickCategory = inventory:FindFirstChild("QuickCategory")
-    if quickCategory then
-        for _, btn in pairs(quickCategory:GetChildren()) do
-            if btn:IsA("ImageButton") and btn.LayoutOrder == 10001 then
-                clickExactly(btn)
-                break
-            end
-        end
-    end
+    -- ✅ [사용자 요청] 카테고리 버튼(QuickCategory) 클릭 방식 제거 - 아이템이 늘어나면
+    -- 그 카테고리 안에서도 원하는 아이템을 못 찾을 위험이 있었음. 이제 useSpecificItemByName이
+    -- 포션 자동 제작과 동일한 방식(정확한 좌표 계산 스크롤)으로 전체 목록에서 아이템을
+    -- 찾으므로, 카테고리 필터가 불필요하다.
 
     -- 아이템 정렬 2초 대기
     task.wait(2)
@@ -6549,35 +6670,26 @@ local function performRareBiomePopSequence(biomeName)
         return 0
     end
 
-    if biomeName == "GLITCHED" or biomeName == "DREAMSPACE" then
-        if hasItem("Warp Potion") then
-            useSpecificItemByNameWithAmount("Warp Potion", 1)
-        end
-        if hasItem("Oblivion Potion") then
-            useSpecificItemByNameWithAmount("Oblivion Potion", "ALL")
-        end
-        if hasItem("Godlike Potion") then
-            useSpecificItemByNameWithAmount("Godlike Potion", "ALL")
-        end
-        if hasItem("Heavenly Potion") then
-            useSpecificItemByNameWithAmount("Heavenly Potion", "ALL")
-        end
-        if hasItem("Potion of Bound") then
-            useSpecificItemByNameWithAmount("Potion of Bound", "ALL")
-        end
-        if hasItem("Popping Potion") then
-            useSpecificItemByNameWithAmount("Popping Potion", "ALL")
-        end
-    elseif biomeName == "CYBERSPACE" then
-        local warpAmount = getAmount("Warp Potion")
-        local hasTrans = hasItem("Transcendent Potion")
+    -- ✅ [사용자 요청] 바이옴별 포션 목록(RareBiomePotionTable)을 우선순위 순서대로
+    -- 순회하며 사용한다. 새 바이옴/포션/우선순위는 위쪽 테이블만 수정하면 되고, 이
+    -- 루프 자체는 건드릴 필요가 없다.
+    local potionList = getgenv()._RareBiomePotionTable[biomeName]
+    if potionList then
+        for _, entry in ipairs(potionList) do
+            local shouldUse
+            if entry.condition then
+                shouldUse = entry.condition(hasItem, getAmount)
+            else
+                shouldUse = hasItem(entry.name)
+            end
 
-        if warpAmount >= 10 then
-            useSpecificItemByNameWithAmount("Warp Potion", 10)
-        elseif warpAmount < 10 and hasTrans then
-            useSpecificItemByNameWithAmount("Transcendent Potion", 1)
-        elseif warpAmount < 10 and not hasTrans and warpAmount > 0 then
-            useSpecificItemByNameWithAmount("Warp Potion", 10)
+            if shouldUse then
+                local amountToUse = entry.amount
+                if type(amountToUse) == "function" then
+                    amountToUse = amountToUse(hasItem, getAmount)
+                end
+                useSpecificItemByNameWithAmount(entry.name, amountToUse)
+            end
         end
     end
 
@@ -6675,7 +6787,7 @@ local function performBiomeAutoSequence(force)
             for _, btn in pairs(sideButtons:GetChildren()) do
                 if btn.Name == "TextButton" and btn:FindFirstChild("Usage") and btn.Usage.Text == "Inventory" then
                     clickExactly(btn)
-                    task.wait(0.8)
+                    task.wait(0.5)
                     if Settings.Emergency or getgenv().MemoryMatchActive then
                         if inventory and inventory.Visible then inventory.Visible = false end
                         return
@@ -6687,7 +6799,8 @@ local function performBiomeAutoSequence(force)
         end
     end
     if not inventory.Visible then return end
-    task.wait(0.5)
+    -- ✅ [사용자 요청] 인벤토리 대기 시간이 체감될 만큼 길었음. 0.5 -> 0.3으로 단축.
+    task.wait(0.3)
     if Settings.Emergency or getgenv().MemoryMatchActive then
         if inventory and inventory.Visible then inventory.Visible = false end
         return
@@ -6703,15 +6816,9 @@ local function performBiomeAutoSequence(force)
     end
     if not (force or Settings.Sols.autoBiomeUse) then return end
 
-    local quickCategory = inventory:FindFirstChild("QuickCategory")
-    if quickCategory then
-        for _, btn in pairs(quickCategory:GetChildren()) do
-            if btn:IsA("ImageButton") and btn.LayoutOrder == 30001 then
-                clickExactly(btn)
-                break
-            end
-        end
-    end
+    -- ✅ [사용자 요청] 카테고리 버튼(QuickCategory) 클릭 방식 제거 - useSpecificItemByName이
+    -- 포션 자동 제작과 동일한 방식(정확한 좌표 계산 스크롤)으로 전체 목록에서 아이템을
+    -- 찾으므로, 카테고리 필터가 불필요하다.
 
     task.wait(2)
     if Settings.Emergency or getgenv().MemoryMatchActive then
