@@ -743,24 +743,56 @@ StatusUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 StatusUI.DisplayOrder = 2147483646
 StatusUI.Enabled = true -- ✅ [사용자 요청] 투명도로 페이드하므로 ScreenGui 자체는 항상 켜둠
 StatusUI.Parent = LocalPlayer:WaitForChild("PlayerGui")
+getgenv()._StatusUIRef = StatusUI
+
+-- ✅ [사용자 요청] "큰 틀을 하나 만들고, 그 프레임을 페이드아웃" - 상태/스탯/올타임
+-- 세 화면이 각자 독립적으로 Position/투명도를 관리하다 보니 서로 동기화가 계속
+-- 어긋나는 문제가 반복됐음(다른 탭에서 매크로를 껐다 켜면 안 보이는 버그가 여러 번
+-- 재발). 이제는 이 MasterFrame 하나가 화면 오른쪽 중앙에 고정 배치되고, 세 화면은
+-- 전부 이 프레임의 자식으로 들어가 완전히 겹쳐진 채로 Visible만 토글한다(위치 이동
+-- 없음). 매크로 켜짐/꺼짐에 따른 페이드는 이 MasterFrame 하나의 투명도만 관리하면
+-- 되므로, 세 화면 중 어디를 보고 있었든 항상 정확하게 동작한다.
+-- ✅ [사용자 요청] "큰 틀을 하나 만들고, 그 프레임을 페이드아웃" - CanvasGroup을 쓰면
+-- 이 프레임의 GroupTransparency 하나만 트윈해도 그 안의 모든 자식(배경, 텍스트, 이미지,
+-- 구분선 등 전부)이 함께 페이드된다. Frame이었다면 자식들의 투명도를 일일이 따로
+-- 관리해야 해서 계속 동기화가 어긋났는데, CanvasGroup은 그 문제 자체를 구조적으로
+-- 없애준다.
+local MasterFrame = Instance.new("CanvasGroup")
+MasterFrame.Name = "MasterFrame"
+MasterFrame.AnchorPoint = Vector2.new(1, 0.5)
+MasterFrame.Position = UDim2.new(1, -20, 0.5, 0)
+-- ✅ [사용자 요청] MasterFrame 안에는 StatusFrame/StatsFrame/AllTimeFrame 3개가 동시에
+-- 자식으로 존재하고(Visible만 다름) 서로 다른 높이를 가지므로, AutomaticSize.Y를 그대로
+-- 쓰면 "지금 안 보이는 화면"의 높이까지 계산에 끼어들어 부정확해질 수 있다. 대신
+-- AutomaticSize를 끄고, 아래의 별도 루프에서 "지금 실제로 보이는 화면"의 높이만 읽어
+-- MasterFrame.Size를 매 틱 수동으로 맞춘다.
+MasterFrame.AutomaticSize = Enum.AutomaticSize.None
+MasterFrame.Size = UDim2.new(0, 560, 0, 220)
+MasterFrame.BackgroundTransparency = 1 -- CanvasGroup 자체 배경은 없음 - 내부 StatusFrame이 배경을 그림
+MasterFrame.GroupTransparency = 1 -- ✅ 시작은 완전히 투명 (매크로를 안 켠 상태)
+MasterFrame.BorderSizePixel = 0
+MasterFrame.ZIndex = 999
+MasterFrame.Parent = StatusUI
+getgenv()._MasterFrame = MasterFrame
 
 local StatusFrame = Instance.new("Frame")
 StatusFrame.Name = "StatusFrame"
--- ✅ 오른쪽 중앙에 위치
-StatusFrame.AnchorPoint = Vector2.new(1, 0.5)
-StatusFrame.Position = UDim2.new(1, -20, 0.5, 0)
+-- ✅ [사용자 요청] MasterFrame의 자식이 되어 완전히 겹쳐진 채로 배치 (Position 이동 없이
+-- Visible만 토글하는 구조로 바뀜)
+StatusFrame.AnchorPoint = Vector2.new(1, 0)
+StatusFrame.Position = UDim2.new(1, 0, 0, 0)
 -- ✅ [사용자 요청] 내용에 맞춰 자동으로 높이가 늘어나게 함 (고정 550이면 항목이 늘어날 때
 -- 넘치거나, 줄 때 밑에 빈 공간이 생겨서 답답해 보였음). 가로는 고정.
 StatusFrame.AutomaticSize = Enum.AutomaticSize.Y
-StatusFrame.Size = UDim2.new(0, 560, 0, 0)
+StatusFrame.Size = UDim2.new(1, 0, 0, 0)
 StatusFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
--- ✅ 자연스러운 페이드를 위해 시작은 완전히 투명한 상태로 둠.
--- 목표(보일 때) 투명도인 0.15는 아래 TargetFrameTransparency에 따로 저장해둠.
-local TargetFrameTransparency = 0.15
-StatusFrame.BackgroundTransparency = 1
+-- ✅ [사용자 요청] MasterFrame 하나가 페이드를 전담하므로, 내부 화면 자체의 배경은
+-- 항상 목표 투명도로 고정해도 된다 (더 이상 개별적으로 페이드 안 함).
+StatusFrame.BackgroundTransparency = 0.15
 StatusFrame.BorderSizePixel = 0
 StatusFrame.ZIndex = 1000 -- 같은 ScreenGui 안의 다른 요소들보다도 항상 위에 그려지게
-StatusFrame.Parent = StatusUI
+StatusFrame.Visible = true -- ✅ [사용자 요청] 처음에 뜨는 화면은 무조건 상태 UI
+StatusFrame.Parent = MasterFrame
 -- ✅ [치명적 버그 수정] 이 StatusFrame은 730~809줄 사이의 작은 do...end 블록 안에서만
 -- local로 유효한 변수였음. 그런데 스탯 UI 섹션(전환 버튼 포함)은 그보다 훨씬 뒤(1595줄
 -- 이후)의 완전히 다른 스코프에 있어서, 그 안에서 "StatusFrame"을 참조하면 실제로는
@@ -840,9 +872,15 @@ local function createStatusLine(order, textSize, topPaddingExtra)
     label.TextWrapped = true
     label.Text = ""
     label.ZIndex = 1001 -- StatusFrame(1000)보다 위에 그려지게
-    -- ✅ 자연스러운 페이드를 위해 시작은 완전히 투명한 텍스트로 둠
-    label.TextTransparency = 1
-    label.Parent = StatusFrame
+    -- ✅ [사용자 요청] CanvasGroup(MasterFrame)의 GroupTransparency가 전체 페이드를
+    -- 전담하므로, 개별 요소는 항상 선명(0)한 상태로 둔다.
+    label.TextTransparency = 0
+    -- ✅ [치명적 버그 수정] StatusFrame(순수 이름)은 730~849줄 사이의 작은 do 블록
+    -- 안에서만 유효한 local 변수인데, 이 함수는 그 블록 밖(852줄)에 정의되어 있어서
+    -- StatusFrame을 참조하면 실제로는 정의되지 않은 전역 변수(nil)로 취급됐음. 즉
+    -- label.Parent = nil이 되어, 이 함수로 만든 모든 텍스트 라인이 부모 없이 떠있는
+    -- (렌더링 안 되는) 상태였을 것. getgenv()._StatusFrame으로 안전하게 참조한다.
+    label.Parent = getgenv()._StatusFrame
 
     if topPaddingExtra then
         local pad = Instance.new("UIPadding")
@@ -864,11 +902,13 @@ local function createDivider(order)
     divider.LayoutOrder = order
     divider.Size = UDim2.new(1, 0, 0, 1)
     divider.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    -- ✅ 페이드 시작은 완전히 투명한 상태로 둠 (다른 텍스트/이미지와 동일하게)
-    divider.BackgroundTransparency = 1
+    -- ✅ [사용자 요청] CanvasGroup(MasterFrame)의 GroupTransparency가 전체 페이드를
+    -- 전담하므로, 개별 요소는 항상 목표(보일 때) 투명도로 고정한다.
+    divider.BackgroundTransparency = 0.9
     divider.BorderSizePixel = 0
     divider.ZIndex = 1001
-    divider.Parent = StatusFrame
+    -- ✅ [치명적 버그 수정] 위 createStatusLine과 동일한 이유로 getgenv()._StatusFrame 사용
+    divider.Parent = getgenv()._StatusFrame
     return divider
 end
 
@@ -911,6 +951,10 @@ local glitchedPopLabel = createStatusLine(16, 22)
 glitchedPopLabel.Text = ""
 glitchedPopLabel.AutomaticSize = Enum.AutomaticSize.None
 glitchedPopLabel.Size = UDim2.new(1, 0, 0, 28)
+-- ✅ [치명적 버그 수정] "매크로를 아예 안 켠 상태에서도 이펙트가 보인다" - 갱신 루프가
+-- 매크로 꺼짐일 때 continue로 Visible 세팅 코드 자체를 건너뛰기 때문에, 인스턴스
+-- 생성 시점에 기본값(Roblox 기본값 true)이 계속 유지되었음. 명시적으로 false로 초기화.
+glitchedPopLabel.Visible = false
 local glitchedTextInner = Instance.new("TextLabel")
 glitchedTextInner.Name = "Inner"
 glitchedTextInner.Size = UDim2.new(1, 0, 1, 0)
@@ -930,6 +974,7 @@ local dreamspacePopLabel = createStatusLine(17, 22)
 dreamspacePopLabel.Text = ""
 dreamspacePopLabel.AutomaticSize = Enum.AutomaticSize.None
 dreamspacePopLabel.Size = UDim2.new(1, 0, 0, 28)
+dreamspacePopLabel.Visible = false -- ✅ 위와 동일한 이유
 local dreamspaceTextInner = Instance.new("TextLabel")
 dreamspaceTextInner.Name = "Inner"
 dreamspaceTextInner.Size = UDim2.new(1, 0, 1, 0)
@@ -946,6 +991,7 @@ dreamspaceTextInner.TextTransparency = 1
 dreamspaceTextInner.Parent = dreamspacePopLabel
 
 local cyberspacePopLabel = createStatusLine(18, 22)
+cyberspacePopLabel.Visible = false -- ✅ 위와 동일한 이유
 local divider3b = createDivider(19)
 local biomeLabel = createStatusLine(20, 24, 6)
 local divider4 = createDivider(21)
@@ -968,7 +1014,7 @@ FishInventoryBarContainer.LayoutOrder = 6
 FishInventoryBarContainer.Size = UDim2.new(1, 0, 0, 46)
 FishInventoryBarContainer.BackgroundTransparency = 1
 FishInventoryBarContainer.ZIndex = 1001
-FishInventoryBarContainer.Parent = StatusFrame
+FishInventoryBarContainer.Parent = getgenv()._StatusFrame
 
 local FishInventoryBarPad = Instance.new("UIPadding")
 FishInventoryBarPad.PaddingTop = UDim.new(0, 4)
@@ -982,11 +1028,9 @@ FishInventoryBarTrack.AnchorPoint = Vector2.new(1, 0)
 FishInventoryBarTrack.Size = UDim2.new(0.8, 0, 0, 16)
 FishInventoryBarTrack.Position = UDim2.new(1, 0, 0, 0)
 FishInventoryBarTrack.BackgroundColor3 = Color3.fromRGB(50, 50, 56)
--- ✅ [치명적 버그 수정] 다른 UI 요소들(StatusFrame, 텍스트, 구분선)은 전부 초기 투명도가
--- 1(완전 투명)로 세팅되어 있는데, 이 트랙만 0.2(거의 불투명)로 세팅돼 있었음. 그래서
--- 매크로를 켜지 않아 FadeStatusUI가 한 번도 호출되지 않은 상태에서도 이 바 트랙만
--- 화면에 계속 떠있는 문제가 있었음(매크로 시작을 안 눌렀는데도 UI가 보이는 원인).
-FishInventoryBarTrack.BackgroundTransparency = 1
+-- ✅ [사용자 요청] CanvasGroup(MasterFrame)의 GroupTransparency가 전체 페이드를
+-- 전담하므로, 개별 요소는 항상 목표(보일 때) 투명도로 고정한다.
+FishInventoryBarTrack.BackgroundTransparency = 0.2
 FishInventoryBarTrack.BorderSizePixel = 0
 FishInventoryBarTrack.ZIndex = 1001
 FishInventoryBarTrack.Parent = FishInventoryBarContainer
@@ -996,9 +1040,9 @@ local FishInventoryBarFill = Instance.new("Frame")
 FishInventoryBarFill.Name = "Fill"
 FishInventoryBarFill.Size = UDim2.new(0, 0, 1, 0)
 FishInventoryBarFill.BackgroundColor3 = Color3.fromRGB(120, 200, 255)
--- ✅ [치명적 버그 수정] 이 채우기 바도 초기 투명도를 전혀 지정 안 해서 기본값(0, 완전
--- 불투명)이었음. 위와 같은 이유로 완전 투명(1)으로 시작하도록 명시한다.
-FishInventoryBarFill.BackgroundTransparency = 1
+-- ✅ [사용자 요청] CanvasGroup(MasterFrame)의 GroupTransparency가 전체 페이드를
+-- 전담하므로, 개별 요소는 항상 목표(보일 때) 투명도로 고정한다.
+FishInventoryBarFill.BackgroundTransparency = 0
 FishInventoryBarFill.BorderSizePixel = 0
 FishInventoryBarFill.ZIndex = 1002
 FishInventoryBarFill.Parent = FishInventoryBarTrack
@@ -1028,7 +1072,7 @@ fishInventoryCountLabel.TextXAlignment = Enum.TextXAlignment.Center
 fishInventoryCountLabel.TextYAlignment = Enum.TextYAlignment.Center
 fishInventoryCountLabel.Text = "- / -"
 fishInventoryCountLabel.ZIndex = 1003
-fishInventoryCountLabel.TextTransparency = 1
+fishInventoryCountLabel.TextTransparency = 0
 fishInventoryCountLabel.Parent = FishInventoryBarContainer
 
 -- ✅ 메모리 매치 제외 아이템은 텍스트 없이 이미지만 표시 (라벨은 위에서 별도 줄로 이미
@@ -1039,7 +1083,7 @@ ExcludedItemsContainer.LayoutOrder = 13
 ExcludedItemsContainer.Size = UDim2.new(1, 0, 0, 46)
 ExcludedItemsContainer.BackgroundTransparency = 1
 ExcludedItemsContainer.ZIndex = 1001
-ExcludedItemsContainer.Parent = StatusFrame
+ExcludedItemsContainer.Parent = getgenv()._StatusFrame
 
 local ExcludedItemsPad = Instance.new("UIPadding")
 ExcludedItemsPad.PaddingTop = UDim.new(0, 4)
@@ -1088,35 +1132,32 @@ local AllStatusLabels = {
 -- 리스트로 관리한다.
 local AllDividers = { divider1, dividerFishInventory, divider2, divider3, divider3b, divider4 }
 
+-- ✅ [사용자 요청] "큰 틀을 하나 만들고, 그 프레임을 페이드아웃" - 이제 이 함수는
+-- MasterFrame 하나의 투명도만 관리한다. 내부 요소들(StatusFrame 배경, 텍스트, 구분선 등)은
+-- 항상 목표(보일 때) 투명도로 고정해두고, MasterFrame이 앞을 가리는 것처럼 동작하게
+-- 만드는 게 아니라, MasterFrame 자체는 배경이 없으므로(BackgroundTransparency = 1) 대신
+-- 그 자식인 StatusFrame/StatsFrame/AllTimeFrame 각각의 배경과, 그 안의 텍스트/구분선
+-- 전체를 이 함수가 한 번에 트윈한다. 어떤 화면이 보이고 있었는지와 무관하게 항상
+-- 정확하게 동작하도록, 3개 화면의 요소를 모두 대상으로 페이드한다.
+-- ✅ [사용자 요청] "큰 틀을 하나 만들고, 그 프레임을 페이드아웃" - CanvasGroup의
+-- GroupTransparency 하나만 트윈하면, 그 안의 모든 자식(StatusFrame 배경, 텍스트,
+-- 구분선, 이미지, 낚시 인벤토리 바 등 전부)이 함께 자연스럽게 페이드된다. 각 자식은
+-- 항상 자기 목표(보일 때) 투명도로 고정해두면 되고, 실제 화면에 보이는 투명도는
+-- Roblox가 "자식 자신의 투명도"와 "GroupTransparency"를 함께 계산해서 정확하게
+-- 합성해준다. 개별 요소를 일일이 트윈하던 기존 방식보다 훨씬 단순하고, 어떤 화면
+-- (상태/스탯/올타임)을 보고 있었든 동기화가 어긋날 여지가 구조적으로 없다.
 local function FadeStatusUI(shouldShow)
     if shouldShow == statusUIVisible then return end
     statusUIVisible = shouldShow
 
-    local targetFrameTransparency = shouldShow and TargetFrameTransparency or 1
-    local targetTextTransparency = shouldShow and 0 or 1
-    local targetDividerTransparency = shouldShow and DIVIDER_VISIBLE_TRANSPARENCY or 1
-
-    getgenv()._TweenService:Create(StatusFrame, StatusFadeInfo, { BackgroundTransparency = targetFrameTransparency }):Play()
-    for _, label in ipairs(AllStatusLabels) do
-        getgenv()._TweenService:Create(label, StatusFadeInfo, { TextTransparency = targetTextTransparency }):Play()
-    end
-    for _, divider in ipairs(AllDividers) do
-        getgenv()._TweenService:Create(divider, StatusFadeInfo, { BackgroundTransparency = targetDividerTransparency }):Play()
-    end
-    for _, child in ipairs(ExcludedItemsContainer:GetChildren()) do
-        if child:IsA("ImageLabel") then
-            getgenv()._TweenService:Create(child, StatusFadeInfo, { ImageTransparency = targetTextTransparency }):Play()
-        elseif child:IsA("TextLabel") then
-            getgenv()._TweenService:Create(child, StatusFadeInfo, { TextTransparency = targetTextTransparency }):Play()
-        end
-    end
-
-    -- ✅ [사용자 요청] 낚시 인벤토리 바도 함께 페이드
-    local targetTrackTransparency = shouldShow and 0.2 or 1
-    getgenv()._TweenService:Create(FishInventoryBarTrack, StatusFadeInfo, { BackgroundTransparency = targetTrackTransparency }):Play()
-    getgenv()._TweenService:Create(FishInventoryBarFill, StatusFadeInfo, { BackgroundTransparency = targetTextTransparency }):Play()
-    getgenv()._TweenService:Create(fishInventoryCountLabel, StatusFadeInfo, { TextTransparency = targetTextTransparency }):Play()
+    local targetMasterTransparency = shouldShow and 0 or 1
+    getgenv()._TweenService:Create(getgenv()._MasterFrame, StatusFadeInfo, { GroupTransparency = targetMasterTransparency }):Play()
 end
+
+-- ✅ [사용자 요청] MasterFrame(CanvasGroup) 구조로 바뀌면서, 예전처럼 여러 화면에서
+-- Position/투명도를 개별적으로 강제 재동기화할 필요가 없어졌다. FadeStatusUI를
+-- getgenv()에 노출해두는 것만으로 충분하다.
+getgenv()._FadeStatusUI = FadeStatusUI
 
 -- 이미 만들어둔 아이콘들을 재사용하기 위한 캐시 (매번 새로 만들고 지우면 페이드가 매번
 -- 끊기고, GC 부담도 생기므로 이름 기준으로 캐시해서 필요한 것만 추가/삭제한다)
@@ -1138,7 +1179,7 @@ local function RefreshExcludedItemIcons()
                 iconImage.BackgroundTransparency = 1
                 iconImage.Image = def.imageId
                 iconImage.ZIndex = 1001
-                iconImage.ImageTransparency = statusUIVisible and 0 or 1
+                iconImage.ImageTransparency = 0
                 iconImage.Parent = ExcludedItemsContainer
 
                 excludedIconCache[def.name] = iconImage
@@ -1161,12 +1202,19 @@ task.spawn(function()
     while true do
         task.wait(0.2)
 
+        -- ✅ [사용자 요청] "안정성" 개선 - 이 루프는 상태 UI 전체를 갱신하는 핵심
+        -- 루프인데 pcall 보호가 전혀 없었음. 예상치 못한 에러(예: 어떤 UI 요소가 이미
+        -- 파괴된 상태에서 접근)가 발생하면 이 task.spawn 스레드 전체가 영구히 죽어서,
+        -- 그 시점부터 상태 UI가 완전히 멈추는 문제가 있었음. pcall로 감싸서 한 번의
+        -- 에러가 다음 반복까지 영향을 주지 않게 한다.
+        local ok, err = pcall(function()
+
         -- ✅ [사용자 요청] 매크로가 켜져있을 때만 UI를 보이게 함 (즉시 켜짐/꺼짐 대신
         -- 부드러운 페이드로 전환)
         FadeStatusUI(Settings.Sols.masterMacroEnabled == true)
 
         if not Settings.Sols.masterMacroEnabled then
-            continue
+            return
         end
 
         local holder = MacroPriority.CurrentActive
@@ -1352,6 +1400,11 @@ task.spawn(function()
         -- ✅ [사용자 요청] 메모리 매치의 제외 아이템들 - 글자 없이 이미지만 표시
         local hasExcluded = RefreshExcludedItemIcons()
         ExcludedItemsContainer.Visible = hasExcluded
+        end)
+        -- pcall 실패는 조용히 무시하고 다음 반복에서 재시도 (경고만 남김, 스레드는 계속 살아있음)
+        if not ok then
+            warn("[상태 UI 갱신 오류] " .. tostring(err))
+        end
     end
 end)
 
@@ -1626,21 +1679,26 @@ do
     StatsUI.DisplayOrder = 2147483646
     StatsUI.Enabled = true
     StatsUI.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    getgenv()._StatsUIRef = StatsUI
 
     -- ✅ [사용자 요청] 상태 UI와 동일한 배경/그라디언트/정렬 스타일
+    -- ✅ [사용자 요청] "큰 틀을 하나 만들고" - 이제 StatsFrame은 MasterFrame(CanvasGroup)의
+    -- 자식이 되어 StatusFrame과 완전히 겹쳐진 채로 위치한다. 화면 밖으로 이동시키는
+    -- 방식(OFFSCREEN_POSITION) 대신 Visible만 토글해서 전환한다 - MasterFrame 하나가
+    -- 전체 페이드를 전담하므로, 어느 화면을 보고 있었든 매크로 켜짐/꺼짐이 항상
+    -- 정확하게 반영된다.
     local StatsFrame = Instance.new("Frame")
     StatsFrame.Name = "StatsFrame"
-    StatsFrame.AnchorPoint = Vector2.new(1, 0.5)
-    -- 화면 밖(오른쪽)에서 시작 - 아직 전환 전에는 보이지 않음
-    StatsFrame.Position = UDim2.new(1, 600, 0.5, 0)
+    StatsFrame.AnchorPoint = Vector2.new(1, 0)
+    StatsFrame.Position = UDim2.new(1, 0, 0, 0)
     StatsFrame.AutomaticSize = Enum.AutomaticSize.Y
-    StatsFrame.Size = UDim2.new(0, 560, 0, 0)
+    StatsFrame.Size = UDim2.new(1, 0, 0, 0)
     StatsFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
     StatsFrame.BackgroundTransparency = 0.15
     StatsFrame.BorderSizePixel = 0
     StatsFrame.ZIndex = 1000
-    StatsFrame.Visible = false -- 전환 전에는 완전히 숨김
-    StatsFrame.Parent = StatsUI
+    StatsFrame.Visible = false -- 처음엔 숨김 (상태 화면이 기본으로 보임)
+    StatsFrame.Parent = getgenv()._MasterFrame
 
     local StatsGradient = Instance.new("UIGradient")
     StatsGradient.Transparency = NumberSequence.new({
@@ -1663,7 +1721,9 @@ do
     StatsPadding.PaddingBottom = UDim.new(0, 16)
     StatsPadding.Parent = StatsFrame
 
-    local function createStatsLine(order, textSize)
+    -- ✅ [사용자 요청] "올타임 통계" 화면에서도 동일한 라벨/구분선 스타일을 재사용하기
+    -- 위해, 부모 프레임을 매개변수로 받도록 수정 (기존엔 StatsFrame을 클로저로 캡처).
+    local function createStatsLine(order, textSize, parentFrame)
         local label = Instance.new("TextLabel")
         label.Name = "StatsLine" .. order
         label.LayoutOrder = order
@@ -1683,11 +1743,11 @@ do
         label.TextWrapped = true
         label.Text = ""
         label.ZIndex = 1001
-        label.Parent = StatsFrame
+        label.Parent = parentFrame or StatsFrame
         return label
     end
 
-    local function createStatsDivider(order)
+    local function createStatsDivider(order, parentFrame)
         local divider = Instance.new("Frame")
         divider.Name = "StatsDivider" .. order
         divider.LayoutOrder = order
@@ -1696,9 +1756,62 @@ do
         divider.BackgroundTransparency = 0.9
         divider.BorderSizePixel = 0
         divider.ZIndex = 1001
-        divider.Parent = StatsFrame
+        divider.Parent = parentFrame or StatsFrame
         return divider
     end
+
+    -- ✅ [사용자 요청] Fish 통계를 스탯 UI 맨 위에 추가. 나머지 기존 항목들의 LayoutOrder는
+    -- 그대로 유지한 채, 더 작은(음수) 번호를 써서 항상 맨 위에 오게 한다.
+    local fishStatsHeaderLabel = createStatsLine(-6, 22)
+    fishStatsHeaderLabel.Text = string.format('<font color="%s">지금까지 낚은 물고기 수</font>', getgenv()._LABEL_COLOR)
+    local fishCaughtCountLabel = createStatsLine(-5, 22)
+
+    local fishPointHeaderLabel = createStatsLine(-4, 22)
+    fishPointHeaderLabel.Text = string.format('<font color="%s">지금까지 얻은 Fish Point 수</font>', getgenv()._LABEL_COLOR)
+
+    -- Fish Point 항목은 이미지 + 증가량 숫자를 가로로 나열
+    local FishPointContainer = Instance.new("Frame")
+    FishPointContainer.Name = "FishPointContainer"
+    FishPointContainer.LayoutOrder = -3
+    FishPointContainer.Size = UDim2.new(1, 0, 0, 36)
+    FishPointContainer.BackgroundTransparency = 1
+    FishPointContainer.ZIndex = 1001
+    FishPointContainer.Parent = StatsFrame
+
+    local FishPointLayout = Instance.new("UIListLayout")
+    FishPointLayout.FillDirection = Enum.FillDirection.Horizontal
+    FishPointLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+    FishPointLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    FishPointLayout.Padding = UDim.new(0, 8)
+    FishPointLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    FishPointLayout.Parent = FishPointContainer
+
+    -- ✅ [사용자 요청] 이미지가 왼쪽, 숫자가 오른쪽에 오도록 LayoutOrder를 바꿈
+    -- (HorizontalAlignment.Right라 순서가 작은 것부터 왼쪽에 배치됨)
+    local fishPointImage = Instance.new("ImageLabel")
+    fishPointImage.Name = "Icon"
+    fishPointImage.LayoutOrder = 1
+    fishPointImage.Size = UDim2.new(0, 32, 0, 32)
+    fishPointImage.BackgroundTransparency = 1
+    fishPointImage.Image = "rbxassetid://110385249067700"
+    fishPointImage.ZIndex = 1001
+    fishPointImage.Parent = FishPointContainer
+
+    local fishPointValueLabel = Instance.new("TextLabel")
+    fishPointValueLabel.Name = "Value"
+    fishPointValueLabel.LayoutOrder = 2
+    fishPointValueLabel.Size = UDim2.new(0, 0, 1, 0)
+    fishPointValueLabel.AutomaticSize = Enum.AutomaticSize.X
+    fishPointValueLabel.BackgroundTransparency = 1
+    fishPointValueLabel.FontFace = Font.new("rbxasset://fonts/families/NotoSansKR.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+    -- ✅ [사용자 요청] 글자 크기를 확실하게 키움 (22 -> 30)
+    fishPointValueLabel.TextSize = 30
+    fishPointValueLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    fishPointValueLabel.Text = "0"
+    fishPointValueLabel.ZIndex = 1001
+    fishPointValueLabel.Parent = FishPointContainer
+
+    local dividerAfterFishStats = createStatsDivider(-2)
 
     -- ✅ [사용자 요청] 순서: 바이옴이 뜬 횟수(일반 + 레어) -> [구분선] -> 아이템 사용 통계 ->
     -- [구분선] -> 메모리 매치에서 획득한 아이템들 -> [구분선] -> 지금까지 만든 아이템 갯수
@@ -1827,14 +1940,20 @@ do
         local obtained = getgenv().MemoryMatchObtainedItems or {}
         local activeIds = {}
 
-        -- MemoryMatchItemDefinitions(ImageID -> {name, imageId})를 뒤져서 실제 이름/이미지 매핑
+        -- ✅ [사용자 요청] "리스트에 없는(MemoryMatchItemDefinitions의 3종류 외의) 아이템도
+        -- 떠야 함" - 미리 정의된 3종류만 순회하는 대신, 실제로 획득한 모든 이미지(obtained
+        -- 테이블의 키)를 그대로 순회한다. 이름은 정의에 있으면 쓰고, 없으면 이미지만 표시.
+        local nameByImageId = {}
         for _, def in pairs(MemoryMatchItemDefinitions) do
-            local count = obtained[def.imageId]
+            nameByImageId[def.imageId] = def.name
+        end
+
+        for imageId, count in pairs(obtained) do
             if count and count > 0 then
-                activeIds[def.imageId] = true
-                if not obtainedItemIconCache[def.imageId] then
+                activeIds[imageId] = true
+                if not obtainedItemIconCache[imageId] then
                     local iconFrame = Instance.new("Frame")
-                    iconFrame.Name = "Icon_" .. def.name
+                    iconFrame.Name = "Icon_" .. (nameByImageId[imageId] or "Unknown")
                     iconFrame.Size = UDim2.new(0, 56, 0, 66)
                     iconFrame.BackgroundTransparency = 1
                     iconFrame.ZIndex = 1001
@@ -1852,7 +1971,7 @@ do
                     iconImage.LayoutOrder = 1
                     iconImage.Size = UDim2.new(0, 44, 0, 44)
                     iconImage.BackgroundTransparency = 1
-                    iconImage.Image = def.imageId
+                    iconImage.Image = imageId
                     iconImage.ZIndex = 1002
                     iconImage.Parent = iconFrame
 
@@ -1868,9 +1987,9 @@ do
                     iconCountLabel.ZIndex = 1002
                     iconCountLabel.Parent = iconFrame
 
-                    obtainedItemIconCache[def.imageId] = { frame = iconFrame, countLabel = iconCountLabel }
+                    obtainedItemIconCache[imageId] = { frame = iconFrame, countLabel = iconCountLabel }
                 else
-                    obtainedItemIconCache[def.imageId].countLabel.Text = tostring(count)
+                    obtainedItemIconCache[imageId].countLabel.Text = tostring(count)
                 end
             end
         end
@@ -1887,12 +2006,10 @@ do
 
     local dividerAfterMemoryMatch = createStatsDivider(rareOrderBase + 11)
 
-    -- 지금까지 만든 아이템 갯수 (포션 자동 제작)
-    local potionCraftHeaderLabel = createStatsLine(rareOrderBase + 12, 22)
-    potionCraftHeaderLabel.Text = string.format('<font color="%s">지금까지 만든 아이템 갯수</font>', getgenv()._LABEL_COLOR)
-    -- ✅ [사용자 요청] 값이 절대 안 갱신되는 중복 정적 라벨("아이템 제작 갯수")을 제거.
-    -- 실제로 실시간 갱신되는 값 라벨(potionCraftCountValueLabel)만 남긴다.
+    -- ✅ [사용자 요청] "지금까지 만든 아이템 갯수" 헤더 텍스트 삭제 - "아이템 제작 갯수"
+    -- 하나만 있어도 충분함
     local potionCraftCountValueLabel = createStatsLine(rareOrderBase + 13, 22)
+    local potionCraftCountValueLabel2 = createStatsLine(rareOrderBase + 14, 22)
 
     -- ✅ [치명적 버그 수정] "모든 정보가 전혀 안 바뀐다"는 문제의 원인 - 이 갱신 루프의
     -- task.spawn 클로저가 12개나 되는 외부 로컬 변수(upvalue)를 캡처해야 했는데, 이미
@@ -1911,6 +2028,9 @@ do
         RefreshObtainedItemIcons = RefreshObtainedItemIcons,
         ObtainedItemsContainer = ObtainedItemsContainer,
         potionCraftCountValueLabel = potionCraftCountValueLabel,
+        potionCraftCountValueLabel2 = potionCraftCountValueLabel2,
+        fishCaughtCountLabel = fishCaughtCountLabel,
+        fishPointValueLabel = fishPointValueLabel,
     }
 
     getgenv()._UpdateStatsUI = function()
@@ -1965,8 +2085,15 @@ do
         local hasObtained = refs.RefreshObtainedItemIcons()
         refs.ObtainedItemsContainer.Visible = hasObtained
 
-        -- 포션 자동 제작 완료 개수
-        refs.potionCraftCountValueLabel.Text = getgenv()._RichLine("아이템 제작 갯수 :", (getgenv().PotionCraftCompletedCount or 0) .. "개")
+        -- ✅ [사용자 요청] "아이템 제작 갯수 : 0개" (한 줄, 콜론+숫자) 대신
+        -- "아이템 제작 갯수" / "0개" 두 줄로 분리
+        refs.potionCraftCountValueLabel.Text = string.format('<font color="%s">아이템 제작 갯수</font>', getgenv()._LABEL_COLOR)
+        refs.potionCraftCountValueLabel2.Text = string.format('<font color="%s">%s번</font>', getgenv()._VALUE_COLOR, getgenv().PotionCraftCompletedCount or 0)
+
+        -- ✅ [사용자 요청] Fish 통계 - 지금까지 낚은 물고기 수 / Fish Point 증가량
+        refs.fishCaughtCountLabel.Text = string.format('<font color="%s">%s마리</font>', getgenv()._VALUE_COLOR, getgenv().FishCaughtCount or 0)
+        local fishPointGained = getgenv().FishPointGained or 0
+        refs.fishPointValueLabel.Text = string.format("%s", fishPointGained)
     end
 
     -- ✅ 스탯 UI 갱신 루프 (0.2초마다, 보이고 있을 때만 갱신해서 부담을 줄임)
@@ -1974,49 +2101,369 @@ do
         while true do
             task.wait(0.2)
             if not statsUIVisibleFlag then continue end
-            getgenv()._UpdateStatsUI()
+            -- ✅ [사용자 요청] 안정성 - pcall로 감싸서 에러가 나도 이 루프 자체는 죽지 않게
+            local ok, err = pcall(getgenv()._UpdateStatsUI)
+            if not ok then
+                warn("[스탯 UI 갱신 오류] " .. tostring(err))
+            end
         end
     end)
 
     -- =============================
-    -- [ 전환 버튼 + 애니메이션 ]
+    -- [ 올타임 통계 UI (세 번째 화면) ]
     -- =============================
-    -- ✅ [사용자 요청] 실시간 위치 계산이나 자식-부모 상대 배치 모두 문제가 있었으니,
-    -- 그냥 UI 안쪽 맨 위에 다른 텍스트 라인들과 동일하게 UIListLayout에 종속시킨다.
-    -- LayoutOrder를 다른 모든 라인(1번부터 시작)보다 작은 0으로 줘서 항상 맨 위에 오게 한다.
-    local SwitchButton = Instance.new("TextButton")
-    SwitchButton.Name = "SwitchButton"
-    SwitchButton.LayoutOrder = -1
-    SwitchButton.Size = UDim2.new(0, 160, 0, 40)
-    SwitchButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    SwitchButton.BackgroundTransparency = 0.15
-    SwitchButton.BorderSizePixel = 0
-    SwitchButton.AutoButtonColor = false
-    SwitchButton.Text = "통계 보기"
-    SwitchButton.FontFace = Font.new("rbxasset://fonts/families/NotoSansKR.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-    SwitchButton.TextSize = 26
-    SwitchButton.TextColor3 = Color3.fromRGB(0, 0, 0)
-    SwitchButton.TextXAlignment = Enum.TextXAlignment.Right -- ✅ [사용자 요청] 텍스트 오른쪽 정렬
-    SwitchButton.ZIndex = 1000
-    SwitchButton.Visible = false -- 매크로가 켜져있을 때만 보이게 (아래 루프가 관리)
-    SwitchButton.Parent = getgenv()._StatusFrame -- ✅ StatusFrame 안쪽, UIListLayout 맨 위에 배치
+    -- ✅ [사용자 요청] 스크립트를 완전히 껐다 켜도 유지되는 "올타임 통계" 화면. 구조는
+    -- 스탯 UI와 거의 동일하지만, 데이터 소스가 세션(getgenv().BiomeAppearCounts 등)이
+    -- 아니라 디스크에 저장된 getgenv()._AllTimeStats이다. 추가로 작동 시간도 표시한다.
+    -- ✅ [사용자 요청] "큰 틀을 하나 만들고" - AllTimeFrame도 MasterFrame의 자식이 되어
+    -- 다른 화면들과 완전히 겹쳐진 채로 위치한다.
+    local AllTimeFrame = Instance.new("Frame")
+    AllTimeFrame.Name = "AllTimeFrame"
+    AllTimeFrame.AnchorPoint = Vector2.new(1, 0)
+    AllTimeFrame.Position = UDim2.new(1, 0, 0, 0)
+    AllTimeFrame.AutomaticSize = Enum.AutomaticSize.Y
+    AllTimeFrame.Size = UDim2.new(1, 0, 0, 0)
+    AllTimeFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+    AllTimeFrame.BackgroundTransparency = 0.15
+    AllTimeFrame.BorderSizePixel = 0
+    AllTimeFrame.ZIndex = 1000
+    AllTimeFrame.Visible = false
+    AllTimeFrame.Parent = getgenv()._MasterFrame
 
-    local SwitchButtonPadding = Instance.new("UIPadding")
-    SwitchButtonPadding.PaddingRight = UDim.new(0, 12)
-    SwitchButtonPadding.Parent = SwitchButton
-
-    local SwitchButtonGradient = Instance.new("UIGradient")
-    SwitchButtonGradient.Transparency = NumberSequence.new({
+    local AllTimeGradient = Instance.new("UIGradient")
+    AllTimeGradient.Transparency = NumberSequence.new({
         NumberSequenceKeypoint.new(0, 1),
         NumberSequenceKeypoint.new(1, 0)
     })
-    SwitchButtonGradient.Parent = SwitchButton
+    AllTimeGradient.Parent = AllTimeFrame
 
-    -- ✅ 스탯 UI 쪽에도 동일한 버튼을 하나 더 만들어서(UI 안쪽 맨 위), 어느 화면이
-    -- 보이고 있든 항상 그 화면 안에 버튼이 함께 보이게 한다.
-    local StatsSwitchButton = SwitchButton:Clone()
+    local AllTimeLayout = Instance.new("UIListLayout")
+    AllTimeLayout.Padding = UDim.new(0, 4)
+    AllTimeLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    AllTimeLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+    AllTimeLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+    AllTimeLayout.Parent = AllTimeFrame
+
+    local AllTimePadding = Instance.new("UIPadding")
+    AllTimePadding.PaddingTop = UDim.new(0, 16)
+    AllTimePadding.PaddingLeft = UDim.new(0, 20)
+    AllTimePadding.PaddingRight = UDim.new(0, 20)
+    AllTimePadding.PaddingBottom = UDim.new(0, 16)
+    AllTimePadding.Parent = AllTimeFrame
+
+    -- ✅ [사용자 요청] 작동 시간 (올타임 통계에만 추가로 표시)
+    local allTimeUptimeHeaderLabel = createStatsLine(-9, 22, AllTimeFrame)
+    allTimeUptimeHeaderLabel.Text = string.format('<font color="%s">올타임 작동 시간</font>', getgenv()._LABEL_COLOR)
+    local allTimeUptimeValueLabel = createStatsLine(-8, 22, AllTimeFrame)
+
+    local dividerAfterUptime = createStatsDivider(-7, AllTimeFrame)
+
+    -- Fish 통계
+    local allTimeFishHeaderLabel = createStatsLine(-6, 22, AllTimeFrame)
+    allTimeFishHeaderLabel.Text = string.format('<font color="%s">지금까지 낚은 물고기 수</font>', getgenv()._LABEL_COLOR)
+    local allTimeFishCaughtLabel = createStatsLine(-5, 22, AllTimeFrame)
+
+    local allTimeFishPointHeaderLabel = createStatsLine(-4, 22, AllTimeFrame)
+    allTimeFishPointHeaderLabel.Text = string.format('<font color="%s">지금까지 얻은 Fish Point 수</font>', getgenv()._LABEL_COLOR)
+
+    local AllTimeFishPointContainer = Instance.new("Frame")
+    AllTimeFishPointContainer.Name = "FishPointContainer"
+    AllTimeFishPointContainer.LayoutOrder = -3
+    AllTimeFishPointContainer.Size = UDim2.new(1, 0, 0, 36)
+    AllTimeFishPointContainer.BackgroundTransparency = 1
+    AllTimeFishPointContainer.ZIndex = 1001
+    AllTimeFishPointContainer.Parent = AllTimeFrame
+
+    local AllTimeFishPointLayout = Instance.new("UIListLayout")
+    AllTimeFishPointLayout.FillDirection = Enum.FillDirection.Horizontal
+    AllTimeFishPointLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+    AllTimeFishPointLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    AllTimeFishPointLayout.Padding = UDim.new(0, 8)
+    AllTimeFishPointLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    AllTimeFishPointLayout.Parent = AllTimeFishPointContainer
+
+    local allTimeFishPointImage = Instance.new("ImageLabel")
+    allTimeFishPointImage.Name = "Icon"
+    allTimeFishPointImage.LayoutOrder = 1
+    allTimeFishPointImage.Size = UDim2.new(0, 32, 0, 32)
+    allTimeFishPointImage.BackgroundTransparency = 1
+    allTimeFishPointImage.Image = "rbxassetid://110385249067700"
+    allTimeFishPointImage.ZIndex = 1001
+    allTimeFishPointImage.Parent = AllTimeFishPointContainer
+
+    local allTimeFishPointValueLabel = Instance.new("TextLabel")
+    allTimeFishPointValueLabel.Name = "Value"
+    allTimeFishPointValueLabel.LayoutOrder = 2
+    allTimeFishPointValueLabel.Size = UDim2.new(0, 0, 1, 0)
+    allTimeFishPointValueLabel.AutomaticSize = Enum.AutomaticSize.X
+    allTimeFishPointValueLabel.BackgroundTransparency = 1
+    allTimeFishPointValueLabel.FontFace = Font.new("rbxasset://fonts/families/NotoSansKR.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+    allTimeFishPointValueLabel.TextSize = 30
+    allTimeFishPointValueLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    allTimeFishPointValueLabel.Text = "0"
+    allTimeFishPointValueLabel.ZIndex = 1001
+    allTimeFishPointValueLabel.Parent = AllTimeFishPointContainer
+
+    local dividerAfterAllTimeFishStats = createStatsDivider(-2, AllTimeFrame)
+
+    -- 바이옴이 뜬 횟수 (일반 + 레어)
+    local allTimeBiomeCountHeaderLabel = createStatsLine(1, 22, AllTimeFrame)
+    allTimeBiomeCountHeaderLabel.Text = string.format('<font color="%s">바이옴이 뜬 횟수</font>', getgenv()._LABEL_COLOR)
+
+    local allTimeNormalBiomeLabels = {}
+    for i, biomeName in ipairs(NORMAL_BIOME_ORDER) do
+        allTimeNormalBiomeLabels[biomeName] = createStatsLine(1 + i, 22, AllTimeFrame)
+    end
+
+    local allTimeRareOrderBase = 1 + #NORMAL_BIOME_ORDER
+    local allTimeGlitchedLabel = createStatsLine(allTimeRareOrderBase + 1, 22, AllTimeFrame)
+    local allTimeDreamspaceLabel = createStatsLine(allTimeRareOrderBase + 2, 22, AllTimeFrame)
+    local allTimeCyberspaceLabel = createStatsLine(allTimeRareOrderBase + 3, 22, AllTimeFrame)
+    -- ✅ 올타임 통계는 이펙트 없이 정적 텍스트로만 표시 (세션 통계와 달리 항상 조용히
+    -- 숫자만 보여주는 화면이라, 굳이 애니메이션 코루틴을 추가로 돌리지 않음)
+
+    local dividerAfterAllTimeBiomes = createStatsDivider(allTimeRareOrderBase + 4, AllTimeFrame)
+
+    -- 아이템 사용 통계
+    local allTimeItemUseHeaderLabel = createStatsLine(allTimeRareOrderBase + 5, 22, AllTimeFrame)
+    allTimeItemUseHeaderLabel.Text = string.format('<font color="%s">아이템 사용 통계</font>', getgenv()._LABEL_COLOR)
+    local allTimeStrangeControllerLabel = createStatsLine(allTimeRareOrderBase + 6, 22, AllTimeFrame)
+    local allTimeBiomeRandomizerLabel = createStatsLine(allTimeRareOrderBase + 7, 22, AllTimeFrame)
+
+    local dividerAfterAllTimeItemUse = createStatsDivider(allTimeRareOrderBase + 8, AllTimeFrame)
+
+    -- ✅ [사용자 요청] "메모리 매치에서 획득한 아이템들" 칸은 올타임 통계에서 완전히 제거
+    -- (이 섹션과 함께 있던 두 번째 구분선도 같이 제거 - 안 그러면 구분선 2개가 연달아 뜸)
+
+    -- 지금까지 만든 아이템 갯수
+    local allTimePotionCraftValueLabel = createStatsLine(allTimeRareOrderBase + 13, 22, AllTimeFrame)
+    local allTimePotionCraftValueLabel2 = createStatsLine(allTimeRareOrderBase + 14, 22, AllTimeFrame)
+
+    getgenv()._AllTimeUIRefs = {
+        NORMAL_BIOME_ORDER = NORMAL_BIOME_ORDER,
+        allTimeNormalBiomeLabels = allTimeNormalBiomeLabels,
+        allTimeGlitchedLabel = allTimeGlitchedLabel,
+        allTimeDreamspaceLabel = allTimeDreamspaceLabel,
+        allTimeCyberspaceLabel = allTimeCyberspaceLabel,
+        allTimeStrangeControllerLabel = allTimeStrangeControllerLabel,
+        allTimeBiomeRandomizerLabel = allTimeBiomeRandomizerLabel,
+        allTimePotionCraftValueLabel = allTimePotionCraftValueLabel,
+        allTimePotionCraftValueLabel2 = allTimePotionCraftValueLabel2,
+        allTimeFishCaughtLabel = allTimeFishCaughtLabel,
+        allTimeFishPointValueLabel = allTimeFishPointValueLabel,
+        allTimeUptimeValueLabel = allTimeUptimeValueLabel,
+    }
+
+    getgenv()._UpdateAllTimeStatsUI = function()
+        local refs = getgenv()._AllTimeUIRefs
+        local stats = getgenv()._AllTimeStats
+
+        -- 작동 시간 (D일 HH시간 MM분 SS초 형식 - 상태 UI와 동일한 형식)
+        local totalSec = math.floor(stats.TotalUptimeSeconds or 0)
+        -- 지금 매크로가 켜져 있는 중이라면, 저장된 합계에 "지금까지 진행된 이번 세션 시간"도
+        -- 더해서 실시간처럼 보이게 한다.
+        if getgenv().MacroStartTime then
+            totalSec = totalSec + math.floor(tick() - getgenv().MacroStartTime)
+        end
+        local days = math.floor(totalSec / 86400)
+        local hours = math.floor((totalSec % 86400) / 3600)
+        local minutes = math.floor((totalSec % 3600) / 60)
+        local seconds = totalSec % 60
+        refs.allTimeUptimeValueLabel.Text = string.format(
+            '<font color="%s">%d일 %02d시간 %02d분 %02d초</font>',
+            getgenv()._VALUE_COLOR, days, hours, minutes, seconds
+        )
+
+        -- Fish 통계
+        refs.allTimeFishCaughtLabel.Text = string.format('<font color="%s">%s마리</font>', getgenv()._VALUE_COLOR, stats.FishCaughtCount or 0)
+        local fishPointTotal = (stats.FishPointGainedTotal or 0) + (getgenv().FishPointGained or 0)
+        refs.allTimeFishPointValueLabel.Text = string.format("%s", fishPointTotal)
+
+        -- 바이옴이 뜬 횟수
+        local counts = stats.BiomeAppearCounts or {}
+        local biomeColors = stats.BiomeColors or {}
+        for _, biomeName in ipairs(refs.NORMAL_BIOME_ORDER) do
+            local label = refs.allTimeNormalBiomeLabels[biomeName]
+            local count = counts[biomeName]
+            if count and count > 0 then
+                label.Visible = true
+                -- ✅ [치명적 버그 수정] 이전엔 바이옴 이름에 항상 기본 라벨 색만 썼어서
+                -- 색이 전혀 안 뜨는 문제가 있었음. 저장된 색상(JSON에서 불러온 {R,G,B}
+                -- 테이블)을 헥스 코드로 변환해서 이름에 입힌다.
+                local nameColor = getgenv()._LABEL_COLOR
+                local c = biomeColors[biomeName]
+                if c then
+                    nameColor = string.format("#%02X%02X%02X", (c.R or 0) * 255, (c.G or 0) * 255, (c.B or 0) * 255)
+                end
+                label.Text = string.format(
+                    '<font color="%s">%s</font><font color="%s"> :</font> <font color="%s">%s번</font>',
+                    nameColor, biomeName, getgenv()._LABEL_COLOR, getgenv()._VALUE_COLOR, count
+                )
+            else
+                label.Visible = false
+            end
+        end
+
+        -- 레어 바이옴 (이펙트 없이 정적 텍스트)
+        local glitchedCount = counts.GLITCHED or 0
+        refs.allTimeGlitchedLabel.Visible = glitchedCount > 0
+        refs.allTimeGlitchedLabel.Text = string.format(
+            '<font color="#FFFFFF">Glitched</font><font color="%s"> : %d번</font>', getgenv()._LABEL_COLOR, glitchedCount
+        )
+        local dreamspaceCount = counts.DREAMSPACE or 0
+        refs.allTimeDreamspaceLabel.Visible = dreamspaceCount > 0
+        refs.allTimeDreamspaceLabel.Text = string.format(
+            '<font color="#F258C7">Dreamspace</font><font color="%s"> : %d번</font>', getgenv()._LABEL_COLOR, dreamspaceCount
+        )
+        local cyberspaceCount = counts.CYBERSPACE or 0
+        refs.allTimeCyberspaceLabel.Visible = cyberspaceCount > 0
+        refs.allTimeCyberspaceLabel.Text = string.format(
+            '<font color="#1313EB">Cyberspace</font><font color="%s"> : %d번</font>', getgenv()._LABEL_COLOR, cyberspaceCount
+        )
+
+        -- 아이템 사용 통계
+        refs.allTimeStrangeControllerLabel.Text = string.format(
+            '<font color="%s">Strange Controller :</font> <font color="%s">%s번</font>',
+            getgenv()._LABEL_COLOR, getgenv()._VALUE_COLOR, stats.StrangeControllerUseCount or 0
+        )
+        refs.allTimeBiomeRandomizerLabel.Text = string.format(
+            '<font color="%s">Biome Randomizer :</font> <font color="%s">%s번</font>',
+            getgenv()._LABEL_COLOR, getgenv()._VALUE_COLOR, stats.BiomeRandomizerUseCount or 0
+        )
+
+        -- ✅ [사용자 요청] 메모리 매치 획득 아이템 칸은 올타임 통계에서 제거됨
+
+        -- 지금까지 만든 아이템 갯수
+        refs.allTimePotionCraftValueLabel.Text = string.format('<font color="%s">아이템 제작 갯수</font>', getgenv()._LABEL_COLOR)
+        refs.allTimePotionCraftValueLabel2.Text = string.format('<font color="%s">%s번</font>', getgenv()._VALUE_COLOR, stats.PotionCraftCompletedCount or 0)
+    end
+
+    local allTimeUIVisibleFlag = false
+    task.spawn(function()
+        while true do
+            task.wait(0.5) -- 올타임 통계는 실시간성이 덜 중요하므로 0.5초 주기로 충분
+            if not allTimeUIVisibleFlag then continue end
+            -- ✅ [사용자 요청] 안정성 - pcall로 감싸서 에러가 나도 이 루프 자체는 죽지 않게
+            local ok, err = pcall(getgenv()._UpdateAllTimeStatsUI)
+            if not ok then
+                warn("[올타임 UI 갱신 오류] " .. tostring(err))
+            end
+        end
+    end)
+
+    -- =============================
+    -- [ 전환 버튼 3원 구조: 상태 UI / 스탯 UI / 올타임 통계 UI ]
+    -- =============================
+    -- ✅ [사용자 요청] 상태 UI에는 "통계 보기" 버튼 1개. 스탯 UI에는 "매크로 보기"(왼쪽으로
+    -- 밀림) + "올타임 통계"(원래 "매크로 보기"가 있던 자리) 버튼 2개. 올타임 통계 UI에는
+    -- "통계 보기" 버튼 1개(스탯 화면으로 돌아감). 모두 UI 안쪽 맨 위(UIListLayout 최상단)에
+    -- 배치해서 실시간 위치 계산이나 부모-자식 상대 배치 문제를 겪지 않는다.
+    local function makeSwitchButton(text, parentFrame)
+        local btn = Instance.new("TextButton")
+        btn.Name = "SwitchButton_" .. text
+        btn.LayoutOrder = -100
+        btn.Size = UDim2.new(0, 160, 0, 40)
+        btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        btn.BackgroundTransparency = 0.15
+        btn.BorderSizePixel = 0
+        btn.AutoButtonColor = false
+        btn.Text = text
+        btn.FontFace = Font.new("rbxasset://fonts/families/NotoSansKR.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+        btn.TextSize = 26
+        btn.TextColor3 = Color3.fromRGB(0, 0, 0)
+        btn.TextXAlignment = Enum.TextXAlignment.Right
+        btn.ZIndex = 1000
+        btn.Visible = false -- 매크로가 켜져있을 때만 보이게 (아래 루프가 관리)
+        btn.Parent = parentFrame
+
+        local pad = Instance.new("UIPadding")
+        pad.PaddingRight = UDim.new(0, 12)
+        pad.Parent = btn
+
+        local grad = Instance.new("UIGradient")
+        grad.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(1, 0)
+        })
+        grad.Parent = btn
+
+        return btn
+    end
+
+    -- ✅ [사용자 요청] 스탯 UI에는 두 버튼이 나란히 있어야 함 - "매크로 보기"가 왼쪽으로
+    -- 밀리고 "올타임 통계"가 원래 "매크로 보기" 자리(오른쪽)에 온다. 하나의 가로 컨테이너로
+    -- 감싸서 둘을 나란히 배치한다.
+    local StatsButtonRow = Instance.new("Frame")
+    StatsButtonRow.Name = "StatsButtonRow"
+    StatsButtonRow.LayoutOrder = -100
+    StatsButtonRow.Size = UDim2.new(1, 0, 0, 40)
+    StatsButtonRow.BackgroundTransparency = 1
+    StatsButtonRow.ZIndex = 1000
+    StatsButtonRow.Parent = StatsFrame
+
+    local StatsButtonRowLayout = Instance.new("UIListLayout")
+    StatsButtonRowLayout.FillDirection = Enum.FillDirection.Horizontal
+    StatsButtonRowLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+    StatsButtonRowLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    StatsButtonRowLayout.Padding = UDim.new(0, 10)
+    StatsButtonRowLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    StatsButtonRowLayout.Parent = StatsButtonRow
+
+    local SwitchButton = makeSwitchButton("통계 보기", getgenv()._StatusFrame)
+
+    -- 스탯 화면의 두 버튼: 왼쪽은 "매크로 보기"(순서1), 오른쪽은 "올타임 통계"(순서2,
+    -- 원래 SwitchButton이 있던 자리)
+    local StatsSwitchButton = Instance.new("TextButton")
     StatsSwitchButton.Name = "StatsSwitchButton"
-    StatsSwitchButton.Parent = StatsFrame
+    StatsSwitchButton.LayoutOrder = 1
+    StatsSwitchButton.Size = UDim2.new(0, 160, 0, 40)
+    StatsSwitchButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    StatsSwitchButton.BackgroundTransparency = 0.15
+    StatsSwitchButton.BorderSizePixel = 0
+    StatsSwitchButton.AutoButtonColor = false
+    StatsSwitchButton.Text = "매크로 보기"
+    StatsSwitchButton.FontFace = Font.new("rbxasset://fonts/families/NotoSansKR.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+    StatsSwitchButton.TextSize = 26
+    StatsSwitchButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+    StatsSwitchButton.TextXAlignment = Enum.TextXAlignment.Right
+    StatsSwitchButton.ZIndex = 1000
+    StatsSwitchButton.Visible = false
+    StatsSwitchButton.Parent = StatsButtonRow
+    local StatsSwitchButtonPad = Instance.new("UIPadding")
+    StatsSwitchButtonPad.PaddingRight = UDim.new(0, 12)
+    StatsSwitchButtonPad.Parent = StatsSwitchButton
+    local StatsSwitchButtonGrad = Instance.new("UIGradient")
+    StatsSwitchButtonGrad.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0)
+    })
+    StatsSwitchButtonGrad.Parent = StatsSwitchButton
+
+    local AllTimeOpenButton = Instance.new("TextButton")
+    AllTimeOpenButton.Name = "AllTimeOpenButton"
+    AllTimeOpenButton.LayoutOrder = 2
+    AllTimeOpenButton.Size = UDim2.new(0, 160, 0, 40)
+    AllTimeOpenButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    AllTimeOpenButton.BackgroundTransparency = 0.15
+    AllTimeOpenButton.BorderSizePixel = 0
+    AllTimeOpenButton.AutoButtonColor = false
+    AllTimeOpenButton.Text = "올타임"
+    AllTimeOpenButton.FontFace = Font.new("rbxasset://fonts/families/NotoSansKR.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+    AllTimeOpenButton.TextSize = 26
+    AllTimeOpenButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+    AllTimeOpenButton.TextXAlignment = Enum.TextXAlignment.Right
+    AllTimeOpenButton.ZIndex = 1000
+    AllTimeOpenButton.Visible = false
+    AllTimeOpenButton.Parent = StatsButtonRow
+    local AllTimeOpenButtonPad = Instance.new("UIPadding")
+    AllTimeOpenButtonPad.PaddingRight = UDim.new(0, 12)
+    AllTimeOpenButtonPad.Parent = AllTimeOpenButton
+    local AllTimeOpenButtonGrad = Instance.new("UIGradient")
+    AllTimeOpenButtonGrad.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0)
+    })
+    AllTimeOpenButtonGrad.Parent = AllTimeOpenButton
+
+    local AllTimeSwitchButton = makeSwitchButton("통계 보기", AllTimeFrame)
 
     -- ✅ [사용자 요청] 버튼과 그 아래 내용 사이에 구분선 추가 (다른 구분선들과 동일한
     -- 스타일: 얇은 흰색 선, 투명도 0.9). createDivider()는 730~809줄 사이의 다른 스코프에
@@ -2024,140 +2471,189 @@ do
     local function createButtonDivider(parentFrame)
         local divider = Instance.new("Frame")
         divider.Name = "SwitchButtonDivider"
-        divider.LayoutOrder = 0 -- 버튼(-1)과 첫 항목(1) 사이
+        divider.LayoutOrder = -50
         divider.Size = UDim2.new(1, 0, 0, 1)
         divider.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        divider.BackgroundTransparency = 0.9
+        -- ✅ [치명적 버그 수정] "매크로를 켜지도 않았는데 구분선이 보인다" - 다른 구분선들
+        -- (createDivider)은 시작 투명도를 1(완전 투명)로 두는데, 이 함수만 목표값(0.9)으로
+        -- 바로 시작해서 매크로 켜짐 여부와 무관하게 항상 보이고 있었음.
+        divider.BackgroundTransparency = 1
         divider.BorderSizePixel = 0
         divider.ZIndex = 1001
         divider.Parent = parentFrame
         return divider
     end
-    createButtonDivider(getgenv()._StatusFrame)
-    createButtonDivider(StatsFrame)
+    local statusButtonDivider = createButtonDivider(getgenv()._StatusFrame)
+    local statsButtonDivider = createButtonDivider(StatsFrame)
+    local allTimeButtonDivider = createButtonDivider(AllTimeFrame)
 
-    -- 두 화면 프레임의 "제자리" 위치를 기록해둔다 (StatusFrame은 이미 만들어진 상태 UI의
-    -- 프레임을 그대로 재사용 - do 블록 밖에서 선언된 전역이 아니라, 위쪽 코드 블록에서
-    -- 만들어진 그 인스턴스를 이름으로 다시 찾아서 재사용한다).
-    local StatusUIInstance = LocalPlayer.PlayerGui:FindFirstChild("MacroStatusDisplay")
-    local StatusFrameInstance = StatusUIInstance and StatusUIInstance:FindFirstChild("StatusFrame")
+    -- ✅ [치명적 버그 수정] "매크로를 껐다 켜고 통계 보기를 누르면 UI가 겹친다" - 이
+    -- 함수는 로컬 변수 currentScreen을 따로 갖고 있었는데, 매크로가 꺼질 때(다른 함수인
+    -- _UpdateSwitchButtonVisibility)는 getgenv()._SwitchButtonState.currentScreen만
+    -- "status"로 리셋하고 이 로컬 변수는 그대로 방치했음. 그러면 로컬 currentScreen이
+    -- 여전히 "stats"/"alltime"으로 남아있는 상태에서, 매크로를 다시 켠 뒤 "통계 보기"를
+    -- 누르면 switchToScreen("stats")가 "currentScreen == targetScreen"에 걸려 아무 것도
+    -- 안 하고 조용히 return해버려서, 화면이 실제로는 잘못된 상태(상태 UI와 스탯 UI가
+    -- 동시에 Visible=true)로 남아 겹쳐 보였음. 로컬 변수를 없애고 getgenv() 하나만
+    -- 참조하도록 통합해서, 두 함수가 항상 같은 상태를 보게 만든다.
+    local function getCurrentScreen()
+        return (getgenv()._SwitchButtonState and getgenv()._SwitchButtonState.currentScreen) or "status"
+    end
 
-    local HOME_POSITION = UDim2.new(1, -20, 0.5, 0) -- 원래(제자리) 위치
-    local OFFSCREEN_POSITION = UDim2.new(1, 600, 0.5, 0) -- 화면 밖(오른쪽)
+    local HOME_POSITION_LOCAL = UDim2.new(1, 0, 0, 0) -- 각 화면의 "제자리" (MasterFrame 기준)
+    local SLIDE_OFFSET_LOCAL = UDim2.new(1, 300, 0, 0) -- 슬라이드 애니메이션용 짧은 이동 거리
 
-    local isShowingStats = false
     local isTransitioning = false
 
-    local function switchToStats()
-        if isTransitioning or isShowingStats then return end
+    local function switchToScreen(targetScreen)
+        local currentScreen = getCurrentScreen()
+        if isTransitioning or currentScreen == targetScreen then return end
         isTransitioning = true
-        isShowingStats = true
-        if getgenv()._SwitchButtonState then getgenv()._SwitchButtonState.isShowingStats = true end
 
-        if StatusFrameInstance then
-            -- ✅ 기존 UI가 오른쪽으로 사라짐 (Out Expo)
-            getgenv()._TweenService:Create(
-                StatusFrameInstance,
-                TweenInfo.new(0.5, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
-                { Position = OFFSCREEN_POSITION }
-            ):Play()
+        -- ✅ [치명적 버그 수정] 캐싱된 StatusFrameInstance 대신 매번 새로 조회
+        local statusUIForSwitch = LocalPlayer.PlayerGui:FindFirstChild("MacroStatusDisplay")
+        local currentStatusFrame = statusUIForSwitch and statusUIForSwitch:FindFirstChild("MasterFrame")
+            and statusUIForSwitch.MasterFrame:FindFirstChild("StatusFrame")
+
+        local fromFrame = (currentScreen == "status" and currentStatusFrame)
+            or (currentScreen == "stats" and StatsFrame)
+            or (currentScreen == "alltime" and AllTimeFrame)
+        local toFrame = (targetScreen == "status" and currentStatusFrame)
+            or (targetScreen == "stats" and StatsFrame)
+            or (targetScreen == "alltime" and AllTimeFrame)
+
+        -- ✅ getgenv() 상태 하나만 갱신 (로컬 currentScreen은 이제 함수 진입 시점의
+        -- 값만 담는 임시 변수라 재할당이 불필요함)
+        if getgenv()._SwitchButtonState then getgenv()._SwitchButtonState.currentScreen = targetScreen end
+        statsUIVisibleFlag = (targetScreen == "stats")
+        allTimeUIVisibleFlag = (targetScreen == "alltime")
+
+        if fromFrame then
+            -- ✅ 기존 화면이 짧게 미끄러지며 사라짐 (Out Expo)
+            local exitTween = getgenv()._TweenService:Create(
+                fromFrame,
+                TweenInfo.new(0.4, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
+                { Position = SLIDE_OFFSET_LOCAL }
+            )
+            exitTween:Play()
+            exitTween.Completed:Connect(function()
+                if fromFrame ~= toFrame then
+                    fromFrame.Visible = false
+                end
+                fromFrame.Position = HOME_POSITION_LOCAL -- 다음에 다시 보일 때를 위해 원위치로 복구
+            end)
         end
 
-        StatsFrame.Position = OFFSCREEN_POSITION
-        StatsFrame.Visible = true
-        statsUIVisibleFlag = true
-
-        -- ✅ 스탯 UI가 원래 자리로 들어옴 (In-Out Expo)
-        local enterTween = getgenv()._TweenService:Create(
-            StatsFrame,
-            TweenInfo.new(0.5, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut),
-            { Position = HOME_POSITION }
-        )
-        enterTween:Play()
-        enterTween.Completed:Connect(function()
-            isTransitioning = false
-        end)
-
-        SwitchButton.Text = "매크로 보기"
-        StatsSwitchButton.Text = "매크로 보기"
-    end
-
-    local function switchToStatus()
-        if isTransitioning or not isShowingStats then return end
-        isTransitioning = true
-        isShowingStats = false
-        if getgenv()._SwitchButtonState then getgenv()._SwitchButtonState.isShowingStats = false end
-        statsUIVisibleFlag = false
-
-        -- ✅ 스탯 UI가 오른쪽으로 사라짐 (Out Expo)
-        local exitTween = getgenv()._TweenService:Create(
-            StatsFrame,
-            TweenInfo.new(0.5, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
-            { Position = OFFSCREEN_POSITION }
-        )
-        exitTween:Play()
-        exitTween.Completed:Connect(function()
-            StatsFrame.Visible = false
-            isTransitioning = false
-        end)
-
-        if StatusFrameInstance then
-            StatusFrameInstance.Position = OFFSCREEN_POSITION
-            -- ✅ 기존 UI가 원래 자리로 들어옴 (In-Out Expo)
-            getgenv()._TweenService:Create(
-                StatusFrameInstance,
-                TweenInfo.new(0.5, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut),
-                { Position = HOME_POSITION }
-            ):Play()
-        end
-
-        SwitchButton.Text = "통계 보기"
-        StatsSwitchButton.Text = "통계 보기"
-    end
-
-    local function onSwitchButtonClicked()
-        if isShowingStats then
-            switchToStatus()
+        if toFrame then
+            toFrame.Position = SLIDE_OFFSET_LOCAL
+            toFrame.Visible = true
+            -- ✅ 새 화면이 제자리로 미끄러져 들어옴 (In-Out Expo)
+            local enterTween = getgenv()._TweenService:Create(
+                toFrame,
+                TweenInfo.new(0.4, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut),
+                { Position = HOME_POSITION_LOCAL }
+            )
+            enterTween:Play()
+            enterTween.Completed:Connect(function()
+                isTransitioning = false
+            end)
         else
-            switchToStats()
+            isTransitioning = false
         end
     end
-    SwitchButton.MouseButton1Click:Connect(onSwitchButtonClicked)
-    StatsSwitchButton.MouseButton1Click:Connect(onSwitchButtonClicked)
+
+    SwitchButton.MouseButton1Click:Connect(function() switchToScreen("stats") end)
+    StatsSwitchButton.MouseButton1Click:Connect(function() switchToScreen("status") end)
+    AllTimeOpenButton.MouseButton1Click:Connect(function() switchToScreen("alltime") end)
+    AllTimeSwitchButton.MouseButton1Click:Connect(function() switchToScreen("stats") end)
 
     getgenv()._SwitchButtonState = {
         SwitchButton = SwitchButton,
         StatsSwitchButton = StatsSwitchButton,
+        AllTimeOpenButton = AllTimeOpenButton,
+        AllTimeSwitchButton = AllTimeSwitchButton,
         StatsFrame = StatsFrame,
-        StatusFrameInstance = StatusFrameInstance,
-        OFFSCREEN_POSITION = OFFSCREEN_POSITION,
-        HOME_POSITION = HOME_POSITION,
-        isShowingStats = false,
-        statsUIVisibleFlag = false,
+        AllTimeFrame = AllTimeFrame,
+        currentScreen = "status",
+        statusButtonDivider = statusButtonDivider,
+        statsButtonDivider = statsButtonDivider,
+        allTimeButtonDivider = allTimeButtonDivider,
     }
 
+    -- ✅ [사용자 요청] "처음에 뜨는 창은 무조건 메인 매크로 UI" + "매크로가 꺼지면 모든
+    -- 창이 페이드아웃" - MasterFrame(CanvasGroup) 구조로 바뀌면서 이 함수가 훨씬
+    -- 단순해졌다. 더 이상 Position이나 투명도를 여러 곳에서 따로 강제 동기화할 필요가
+    -- 없다 - MasterFrame 하나의 GroupTransparency(FadeStatusUI가 관리)만 매크로 켜짐
+    -- 여부를 따르면 전체가 자동으로 함께 나타나고 사라진다. 이 함수는 그냥 "매크로가
+    -- 꺼지면 내부적으로 상태 화면으로 되돌려놓는다"는 상태 관리만 담당한다.
     getgenv()._UpdateSwitchButtonVisibility = function()
         local s = getgenv()._SwitchButtonState
-        s.SwitchButton.Visible = Settings.Sols.masterMacroEnabled == true
-        s.StatsSwitchButton.Visible = Settings.Sols.masterMacroEnabled == true
-        if not Settings.Sols.masterMacroEnabled and s.isShowingStats then
-            -- 매크로가 꺼지면 스탯 화면에 머물러 있지 않고 조용히 상태 화면으로 되돌림
-            s.isShowingStats = false
-            s.statsUIVisibleFlag = false
+        local macroOn = Settings.Sols.masterMacroEnabled == true
+
+        -- ✅ [사용자 요청] "메인 창 말고 다른 UI를 켜고 있으면 UI가 안 뜬다" - 게임 자체가
+        -- 인벤토리/상점 등 다른 UI를 열 때 HUD를 자동으로 숨기는 로직이 있다면, 그 로직이
+        -- 우리 ScreenGui까지 함께 Enabled=false로 꺼버릴 수 있음. 매 틱마다 강제로 다시
+        -- 켜서 게임의 숨김 로직과 무관하게 항상 보이도록 만든다.
+        if getgenv()._StatusUIRef then getgenv()._StatusUIRef.Enabled = true end
+        if getgenv()._StatsUIRef then getgenv()._StatsUIRef.Enabled = true end
+
+        s.SwitchButton.Visible = macroOn
+        s.StatsSwitchButton.Visible = macroOn
+        s.AllTimeOpenButton.Visible = macroOn
+        s.AllTimeSwitchButton.Visible = macroOn
+
+        -- ✅ [치명적 버그 수정] 버튼 밑 구분선들도 매크로 켜짐 여부에 맞게 투명도를
+        -- 관리한다 (매크로를 안 켠 상태에서도 보이던 문제의 수정 - 목표 투명도 0.9).
+        local dividerTransparency = macroOn and 0.9 or 1
+        s.statusButtonDivider.BackgroundTransparency = dividerTransparency
+        s.statsButtonDivider.BackgroundTransparency = dividerTransparency
+        s.allTimeButtonDivider.BackgroundTransparency = dividerTransparency
+
+        if not macroOn and s.currentScreen ~= "status" then
+            -- ✅ [사용자 요청] 매크로가 꺼지면 어느 화면에 있었든 조용히 상태 화면으로
+            -- 되돌림 - 다음에 매크로를 다시 켜면 항상 메인 매크로 UI부터 보이게 된다.
+            s.currentScreen = "status"
+            statsUIVisibleFlag = false
+            allTimeUIVisibleFlag = false
             s.StatsFrame.Visible = false
-            s.StatsFrame.Position = s.OFFSCREEN_POSITION
-            if s.StatusFrameInstance then
-                s.StatusFrameInstance.Position = s.HOME_POSITION
+            s.AllTimeFrame.Visible = false
+
+            local statusUI = LocalPlayer.PlayerGui:FindFirstChild("MacroStatusDisplay")
+            local statusFrameForReset = statusUI and statusUI:FindFirstChild("MasterFrame")
+                and statusUI.MasterFrame:FindFirstChild("StatusFrame")
+            if statusFrameForReset then
+                statusFrameForReset.Visible = true
             end
-            s.SwitchButton.Text = "통계 보기"
-            s.StatsSwitchButton.Text = "통계 보기"
+        end
+
+        -- ✅ [사용자 요청] MasterFrame은 AutomaticSize를 껐으므로(3개 화면이 동시에
+        -- 자식으로 있어서 자동 계산이 부정확해질 수 있었음), 지금 실제로 보이는 화면의
+        -- 높이(AbsoluteSize.Y)를 읽어서 매 틱 수동으로 맞춰준다. 각 화면은 여전히
+        -- AutomaticSize.Y라 내용에 따라 자기 스스로는 정확한 높이를 유지한다.
+        local activeFrame = (s.currentScreen == "stats" and s.StatsFrame)
+            or (s.currentScreen == "alltime" and s.AllTimeFrame)
+            or nil
+        if not activeFrame then
+            local statusUIForSize = LocalPlayer.PlayerGui:FindFirstChild("MacroStatusDisplay")
+            activeFrame = statusUIForSize and statusUIForSize:FindFirstChild("MasterFrame")
+                and statusUIForSize.MasterFrame:FindFirstChild("StatusFrame")
+        end
+        if activeFrame then
+            local h = activeFrame.AbsoluteSize.Y
+            if h > 0 then
+                getgenv()._MasterFrame.Size = UDim2.new(0, 560, 0, h)
+            end
         end
     end
 
     task.spawn(function()
         while true do
             task.wait(0.2)
-            getgenv()._UpdateSwitchButtonVisibility()
+            -- ✅ [사용자 요청] 안정성 - pcall로 감싸서 에러가 나도 이 루프 자체는 죽지 않게
+            local ok, err = pcall(getgenv()._UpdateSwitchButtonVisibility)
+            if not ok then
+                warn("[전환 버튼 갱신 오류] " .. tostring(err))
+            end
         end
     end)
 end
@@ -2233,6 +2729,10 @@ do
                     local scrollingFrame = biomeWatchFindScrollingFrame()
                     if scrollingFrame then
                         biomeWatchConn = scrollingFrame.ChildAdded:Connect(function(child)
+                            -- ✅ [사용자 요청] 안정성 - 콜백 안에서 에러가 나도 이벤트
+                            -- 연결 자체는 안 끊기지만, 그 순간의 알림 처리가 씹히지 않도록
+                            -- pcall로 감싼다.
+                            local ok, err = pcall(function()
                             if child:IsA("TextLabel") then
                                 task.wait(0.2)
                                 local text = child.Text
@@ -2265,6 +2765,8 @@ do
                                                 end
                                                 getgenv().BiomeAppearCounts[validBiome] =
                                                     (getgenv().BiomeAppearCounts[validBiome] or 0) + 1
+                                                -- ✅ [사용자 요청] 올타임 통계에도 같이 누적
+                                                getgenv()._AllTimeAddBiomeAppear(validBiome, child.TextColor3)
                                             elseif action == "ended" and getgenv().CurrentBiomeName == validBiome then
                                                 getgenv().CurrentBiomeName = nil
                                                 getgenv().CurrentBiomeColor = nil
@@ -2272,6 +2774,10 @@ do
                                         end
                                     end
                                 end
+                            end
+                            end)
+                            if not ok then
+                                warn("[바이옴 감시 오류] " .. tostring(err))
                             end
                         end)
                     end
@@ -2283,6 +2789,74 @@ do
                 end
                 getgenv().CurrentBiomeName = nil
                 getgenv().CurrentBiomeColor = nil
+            end
+        end
+    end)
+end
+
+-- =============================
+-- [ Fish Point 증가량 추적 (스탯 UI용) ]
+-- =============================
+-- ✅ [사용자 요청] Players -> LocalPlayer -> PlayerGui -> MainInterface 안, Position이
+-- {0, 10}, {0.930000007, -10}인 Frame -> 그 안의 TextLabel(쉼표 포함 숫자)을 실시간으로
+-- 읽어서, 매크로가 켜진 시점의 값을 기준으로 그 이후 증가한 양만 계산한다.
+do
+    local function findFishPointFrame()
+        local mainUI = LocalPlayer.PlayerGui:FindFirstChild("MainInterface")
+        if not mainUI then return nil end
+        for _, frame in ipairs(mainUI:GetChildren()) do
+            if frame:IsA("Frame") then
+                local dx = math.abs(frame.Position.X.Scale - 0)
+                local dOffX = math.abs(frame.Position.X.Offset - 10)
+                local dy = math.abs(frame.Position.Y.Scale - 0.930000007)
+                local dOffY = math.abs(frame.Position.Y.Offset - (-10))
+                if dx < 0.01 and dOffX < 2 and dy < 0.01 and dOffY < 2 then
+                    return frame
+                end
+            end
+        end
+        return nil
+    end
+
+    local function readFishPointValue()
+        local frame = findFishPointFrame()
+        if not frame then return nil end
+        local label = frame:FindFirstChildWhichIsA("TextLabel", true)
+        if not label then return nil end
+        -- ✅ 쉼표(,)가 포함된 숫자 텍스트("1,234" 등)를 정리해서 숫자로 변환
+        local cleaned = label.Text:gsub(",", ""):gsub("%s+", ""):match("%d+")
+        if not cleaned then return nil end
+        return tonumber(cleaned)
+    end
+
+    getgenv()._FishPointBaseline = nil -- 매크로를 켠 시점의 Fish Point 값
+
+    task.spawn(function()
+        local lastMasterEnabled = false
+        while true do
+            task.wait(1)
+
+            -- ✅ [사용자 요청] 안정성 - pcall로 감싸서 UI 요소 접근 실패 등 에러가 나도
+            -- 이 루프 자체는 죽지 않게 함
+            local ok, err = pcall(function()
+                local nowEnabled = Settings.Sols.masterMacroEnabled == true
+                if nowEnabled and not lastMasterEnabled then
+                    -- ✅ 매크로가 막 켜진 시점 - 기준값을 다시 잡는다
+                    getgenv()._FishPointBaseline = readFishPointValue()
+                elseif not nowEnabled then
+                    getgenv()._FishPointBaseline = nil
+                end
+                lastMasterEnabled = nowEnabled
+
+                if nowEnabled then
+                    local current = readFishPointValue()
+                    if current and getgenv()._FishPointBaseline then
+                        getgenv().FishPointGained = math.max(0, current - getgenv()._FishPointBaseline)
+                    end
+                end
+            end)
+            if not ok then
+                warn("[Fish Point 감시 오류] " .. tostring(err))
             end
         end
     end)
@@ -2323,8 +2897,14 @@ end
 -- 문제가 있었음 - 게임이 "Auto Crafted" 알림 하나를 표시할 때 애니메이션 단계 등으로
 -- 여러 개의 서로 다른 Frame/TextLabel 인스턴스를 순차적으로 생성하는 것으로 보임(우리
 -- 코드 관점에서는 매번 "새로운" 인스턴스라 인스턴스 기준 중복 방지가 무력화됨). 대신
--- 마지막으로 카운트한 시점 이후 3초 안에는 추가 카운트를 무시하는 시간 기반 디바운스로
--- 바꾼다 - 실제 포션 제작 완료는 최소 몇 분 간격으로 일어나므로 3초는 충분히 안전한 값.
+-- 마지막으로 카운트한 시점 이후 일정 시간 안에는 추가 카운트를 무시하는 시간 기반
+-- 디바운스로 바꾼다.
+-- ✅ [사용자 요청] "아직까지 아이템 제작 갯수가 한번에 여러번 적용됨" - 3초 디바운스로도
+-- 여전히 중복이 발생했음. 매초 도는 재스캔 루프가 "Auto Crafted" 알림이 떠있는 내내
+-- (짧은 3초보다 더 길게 화면에 남아있으면) 계속 CheckFrameForAutoCrafted를 호출하는데,
+-- 3초가 지나면 디바운스가 풀려서 같은 알림을 또 카운트했던 것으로 보임. 실제 포션 제작
+-- 완료는 최소 몇 분 간격으로 일어나므로, 알림이 아무리 오래 떠있어도 절대 안 풀리도록
+-- 30초로 대폭 늘린다.
 getgenv()._LastPotionCraftCountTime = 0
 
 local function CheckFrameForAutoCrafted(child)
@@ -2336,13 +2916,15 @@ local function CheckFrameForAutoCrafted(child)
             getgenv().PotionCraftWantsSlot = true
 
             -- ✅ [사용자 요청] 카운트는 같은 알림이 여러 인스턴스/여러 번 감지되어도
-            -- 딱 1번만 세도록, 마지막 카운트 이후 3초 안이면 무시한다.
+            -- 딱 1번만 세도록, 마지막 카운트 이후 30초 안이면 무시한다.
             local now = tick()
-            if now - getgenv()._LastPotionCraftCountTime > 3 then
+            if now - getgenv()._LastPotionCraftCountTime > 30 then
                 getgenv()._LastPotionCraftCountTime = now
                 -- ✅ [사용자 요청] 스탯 UI의 "지금까지 만든 아이템 갯수"는 이 알림(UI)이
                 -- 뜬 것으로 판단해서 집계한다.
                 getgenv().PotionCraftCompletedCount = (getgenv().PotionCraftCompletedCount or 0) + 1
+                -- ✅ [사용자 요청] 올타임 통계에도 같이 누적
+                getgenv()._AllTimeAddPotionCraft()
             end
             return
         end
@@ -6069,6 +6651,9 @@ getgenv()._CountItemUseIfNoWarning = function(counterKey)
 
         if not hadWarning then
             getgenv()[counterKey] = (getgenv()[counterKey] or 0) + 1
+            -- ✅ [사용자 요청] 올타임 통계에도 같이 누적 (counterKey는 StrangeControllerUseCount
+            -- 또는 BiomeRandomizerUseCount - AllTimeStats 테이블의 같은 키를 그대로 재사용)
+            getgenv()._AllTimeAddItemUse(counterKey)
         end
     end)
 end
@@ -7740,6 +8325,82 @@ local UI = Material.Load({
 local HttpService = game:GetService("HttpService")
 local CONFIG_FILE = "ZajakScript_AutoLoad.json"
 local PERMANENT_FILE = "ZajakScript_Permanent.json"
+
+-- ✅ [사용자 요청] "올타임 통계" - 스크립트를 완전히 껐다 켜도 유지되어야 하므로 별도
+-- 파일에 저장한다. 세션 통계(getgenv().BiomeAppearCounts 등)와 병행해서, 같은 이벤트가
+-- 발생할 때마다 이 테이블에도 같이 누적하고 주기적으로 디스크에 기록한다.
+local ALLTIME_STATS_FILE = "ZajakScript_AllTimeStats.json"
+
+getgenv()._AllTimeStats = {
+    BiomeAppearCounts = {},
+    BiomeColors = {}, -- ✅ [사용자 요청] 올타임 통계에서도 바이옴 색을 표시하기 위해 저장
+    StrangeControllerUseCount = 0,
+    BiomeRandomizerUseCount = 0,
+    MemoryMatchObtainedItems = {},
+    PotionCraftCompletedCount = 0,
+    FishCaughtCount = 0,
+    FishPointGainedTotal = 0, -- Fish Point는 "증가량"을 누적해서 더한다
+    TotalUptimeSeconds = 0, -- ✅ [사용자 요청] 올타임 통계에는 작동 시간까지 표시
+}
+
+-- 디스크에서 올타임 통계를 불러온다 (스크립트를 처음 켤 때 한 번)
+pcall(function()
+    if isfile and isfile(ALLTIME_STATS_FILE) then
+        local data = readfile(ALLTIME_STATS_FILE)
+        local decoded = HttpService:JSONDecode(data)
+        if decoded and type(decoded) == "table" then
+            for key, value in pairs(decoded) do
+                getgenv()._AllTimeStats[key] = value
+            end
+        end
+    end
+end)
+
+-- 올타임 통계를 디스크에 저장 (주기적으로 + 매크로 종료 시 호출)
+getgenv()._SaveAllTimeStats = function()
+    pcall(function()
+        if writefile then
+            writefile(ALLTIME_STATS_FILE, HttpService:JSONEncode(getgenv()._AllTimeStats))
+        end
+    end)
+end
+
+-- 세션 통계 이벤트가 발생할 때마다 올타임 통계에도 반영하는 헬퍼들
+getgenv()._AllTimeAddBiomeAppear = function(biomeName, color)
+    local stats = getgenv()._AllTimeStats
+    stats.BiomeAppearCounts[biomeName] = (stats.BiomeAppearCounts[biomeName] or 0) + 1
+    -- ✅ [사용자 요청] 올타임 통계에서도 바이옴 색을 표시하기 위해 저장. Color3는 JSON으로
+    -- 직접 저장이 안 되므로 {R=.., G=.., B=..} 형태(0~1 사이 값)로 변환해서 저장한다.
+    if color then
+        if not stats.BiomeColors then stats.BiomeColors = {} end
+        stats.BiomeColors[biomeName] = { R = color.R, G = color.G, B = color.B }
+    end
+end
+getgenv()._AllTimeAddItemUse = function(itemKey)
+    local stats = getgenv()._AllTimeStats
+    stats[itemKey] = (stats[itemKey] or 0) + 1
+end
+getgenv()._AllTimeAddObtainedItem = function(imageId, quantity)
+    local stats = getgenv()._AllTimeStats
+    stats.MemoryMatchObtainedItems[imageId] = (stats.MemoryMatchObtainedItems[imageId] or 0) + quantity
+end
+getgenv()._AllTimeAddPotionCraft = function()
+    local stats = getgenv()._AllTimeStats
+    stats.PotionCraftCompletedCount = (stats.PotionCraftCompletedCount or 0) + 1
+end
+getgenv()._AllTimeAddFishCaught = function()
+    local stats = getgenv()._AllTimeStats
+    stats.FishCaughtCount = (stats.FishCaughtCount or 0) + 1
+end
+
+-- ✅ 주기적으로 디스크에 저장 (30초마다 - 너무 자주 쓰면 부담되고, 너무 뜸하면 스크립트가
+-- 갑자기 죽었을 때 최근 기록을 잃을 수 있어 절충)
+task.spawn(function()
+    while true do
+        task.wait(30)
+        getgenv()._SaveAllTimeStats()
+    end
+end)
 
 local ConfigSystem = {
     AutoLoad = true,
@@ -10921,8 +11582,8 @@ local function updateBiomeMacroState()
 
                 if actionType == "started" then
                     embed["footer"] = {
-                        ["text"] = "- This server is PS server",
-                        ["icon_url"] = "https://github.com/dtrke/SolsRNG/blob/main/PSserver.png?raw=true"
+                        ["text"] = "Andromeda macro | Player: " .. game:GetService("Players").LocalPlayer.Name,
+                        ["icon_url"] = "https://raw.githubusercontent.com/dtrke/SolsRNG/refs/heads/main/Andromeda.png"
                     }
                 end
 
@@ -11781,6 +12442,13 @@ local function updateAutoFishState()
                                                     task.wait(0.01)
                                                 end
 
+                                                -- ✅ [사용자 요청] 스탯 UI의 "지금까지 낚은 물고기 수" 집계.
+                                                -- 릴링 미니게임(위 while 루프)이 목표 위치 도달로 정상
+                                                -- 종료(break)된 경우를 "낚은 것"으로 판단해서 카운트한다.
+                                                getgenv().FishCaughtCount = (getgenv().FishCaughtCount or 0) + 1
+                                                -- ✅ [사용자 요청] 올타임 통계에도 같이 누적
+                                                getgenv()._AllTimeAddFishCaught()
+
                                                 task.wait(2.5)
                                             end
 
@@ -12306,6 +12974,17 @@ MacroToggle = SolTab.Toggle({
             pcall(getgenv()._SendMacroToggleWebhook, v)
         end
         if not v then
+            -- ✅ [사용자 요청] 올타임 통계 - 이번 세션의 작동 시간과 Fish Point 증가량을
+            -- MacroStartTime을 지우기 전에 누적한다 (매크로가 실제로 시작된 적이 있을 때만).
+            if getgenv().MacroStartTime then
+                local sessionUptime = tick() - getgenv().MacroStartTime
+                getgenv()._AllTimeStats.TotalUptimeSeconds =
+                    (getgenv()._AllTimeStats.TotalUptimeSeconds or 0) + sessionUptime
+            end
+            getgenv()._AllTimeStats.FishPointGainedTotal =
+                (getgenv()._AllTimeStats.FishPointGainedTotal or 0) + (getgenv().FishPointGained or 0)
+            getgenv()._SaveAllTimeStats()
+
             getgenv().MacroStartTime = nil
         end
 
@@ -14569,9 +15248,26 @@ local function RunAutoMemoryMatchLogic()
                 SetCurrentAction("메모리 매치 - 발견된 짝 클릭 중")
                 local card1, card2 = knownPair[1], knownPair[2]
 
-                -- ✅ [사용자 요청] 스탯 UI의 "메모리 매치에서 획득한 아이템들" 집계.
-                -- blacklist/remembered를 정리하기 전에 ID(ImageID)를 먼저 저장해둔다.
-                local matchedItemId = remembered[card1]
+                -- ✅ [치명적 버그 수정] 스탯 UI의 "메모리 매치에서 획득한 아이템들" 리스트가
+                -- 전혀 안 뜨는 문제의 원인 - remembered[card1](getCardID가 만드는
+                -- "텍스트_이미지경로_오프셋" 합성 문자열)을 저장했는데, 표시 쪽은 순수
+                -- 이미지 경로(rbxassetid://...)만으로 비교해서 절대 일치하지 않았음.
+                -- getCardImageLabel로 순수 이미지 경로를 직접 가져와서 저장한다.
+                --
+                -- ✅ [사용자 요청] 카드 안의 텍스트(cText)가 실제 획득 개수를 나타내는데,
+                -- 항상 +1로만 카운트하던 문제. 카드의 텍스트를 숫자로 읽어서 그만큼 더한다
+                -- (숫자로 읽을 수 없으면 안전하게 1개로 간주).
+                local matchedCardImage = getCardImageLabel(card1)
+                local matchedItemId = matchedCardImage and matchedCardImage.Image or nil
+                local matchedInner = card1:FindFirstChildWhichIsA("Frame")
+                local matchedCardText = matchedInner and matchedInner:FindFirstChildWhichIsA("TextLabel")
+                local matchedQuantity = 1
+                if matchedCardText then
+                    local parsedNum = tonumber((matchedCardText.Text:gsub("[^%d]", "")))
+                    if parsedNum and parsedNum > 0 then
+                        matchedQuantity = parsedNum
+                    end
+                end
 
                 ClickGui(card1)
                 task.wait(2)
@@ -14583,12 +15279,14 @@ local function RunAutoMemoryMatchLogic()
                 remembered[card1] = nil
                 remembered[card2] = nil
 
-                if matchedItemId then
+                if matchedItemId and matchedItemId ~= "" then
                     if not getgenv().MemoryMatchObtainedItems then
                         getgenv().MemoryMatchObtainedItems = {}
                     end
                     getgenv().MemoryMatchObtainedItems[matchedItemId] =
-                        (getgenv().MemoryMatchObtainedItems[matchedItemId] or 0) + 1
+                        (getgenv().MemoryMatchObtainedItems[matchedItemId] or 0) + matchedQuantity
+                    -- ✅ [사용자 요청] 올타임 통계에도 같이 누적
+                    getgenv()._AllTimeAddObtainedItem(matchedItemId, matchedQuantity)
                 end
             else
                 -- 짝이 없다면: 이미 확인한 프레임 및 블랙리스트 제외, 랜덤한 1개 클릭 (홀수 클릭)
@@ -14705,12 +15403,29 @@ local function RunAutoMemoryMatchLogic()
                             remembered[firstCard] = nil
                             remembered[secondCard] = nil
 
-                            -- ✅ [사용자 요청] 스탯 UI의 "메모리 매치에서 획득한 아이템들" 집계
-                            if not getgenv().MemoryMatchObtainedItems then
-                                getgenv().MemoryMatchObtainedItems = {}
+                            -- ✅ [치명적 버그 수정] id1(getCardID의 합성 문자열, "텍스트_이미지경로_오프셋")
+                            -- 대신 순수 이미지 경로(cImage.Image)를 저장해야 표시될 수 있음.
+                            -- ✅ [사용자 요청] 카드의 텍스트(숫자)를 읽어서 그만큼 카운트에 더한다.
+                            local matchedCardImage2 = getCardImageLabel(secondCard)
+                            local matchedItemId2 = matchedCardImage2 and matchedCardImage2.Image or nil
+                            local matchedInner2 = secondCard:FindFirstChildWhichIsA("Frame")
+                            local matchedCardText2 = matchedInner2 and matchedInner2:FindFirstChildWhichIsA("TextLabel")
+                            local matchedQuantity2 = 1
+                            if matchedCardText2 then
+                                local parsedNum2 = tonumber((matchedCardText2.Text:gsub("[^%d]", "")))
+                                if parsedNum2 and parsedNum2 > 0 then
+                                    matchedQuantity2 = parsedNum2
+                                end
                             end
-                            getgenv().MemoryMatchObtainedItems[id1] =
-                                (getgenv().MemoryMatchObtainedItems[id1] or 0) + 1
+                            if matchedItemId2 and matchedItemId2 ~= "" then
+                                if not getgenv().MemoryMatchObtainedItems then
+                                    getgenv().MemoryMatchObtainedItems = {}
+                                end
+                                getgenv().MemoryMatchObtainedItems[matchedItemId2] =
+                                    (getgenv().MemoryMatchObtainedItems[matchedItemId2] or 0) + matchedQuantity2
+                                -- ✅ [사용자 요청] 올타임 통계에도 같이 누적
+                                getgenv()._AllTimeAddObtainedItem(matchedItemId2, matchedQuantity2)
+                            end
                         else
                             -- ✅ [버그 수정] 진짜 안 맞은 경우(불일치) - 게임이 두 카드를 다시
                             -- 뒷면으로 뒤집는 애니메이션이 끝날 시간을 안 주고 바로 다음 라운드로
