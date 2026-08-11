@@ -4802,7 +4802,7 @@ local function updateBiomeMacroState()
                 ["timestamp"] = DateTime.now():ToIsoDate(),
                 ["footer"] = {
                     ["text"] = "Acrux macro v2.1 | Player: " .. game:GetService("Players").LocalPlayer.Name,
-                    ["icon_url"] = "https://github.com/dtrke/SolsRNG/blob/main/Andromeda_V2.png?raw=true"
+                    ["icon_url"] = "https://github.com/dtrke/SolsRNG/blob/main/Acrux.png?raw=true"
                 }
             } }
         })
@@ -4930,7 +4930,7 @@ local function updateBiomeMacroState()
                         -- ✅ [사용자 요청] "V2" 추가(스페이스바 한 번 두고)
                         ["text"] = "Acrux macro v2.1 | Player: " .. game:GetService("Players").LocalPlayer.Name,
                         -- ✅ [사용자 요청] 이미지 링크를 새 URL로 변경
-                        ["icon_url"] = "https://github.com/dtrke/SolsRNG/blob/main/Andromeda_V2.png?raw=true"
+                        ["icon_url"] = "https://github.com/dtrke/SolsRNG/blob/main/Acrux.png?raw=true"
                     }
                 end
 
