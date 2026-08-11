@@ -4801,8 +4801,8 @@ local function updateBiomeMacroState()
                 ["color"] = 16777215,
                 ["timestamp"] = DateTime.now():ToIsoDate(),
                 ["footer"] = {
-                    ["text"] = "Andromeda macro | Player: " .. game:GetService("Players").LocalPlayer.Name,
-                    ["icon_url"] = "https://raw.githubusercontent.com/dtrke/SolsRNG/refs/heads/main/Andromeda.png"
+                    ["text"] = "Acrux macro v2.1 | Player: " .. game:GetService("Players").LocalPlayer.Name,
+                    ["icon_url"] = "https://github.com/dtrke/SolsRNG/blob/main/Andromeda_V2.png?raw=true"
                 }
             } }
         })
@@ -4908,12 +4908,7 @@ local function updateBiomeMacroState()
                 }
 
                 if actionType == "started" then
-                    table.insert(embed.fields, {
-                        ["name"] = "Players",
-                        ["value"] = tostring(#game:GetService("Players"):GetPlayers()) ..
-                            " / " .. tostring(game:GetService("Players").MaxPlayers),
-                        ["inline"] = true
-                    })
+                    -- ✅ [사용자 요청] "현재 인원수" 필드 삭제
                     local psLink = Settings.PrivateServerLink or "None"
                     if psLink == "" then psLink = "None" end
 
@@ -4932,8 +4927,10 @@ local function updateBiomeMacroState()
 
                 if actionType == "started" then
                     embed["footer"] = {
-                        ["text"] = "Andromeda macro | Player: " .. game:GetService("Players").LocalPlayer.Name,
-                        ["icon_url"] = "https://raw.githubusercontent.com/dtrke/SolsRNG/refs/heads/main/Andromeda.png"
+                        -- ✅ [사용자 요청] "V2" 추가(스페이스바 한 번 두고)
+                        ["text"] = "Acrux macro v2.1 | Player: " .. game:GetService("Players").LocalPlayer.Name,
+                        -- ✅ [사용자 요청] 이미지 링크를 새 URL로 변경
+                        ["icon_url"] = "https://github.com/dtrke/SolsRNG/blob/main/Andromeda_V2.png?raw=true"
                     }
                 end
 
@@ -4963,50 +4960,9 @@ local function updateBiomeMacroState()
                                     local resData = HttpService:JSONDecode(res.Body)
                                     if resData and resData.id then
                                         local msgId = resData.id
-
-                                        if actionType == "started" then
-                                            task.spawn(function()
-                                                local lastPCount = -1
-                                                while true do
-                                                    task.wait(2.5) -- 디스코드 Rate Limit(요청 제한) 방지를 위해 2.5초로 여유를 둠
-                                                    if currentBiomeSession ~= mySession then
-                                                        pcall(function()
-                                                            payload.embeds[1].fields[3].value = "NILL"
-                                                            requestFunc({
-                                                                Url = webhookUrl .. "/messages/" .. msgId,
-                                                                Method = "PATCH",
-                                                                Headers = {
-                                                                    ["Content-Type"] = "application/json"
-                                                                },
-                                                                Body = HttpService:JSONEncode(payload)
-                                                            })
-                                                        end)
-                                                        break
-                                                    end
-
-                                                    pcall(function()
-                                                        local currentPCount = #game:GetService("Players"):GetPlayers()
-                                                        if currentPCount ~= lastPCount then
-                                                            lastPCount = currentPCount
-                                                            local pCountStr = tostring(currentPCount)
-                                                            local mCountStr = tostring(game:GetService("Players")
-                                                                .MaxPlayers)
-                                                            payload.embeds[1].fields[3].value = pCountStr ..
-                                                                " / " .. mCountStr
-
-                                                            requestFunc({
-                                                                Url = webhookUrl .. "/messages/" .. msgId,
-                                                                Method = "PATCH",
-                                                                Headers = {
-                                                                    ["Content-Type"] = "application/json"
-                                                                },
-                                                                Body = HttpService:JSONEncode(payload)
-                                                            })
-                                                        end
-                                                    end)
-                                                end
-                                            end)
-                                        end
+                                        -- ✅ [사용자 요청] "현재 인원수" 표시/실시간 업데이트 로직 삭제.
+                                        -- Players 필드 자체가 없어졌으므로 이걸 계속 갱신하던
+                                        -- 코루틴(2.5초 간격 PATCH 요청)도 함께 제거한다.
                                     end
                                 end
                             end
