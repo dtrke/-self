@@ -2832,13 +2832,13 @@ end
 -- 코드 관점에서는 매번 "새로운" 인스턴스라 인스턴스 기준 중복 방지가 무력화됨). 대신
 -- 마지막으로 카운트한 시점 이후 일정 시간 안에는 추가 카운트를 무시하는 시간 기반
 -- 디바운스로 바꾼다.
--- ✅ [사용자 요청] "아직까지 아이템 제작 갯수가 한번에 여러번 적용됨" - 3초 디바운스로도
--- 여전히 중복이 발생했음. 매초 도는 재스캔 루프가 "Auto Crafted" 알림이 떠있는 내내
--- (짧은 3초보다 더 길게 화면에 남아있으면) 계속 CheckFrameForAutoCrafted를 호출하는데,
--- 3초가 지나면 디바운스가 풀려서 같은 알림을 또 카운트했던 것으로 보임. 실제 포션 제작
--- 완료는 최소 몇 분 간격으로 일어나므로, 알림이 아무리 오래 떠있어도 절대 안 풀리도록
--- 30초로 대폭 늘린다.
-getgenv()._LastPotionCraftCountTime = 0
+-- ✅ [사용자 요청] "포션 제작이 2번 적용되는 버그(2번 카운트됨)" - 시간 기반 디바운스(30초)
+-- 로도 여전히 중복이 발생했음. ChildAdded 이벤트와 매초 재스캔이 같은 알림을 서로 다른
+-- 시점에 각각 발견할 수 있고, 캐릭터 리셋(리스폰)으로 화면이 다시 그려지는 과정에서
+-- 같은 알림이 실제로 다시 생성되는 경우도 있을 수 있음. 시간 대신, 실제로 카운트한
+-- TextLabel 인스턴스 자체를 기억해서(weak table), 정확히 같은 인스턴스는 절대 두 번
+--카운트되지 않도록 근본적으로 막는다.
+getgenv()._CountedPotionCraftLabels = setmetatable({}, { __mode = "k" })
 
 local function CheckFrameForAutoCrafted(child)
     if not (child and child:IsA("Frame")) then return end
@@ -2848,11 +2848,10 @@ local function CheckFrameForAutoCrafted(child)
             -- 정상 동작하므로(포션 제작 실행 루프가 이걸 계속 확인함), 매번 세팅한다.
             getgenv().PotionCraftWantsSlot = true
 
-            -- ✅ [사용자 요청] 카운트는 같은 알림이 여러 인스턴스/여러 번 감지되어도
-            -- 딱 1번만 세도록, 마지막 카운트 이후 30초 안이면 무시한다.
-            local now = tick()
-            if now - getgenv()._LastPotionCraftCountTime > 30 then
-                getgenv()._LastPotionCraftCountTime = now
+            -- ✅ [사용자 요청] 이 정확한 TextLabel 인스턴스를 이미 카운트했다면 완전히
+            -- 무시한다 - 시간이 얼마나 지났든, 같은 인스턴스면 절대 다시 세지 않는다.
+            if not getgenv()._CountedPotionCraftLabels[desc] then
+                getgenv()._CountedPotionCraftLabels[desc] = true
                 -- ✅ [사용자 요청] 스탯 UI의 "지금까지 만든 아이템 갯수"는 이 알림(UI)이
                 -- 뜬 것으로 판단해서 집계한다.
                 getgenv().PotionCraftCompletedCount = (getgenv().PotionCraftCompletedCount or 0) + 1
