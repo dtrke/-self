@@ -4910,9 +4910,9 @@ UI.New = function(...)
                 -- 설정"과 "자동 팝핑 설정" 두 개의 탭으로 나눴다. 이 조건이 예전 이름만
                 -- 확인해서, 새 탭들의 토글/입력칸이 전혀 영구 저장 대상으로 인식되지 않아
                 -- "나갔다 와도 유지 안 됨" 문제가 있었음.
-                -- ✅ [사용자 요청] "마리"/"제스터" 탭도 영구 유지 대상에 추가.
+                -- ✅ [사용자 요청] "상인 아이템 설정" 탭도 영구 유지 대상에 추가.
                 local isPermanent = (tabTitle == "기능 설정") or (tabTitle == "자동 팝핑 설정")
-                    or (tabTitle == "마리") or (tabTitle == "제스터")
+                    or (tabTitle == "상인 아이템 설정")
                     or PERMANENT_ITEMS[cName] or false
                 local hasSyncedValue = false
                 local syncedValue = nil
@@ -5034,8 +5034,7 @@ local isRejoinSequencePending = isInitialTeleportLoad and ConfigSystem.AutoLoad
 local SolTab = UI.New({ Title = "START", Icon = "Sols" })
 local FeatureTab = UI.New({ Title = "기능 설정", Icon = "settings" })
 local PopSettingTab = UI.New({ Title = "자동 팝핑 설정", Icon = "sparkles" })
-local MariTab = UI.New({ Title = "마리", Icon = "shopping-cart" })
-local JesterTab = UI.New({ Title = "제스터", Icon = "shopping-cart" })
+local MerchantItemTab = UI.New({ Title = "상인 아이템 설정", Icon = "shopping-cart" })
 local WebhookTab = UI.New({ Title = "웹후크 설정", Icon = "webhook" })
 
 local biomeMacroConnection = nil
@@ -6594,23 +6593,17 @@ MacroToggle = SolTab.Toggle({
 })
 
 -- =============================
--- [ 상인 구매 설정 - 마리/제스터 각각 별도 탭 ]
+-- [ 상인 구매 설정 - 상인 아이템 설정 탭 하나로 통합 ]
 -- =============================
--- ✅ [사용자 요청] "Lucky Potion", "Speed Potion" 등이 마리/제스터 목록에 둘 다 있는데,
--- 구매 시 서로 다른 재화를 쓰므로 별개 토글로 관리해야 한다.
--- ✅ [치명적 버그 수정] "재접속 후 마리/제스터의 럭키 포션이 둘 다 켜져있음" - 우리가
--- Settings.Sols.merchantBuyItems에 저장할 때는 "상인이름_아이템명" 고유 키를 썼지만,
--- 이 UI 라이브러리를 감싸는 저장 시스템(hookComponent, 파일 뒤쪽) 자체는 각 토글의
--- "화면 표시 텍스트(options.Text)"를 저장 키로 그대로 사용한다. 그래서 마리 탭의
--- "Lucky Potion" 토글과 제스터 탭의 "Lucky Potion" 토글이 텍스트가 똑같아 저장
--- 시스템 입장에서는 완전히 "같은 항목"으로 취급되어, 하나를 켜면 저장/복원 시 둘 다
--- 같은 값을 공유해버렸다. 화면 표시 텍스트 자체에 상인 이름을 접두사로 붙여서
--- ("[마리] Lucky Potion" / "[제스터] Lucky Potion") 텍스트 자체를 고유하게 만들어
--- 이 문제를 원천적으로 막는다.
-local function addMerchantItemToggle(tab, merchantName, merchantDisplayName, itemName)
+-- ✅ [사용자 요청] 마리/제스터를 각각 별도 탭 대신 "상인 아이템 설정" 탭 하나로 통합.
+-- 화면 표시 텍스트에서 상인 이름 접두사도 제거. 목록 자체를 요청받은 항목만 남기고
+-- 대폭 축소했으며, 겹치는 이름이 없어(Lucky Potion은 제스터에만 있음) 접두사 없이도
+-- 안전하다. 내부 저장 키(storageKey)는 여전히 "상인이름_아이템명" 고유 키를 유지해서,
+-- 혹시 나중에 이름이 겹치는 항목이 추가되어도 저장 충돌이 재발하지 않는다.
+local function addMerchantItemToggle(tab, merchantName, itemName)
     local storageKey = merchantName .. "_" .. itemName
     tab.Toggle({
-        Text = string.format("[%s] %s", merchantDisplayName, itemName),
+        Text = itemName,
         Enabled = Settings.Sols.merchantBuyItems[storageKey] == true,
         Callback = function(v)
             Settings.Sols.merchantBuyItems[storageKey] = v or nil
@@ -6618,48 +6611,27 @@ local function addMerchantItemToggle(tab, merchantName, merchantDisplayName, ite
     })
 end
 
-for _, itemName in ipairs({
-    "Void Coin",
-    "Lucky Penny",
-    "Gear B",
-    "Gear A",
-    "Mixed Potion",
-    "Fortune Spoid III",
-    "Fortune Spoid II",
-    "Fortune Spoid I",
-    "Speed Potion XL",
-    "Speed Potion L",
-    "Speed Potion",
-    "Lucky Potion XL",
-    "Lucky Potion L",
-    "Lucky Potion",
-}) do
-    addMerchantItemToggle(MariTab, "Mari", "마리", itemName)
-end
-
+MerchantItemTab.Label({ Text = "제스터" })
 for _, itemName in ipairs({
     "Oblivion Potion",
     "Heavenly Potion",
     "Potion of Bound",
+    "Rune of Everything",
     "Random Potion Sack",
     "Stella's Candle",
-    -- ✅ [사용자 요청] "Strange Potion" 중복 오타 수정 -> "Strange Potion I" / "Strange Potion II"
-    "Strange Potion II",
-    "Strange Potion I",
-    "Rune of Everything",
-    "Rune of Nothing",
-    "Rune of Corruption",
-    "Rune of Galaxy",
-    "Rune of Hell",
-    "Rune of Rainstorm",
-    "Rune of Frost",
-    "Rune of Wind",
-    "Stella's Star",
-    "Merchant Tracker",
-    "Speed Potion",
     "Lucky Potion",
 }) do
-    addMerchantItemToggle(JesterTab, "Jester", "제스터", itemName)
+    addMerchantItemToggle(MerchantItemTab, "Jester", itemName)
+end
+
+MerchantItemTab.Label({ Text = "마리" })
+for _, itemName in ipairs({
+    "Void Coin",
+    "Lucky Penny",
+    "Gear A",
+    "Gear B",
+}) do
+    addMerchantItemToggle(MerchantItemTab, "Mari", itemName)
 end
 
 -- =============================
