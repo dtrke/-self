@@ -3966,7 +3966,8 @@ do
         local choices = nil
         local openButton = nil
         local waitStart = tick()
-        while (tick() - waitStart) < 15 do
+        -- ✅ [사용자 요청] 타임아웃을 15초 -> 60초(1분)로 변경
+        while (tick() - waitStart) < 60 do
             choices = FindDialogChoices()
             if choices then
                 for _, child in ipairs(choices:GetChildren()) do
@@ -4011,6 +4012,9 @@ do
 
         -- ===== 사용자가 고른 항목들 구매하기 =====
         SetCurrentAction("상인 자동 구매 - 구매 루프")
+        -- ✅ [사용자 요청] 이미 한번 구매한 아이템은 다시 구매하지 않도록, 이번 상인
+        -- 방문 동안 구매 완료한 storageKey를 기억해둔다.
+        local alreadyBought = {}
         while true do
             if not Settings.Sols.autoMerchantBuy or not Settings.Sols.masterMacroEnabled then
                 break
@@ -4035,16 +4039,18 @@ do
             -- ScrollingFrame 안의 Frame들 중, Frame > CanvasGroup > TextButton의 Text가
             -- 현재 켜진 아이템 토글과 정확히 일치하는 Frame을 찾는다.
             -- ✅ [사용자 요청] "Lucky Potion" 등은 상인마다 별개 토글이므로, 지금 도착한
-            -- 상인 이름(merchantName)과 조합한 고유 키로 확인한다.
+            -- 상인 이름(merchantName)과 조합한 고유 키로 확인한다. 이미 구매한 것은 건너뛴다.
             local targetItemFrame = nil
+            local targetStorageKey = nil
             for _, itemFrame in ipairs(shopScrollingFrame:GetChildren()) do
                 if itemFrame:IsA("Frame") then
                     local canvasGroup = itemFrame:FindFirstChildWhichIsA("CanvasGroup")
                     local itemTextButton = canvasGroup and canvasGroup:FindFirstChildWhichIsA("TextButton")
                     if itemTextButton then
                         local storageKey = merchantName .. "_" .. itemTextButton.Text
-                        if Settings.Sols.merchantBuyItems[storageKey] == true then
+                        if Settings.Sols.merchantBuyItems[storageKey] == true and not alreadyBought[storageKey] then
                             targetItemFrame = itemFrame
+                            targetStorageKey = storageKey
                             break
                         end
                     end
@@ -4053,6 +4059,10 @@ do
 
             -- 조건에 충족하는 아이템이 하나도 없으면 구매 루프 종료
             if not targetItemFrame then break end
+
+            -- ✅ 클릭하기 전에 미리 기억해둔다 (구매 과정 중 에러가 나도 같은 아이템을
+            -- 무한히 재시도하지 않도록)
+            alreadyBought[targetStorageKey] = true
 
             SetCurrentAction("상인 자동 구매 - 아이템 클릭")
             clickExactly(targetItemFrame)
@@ -6486,7 +6496,28 @@ do
             "오토 메모리 매치 : " .. (Settings.Sols.autoMemoryMatch and "ON" or "OFF"),
             "포션 자동 제작 : " .. (Settings.Sols.autoPotionCraft and "ON" or "OFF"),
             "오토 아이템 사용 : " .. (Settings.Sols.autoBiomeUseReady and "ON" or "OFF"),
+            -- ✅ [사용자 요청] 상인 자동 구매 토글 여부도 함께 전송
+            "상인 자동 구매 : " .. (Settings.Sols.autoMerchantBuy and "ON" or "OFF"),
         }
+
+        -- ✅ [사용자 요청] 상인 자동 구매가 켜져 있으면, 무엇을 사도록 설정되어 있는지도
+        -- 같이 보낸다. 저장 키("Mari_아이템명" / "Jester_아이템명")에서 상인별로 다시
+        -- 묶어서 표시한다.
+        if Settings.Sols.autoMerchantBuy then
+            local mariItems, jesterItems = {}, {}
+            for storageKey, enabled in pairs(Settings.Sols.merchantBuyItems) do
+                if enabled then
+                    local merchant, itemName = storageKey:match("^(%a+)_(.+)$")
+                    if merchant == "Mari" then
+                        table.insert(mariItems, itemName)
+                    elseif merchant == "Jester" then
+                        table.insert(jesterItems, itemName)
+                    end
+                end
+            end
+            table.insert(toggleLines, "ㅤ ㄴ 마리 구매 목록 : " .. (#mariItems > 0 and table.concat(mariItems, ", ") or "없음"))
+            table.insert(toggleLines, "ㅤ ㄴ 제스터 구매 목록 : " .. (#jesterItems > 0 and table.concat(jesterItems, ", ") or "없음"))
+        end
 
         payload = HttpService:JSONEncode({
             ["embeds"] = { {
