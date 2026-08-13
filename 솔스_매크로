@@ -4750,9 +4750,11 @@ local CONFIG_FILE = "Workspace/Zajak/SolsRNG/ZajakScript_AutoLoad.json"
 -- hookComponent가 SaveKey가 있으면 화면 텍스트 대신 그 값을 우선 사용함).
 local PERMANENT_FILE_DIR = "Workspace/Zajak/SolsRNG/"
 local function GetPermanentFilePath(tabTitle)
-    -- 탭 이름을 그대로 파일명에 못 쓸 수 있는 문자는 없지만(한글은 대부분 파일시스템에서
-    -- 안전), 혹시 모를 특수문자만 안전하게 치환한다.
-    local safeName = tostring(tabTitle):gsub("[^%w가-힣_%- ]", "_")
+    -- ✅ [치명적 버그 수정] "탭별 파일이 유지 안 됨" - 탭 이름에 공백이 포함된 채로
+    -- 파일명을 만들었는데(예: "Permanent_기능 설정.json"), exploit 환경의 파일시스템
+    -- API(writefile/readfile/isfile)가 공백이 포함된 파일명을 제대로 처리하지 못했을
+    -- 가능성이 높다. 공백을 포함한 모든 특수문자를 안전하게 밑줄로 치환한다.
+    local safeName = tostring(tabTitle):gsub("%s+", "_"):gsub("[^%w가-힣_%-]", "_")
     if safeName == "" then safeName = "Default" end
     return PERMANENT_FILE_DIR .. "Permanent_" .. safeName .. ".json"
 end
@@ -4929,23 +4931,37 @@ pcall(function()
 end)
 
 local function SaveConfig()
-    pcall(function()
-        -- 세션 설정 저장
+    -- ✅ [치명적 버그 수정] "기능 설정/자동 팝핑 설정/상인 아이템 설정이 유지 안 됨" -
+    -- 기존엔 세션/전역/탭별 저장 세 가지를 pcall 하나로 묶어서, 앞쪽(세션 또는 전역
+    -- 저장)에서 에러가 나면 pcall이 그 즉시 중단되어 뒤쪽의 탭별 저장 루프 자체가
+    -- 아예 실행되지 않았다(토글 자체는 정상 반응하는데 파일이 전혀 안 생기던 증상과
+    -- 정확히 일치). 각 저장을 독립적인 pcall로 분리해서, 하나가 실패해도 나머지는
+    -- 계속 저장을 시도하도록 한다. 에러가 나면 warn으로 남겨서 원인을 알 수 있게 한다.
+    local ok1, err1 = pcall(function()
         if writefile then
             writefile(CONFIG_FILE, HttpService:JSONEncode(ConfigSystem.SavedStates))
         end
-        -- ✅ [사용자 요청] 전역 영구 설정(웹훅 URL 등)은 그대로 하나의 파일에 저장.
+    end)
+    if not ok1 then warn("[SaveConfig] 세션 저장 실패: " .. tostring(err1)) end
+
+    local ok2, err2 = pcall(function()
         if writefile then
             writefile(GLOBAL_PERMANENT_FILE, HttpService:JSONEncode(ConfigSystem.GlobalPermanentStates))
         end
-        -- ✅ [사용자 요청] 탭별 영구 설정은 각각 별도의 파일에 저장 - 파일명 자체가
-        -- 다르므로 다른 탭끼리는 절대 겹치지 않는다.
-        for tabTitle, stateTable in pairs(ConfigSystem.PermanentStatesByTab) do
+    end)
+    if not ok2 then warn("[SaveConfig] 전역 영구 저장 실패: " .. tostring(err2)) end
+
+    -- ✅ [사용자 요청] 탭별 영구 설정은 각각 별도의 파일에 저장 - 파일명 자체가
+    -- 다르므로 다른 탭끼리는 절대 겹치지 않는다. 탭 하나가 실패해도 다른 탭 저장에
+    -- 영향이 없도록 각각 개별 pcall로 감싼다.
+    for tabTitle, stateTable in pairs(ConfigSystem.PermanentStatesByTab) do
+        local ok3, err3 = pcall(function()
             if writefile then
                 writefile(GetPermanentFilePath(tabTitle), HttpService:JSONEncode(stateTable))
             end
-        end
-    end)
+        end)
+        if not ok3 then warn("[SaveConfig] 탭 저장 실패 (" .. tostring(tabTitle) .. "): " .. tostring(err3)) end
+    end
 end
 
 
