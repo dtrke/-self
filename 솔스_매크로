@@ -4739,7 +4739,23 @@ local UI = Material.Load({
 -- === 설정 자동 저장/불러오기 Hook 시스템 ===
 local HttpService = game:GetService("HttpService")
 local CONFIG_FILE = "Workspace/Zajak/SolsRNG/ZajakScript_AutoLoad.json"
-local PERMANENT_FILE = "Workspace/Zajak/SolsRNG/ZajakScript_Permanent.json"
+-- ✅ [사용자 요청] "상인 아이템 설정, 자동 팝핑 설정이 겹쳐서 안 됨 + 자동 팝핑 설정끼리도
+-- 겹침 -> 각각 다 다른 파일에 저장되게 해줘" - 기존엔 모든 탭의 모든 영구 토글이
+-- PERMANENT_FILE 하나에, 그것도 "토글 화면 텍스트"를 키로 저장돼서, 다른 탭에 같은
+-- 이름의 토글이 있으면(예: "자동 팝핑 설정" 탭 안에서도 GLITCHED의 "Warp Potion"과
+-- DREAMSPACE의 "Warp Potion") 서로 값을 덮어써버렸다. 이제 탭 단위로 완전히 별도의
+-- 파일에 저장한다 - 파일명 자체가 다르니 탭이 다르면 절대 충돌하지 않는다. 같은 탭
+-- 안에서 이름이 겹치는 항목(자동 팝핑 설정의 여러 "Warp Potion" 등)은 각 토글 생성
+-- 시점에 options.SaveKey로 고유한 저장 키를 명시적으로 지정해서 해결한다(아래
+-- hookComponent가 SaveKey가 있으면 화면 텍스트 대신 그 값을 우선 사용함).
+local PERMANENT_FILE_DIR = "Workspace/Zajak/SolsRNG/"
+local function GetPermanentFilePath(tabTitle)
+    -- 탭 이름을 그대로 파일명에 못 쓸 수 있는 문자는 없지만(한글은 대부분 파일시스템에서
+    -- 안전), 혹시 모를 특수문자만 안전하게 치환한다.
+    local safeName = tostring(tabTitle):gsub("[^%w가-힣_%- ]", "_")
+    if safeName == "" then safeName = "Default" end
+    return PERMANENT_FILE_DIR .. "Permanent_" .. safeName .. ".json"
+end
 
 -- ✅ [사용자 요청] "올타임 통계" - 스크립트를 완전히 껐다 켜도 유지되어야 하므로 별도
 -- 파일에 저장한다. 세션 통계(getgenv().BiomeAppearCounts 등)와 병행해서, 같은 이벤트가
@@ -4820,7 +4836,13 @@ end)
 local ConfigSystem = {
     AutoLoad = true,
     SavedStates = {},
-    PermanentStates = {},
+    -- ✅ [사용자 요청] 탭이 아닌 순수 전역 항목(스크립트 자동 실행, 웹후크 URL 등,
+    -- PERMANENT_ITEMS에 정의된 것들)은 그대로 하나의 전역 상태로 유지한다.
+    GlobalPermanentStates = {},
+    -- ✅ [사용자 요청] 탭에 속한 영구 토글/입력칸은 탭 이름별로 완전히 분리된 테이블에
+    -- 저장한다. PermanentStatesByTab["자동 팝핑 설정"]과
+    -- PermanentStatesByTab["상인 아이템 설정"]은 서로 다른 테이블이라 절대 겹치지 않는다.
+    PermanentStatesByTab = {},
     Components = {},
     Callbacks = {},
     -- ✅ [치명적 버그 수정] getgenv().IS_TELEPORT_LOAD를 여기서 다시 읽으면 파일 최상단의
@@ -4838,14 +4860,22 @@ local PERMANENT_ITEMS = {
     ["브섭 링크"] = true,
     ["재접속 시 UI 자동 숨김"] = true
 }
+-- ✅ [사용자 요청] 탭별로 완전히 분리해야 하는 탭들의 목록. 이 목록에 있는 탭의 토글은
+-- 위 PERMANENT_ITEMS(전역 파일)가 아니라, 그 탭 전용 파일에 저장된다.
+local PERMANENT_TABS = {
+    ["기능 설정"] = true,
+    ["자동 팝핑 설정"] = true,
+    ["상인 아이템 설정"] = true,
+}
+local GLOBAL_PERMANENT_FILE = PERMANENT_FILE_DIR .. "ZajakScript_Permanent.json"
 
--- [ 영구 저장 ] 웹후크 등 항상 유지되어야 하는 설정 로드
+-- [ 영구 저장 ] 웹후크 등 항상 유지되어야 하는 전역 설정 로드
 pcall(function()
-    if isfile and isfile(PERMANENT_FILE) then
-        local data = readfile(PERMANENT_FILE)
+    if isfile and isfile(GLOBAL_PERMANENT_FILE) then
+        local data = readfile(GLOBAL_PERMANENT_FILE)
         local decoded = HttpService:JSONDecode(data)
         if decoded and type(decoded) == "table" then
-            ConfigSystem.PermanentStates = decoded
+            ConfigSystem.GlobalPermanentStates = decoded
             -- Settings 테이블에 즉시 반영 (UI 생성 전)
             if decoded["스크립트 자동 실행"] ~= nil then Settings.Persistence.enabled = decoded["스크립트 자동 실행"] end
             if decoded["기존 설정값을 새로운 서버에서 자동으로 불러오기"] ~= nil then
@@ -4862,6 +4892,20 @@ pcall(function()
         end
     end
 end)
+
+-- ✅ [사용자 요청] 탭별로 분리된 영구 파일들을 각각 로드한다.
+for tabTitle in pairs(PERMANENT_TABS) do
+    pcall(function()
+        local filePath = GetPermanentFilePath(tabTitle)
+        if isfile and isfile(filePath) then
+            local data = readfile(filePath)
+            local decoded = HttpService:JSONDecode(data)
+            if decoded and type(decoded) == "table" then
+                ConfigSystem.PermanentStatesByTab[tabTitle] = decoded
+            end
+        end
+    end)
+end
 
 -- [ 세션 저장 ] 텔레포트 시에만 불러오기
 pcall(function()
@@ -4890,9 +4934,16 @@ local function SaveConfig()
         if writefile then
             writefile(CONFIG_FILE, HttpService:JSONEncode(ConfigSystem.SavedStates))
         end
-        -- 영구 설정 저장
+        -- ✅ [사용자 요청] 전역 영구 설정(웹훅 URL 등)은 그대로 하나의 파일에 저장.
         if writefile then
-            writefile(PERMANENT_FILE, HttpService:JSONEncode(ConfigSystem.PermanentStates))
+            writefile(GLOBAL_PERMANENT_FILE, HttpService:JSONEncode(ConfigSystem.GlobalPermanentStates))
+        end
+        -- ✅ [사용자 요청] 탭별 영구 설정은 각각 별도의 파일에 저장 - 파일명 자체가
+        -- 다르므로 다른 탭끼리는 절대 겹치지 않는다.
+        for tabTitle, stateTable in pairs(ConfigSystem.PermanentStatesByTab) do
+            if writefile then
+                writefile(GetPermanentFilePath(tabTitle), HttpService:JSONEncode(stateTable))
+            end
         end
     end)
 end
@@ -4911,26 +4962,37 @@ UI.New = function(...)
         page[compName] = function(options)
             local originalCallback = options.Callback
             local status, result = pcall(function()
-                local rawName = options.Text or ""
+                -- ✅ [사용자 요청] options.SaveKey가 있으면 그걸 저장 키로 우선 사용한다.
+                -- 같은 탭 안에서 화면 텍스트가 겹치는 항목(예: 자동 팝핑 설정의 여러
+                -- "Warp Potion")을 구분하기 위한 것.
+                local rawName = options.SaveKey or options.Text or ""
                 local cName = rawName:gsub("^%s*(.-)%s*$", "%1") -- 공백 제거
                 if cName == "" then return originalComp(options) end
 
                 -- ✅ [치명적 버그 수정] 예전 자작스크는 영구 유지 탭이 "영구" 하나뿐이라
-                -- tabTitle == "영구"로 하드코딩되어 있었는데, SolsRNG는 그 역할을 "기능
-                -- 설정"과 "자동 팝핑 설정" 두 개의 탭으로 나눴다. 이 조건이 예전 이름만
-                -- 확인해서, 새 탭들의 토글/입력칸이 전혀 영구 저장 대상으로 인식되지 않아
-                -- "나갔다 와도 유지 안 됨" 문제가 있었음.
-                -- ✅ [사용자 요청] "상인 아이템 설정" 탭도 영구 유지 대상에 추가.
-                local isPermanent = (tabTitle == "기능 설정") or (tabTitle == "자동 팝핑 설정")
-                    or (tabTitle == "상인 아이템 설정")
-                    or PERMANENT_ITEMS[cName] or false
+                -- tabTitle == "영구"로 하드코딩되어 있었는데, SolsRNG는 그 역할을 여러
+                -- 탭으로 나눴다. PERMANENT_TABS 목록으로 관리한다.
+                local isPermanentTab = PERMANENT_TABS[tabTitle] == true
+                local isPermanent = isPermanentTab or PERMANENT_ITEMS[cName] or false
                 local hasSyncedValue = false
                 local syncedValue = nil
 
+                -- ✅ [사용자 요청] 탭에 속한 영구 항목은 그 탭 전용 테이블/파일에서,
+                -- 전역 영구 항목(PERMANENT_ITEMS)은 전역 테이블/파일에서 읽는다.
+                local permanentStore = nil
+                if isPermanentTab then
+                    if not ConfigSystem.PermanentStatesByTab[tabTitle] then
+                        ConfigSystem.PermanentStatesByTab[tabTitle] = {}
+                    end
+                    permanentStore = ConfigSystem.PermanentStatesByTab[tabTitle]
+                else
+                    permanentStore = ConfigSystem.GlobalPermanentStates
+                end
+
                 -- [데이터 로드]
                 if isPermanent then
-                    if ConfigSystem.PermanentStates[cName] ~= nil then
-                        syncedValue = ConfigSystem.PermanentStates[cName]
+                    if permanentStore[cName] ~= nil then
+                        syncedValue = permanentStore[cName]
                         hasSyncedValue = true
                         if compName == "TextField" then
                             syncedValue = tostring(syncedValue)
@@ -4965,7 +5027,7 @@ UI.New = function(...)
                     end
 
                     if isPermanent then
-                        ConfigSystem.PermanentStates[cName] = val
+                        permanentStore[cName] = val
                     else
                         ConfigSystem.SavedStates[cName] = val
                     end
@@ -6635,6 +6697,10 @@ local function addMerchantItemToggle(tab, merchantName, itemName)
     local storageKey = merchantName .. "_" .. itemName
     tab.Toggle({
         Text = itemName,
+        -- ✅ [사용자 요청] UI 라이브러리 저장소에도 혹시 모를 텍스트 충돌을 막기 위해
+        -- SaveKey를 명시적으로 지정 (이 값 자체는 Settings.Sols.merchantBuyItems로도
+        -- 별도 관리되지만, 이중 안전장치로 추가한다).
+        SaveKey = storageKey,
         Enabled = Settings.Sols.merchantBuyItems[storageKey] == true,
         Callback = function(v)
             Settings.Sols.merchantBuyItems[storageKey] = v or nil
@@ -6874,6 +6940,11 @@ PopSettingTab.Label({ Text = "Glitched" })
 for _, entry in ipairs(getgenv()._RareBiomePotionTable.GLITCHED) do
     PopSettingTab.Toggle({
         Text = entry.name,
+        -- ✅ [사용자 요청] "자동 팝핑 설정끼리도 겹침" - GLITCHED/DREAMSPACE에 같은
+        -- 이름의 포션(예: "Warp Potion")이 둘 다 있으면 화면 텍스트가 똑같아 저장 키가
+        -- 충돌했음. entry.id(각 항목의 고유 식별자, 예: "GLITCHED_1")를 저장 키로
+        -- 명시해서 완전히 독립적으로 저장되게 한다.
+        SaveKey = entry.id,
         Enabled = entry.enabled,
         Callback = function(v)
             entry.enabled = v
@@ -6885,6 +6956,7 @@ PopSettingTab.Label({ Text = "Dreamspace" })
 for _, entry in ipairs(getgenv()._RareBiomePotionTable.DREAMSPACE) do
     PopSettingTab.Toggle({
         Text = entry.name,
+        SaveKey = entry.id,
         Enabled = entry.enabled,
         Callback = function(v)
             entry.enabled = v
@@ -6894,11 +6966,13 @@ end
 
 -- ✅ [사용자 요청] "이건 특별하게, 이 바이옴에서 사용하는 각 포션마다 토글을 추가하기
 -- (무조건 사용하지 않는 건 토글 OFF)" - CYBERSPACE는 조건이 겹치는 4단계 우선순위
--- 트리라, 같은 이름(Warp Potion)이 두 번 나올 수 있다. 토글 이름에 순서를 붙여 구분한다.
+-- 트리라, 같은 이름(Warp Potion)이 두 번 나올 수 있다. 토글 이름에 순서를 붙여 구분하고,
+-- 저장 키도 entry.id로 명시해 완전히 독립적으로 저장되게 한다.
 PopSettingTab.Label({ Text = "Cyberspace" })
 for i, entry in ipairs(getgenv()._RareBiomePotionTable.CYBERSPACE) do
     PopSettingTab.Toggle({
         Text = string.format("%d순위: %s", i, entry.name),
+        SaveKey = entry.id,
         Enabled = entry.enabled,
         Callback = function(v)
             entry.enabled = v
