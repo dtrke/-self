@@ -224,7 +224,11 @@ local Settings = {
         popDreamspace = true,
         popCyberspace = true,
         memoryMatchExcludedItems = {}, -- 메모리 매치 제외 아이템 (ImageID -> true)
-        autoPotionCraft = false -- 포션 자동 제작
+        autoPotionCraft = false, -- 포션 자동 제작
+        -- ✅ [사용자 요청] 상인 자동 구매 - 'Mari'/'Jester' 상인이 도착하면 자동으로
+        -- 텔레포트해서 사용자가 선택한 아이템들을 구매한다.
+        autoMerchantBuy = false,
+        merchantBuyItems = {} -- 아이템 이름(Text) -> true 인 것만 구매 대상
     },
 }
 
@@ -267,7 +271,8 @@ local MacroPriority = {
         Fishing = false,
         MemoryMatch = false,
         AutoItemUse = false,
-        PotionCraft = false
+        PotionCraft = false,
+        MerchantBuy = false
     }
 }
 
@@ -490,6 +495,18 @@ local function YieldFishingForPotionCraft()
     if Settings.Sols.autoFishActive then StartMacro("Fishing") end
 end
 
+-- ✅ [사용자 요청] 상인 자동 구매 신호 감지. 'Mari'/'Jester' 도착 로그를 감지하면
+-- getgenv().MerchantBuyWantsSlot이 true로 세팅된다(바이옴 감시 콜백에서 처리).
+local function IsMerchantBuySignaled()
+    if not (Settings.Sols and Settings.Sols.autoMerchantBuy and Settings.Sols.masterMacroEnabled) then
+        return false
+    end
+    if MacroPriority.IsActive.MerchantBuy then
+        return true
+    end
+    return getgenv().MerchantBuyWantsSlot == true
+end
+
 -- ✅ [사용자 요청] 하나로 통합된 "낚시가 지금 양보해야 하는가" 체크.
 -- Memory Match / Potion Craft / Auto Item Use 신호를 한 번에 확인해서, 낚시 흐름의
 -- 모든 지점(메뉴 조작, 이동, 카메라 조작 등)에서 일관되게 사용한다. 기존엔 지점마다
@@ -497,6 +514,7 @@ end
 -- 구간(ESC/Tab 메뉴 조작, 캐스팅 장소까지 이동)에서 신호를 완전히 놓치는 문제가 있었음.
 local function IsAnySingleActionSignaled()
     return IsMemoryMatchSignaledFast() or IsPotionCraftSignaled() or getgenv().AutoItemUseWantsSlot == true
+        or IsMerchantBuySignaled()
 end
 
 -- 낚시가 "단일성 행동" 신호에게 자리를 양보(대기)하는 통합 함수.
@@ -2669,6 +2687,12 @@ do
                             if child:IsA("TextLabel") then
                                 task.wait(0.2)
                                 local text = child.Text
+                                -- ✅ [사용자 요청] "상인 자동 구매" - "'Mari' has arrived" 또는
+                                -- "'Jester' has arrived" 로그가 뜨면 상인 도착 신호를 켠다.
+                                if text:find("'Mari' has arrived") or text:find("'Jester' has arrived") then
+                                    getgenv().MerchantBuyWantsSlot = true
+                                    getgenv().MerchantBuyMerchantName = text:find("Mari") and "Mari" or "Jester"
+                                end
                                 if text:lower():find("biome") and (text:lower():find("started") or text:lower():find("ended")) then
                                     local biomeRaw = text:match('"(.-)"')
                                     local action = text:lower():find("started") and "started" or "ended"
@@ -3705,6 +3729,7 @@ RegisterSingleAction({
     run = RunAutoPotionCraft
 })
 
+-- =============================
 
 -- ✅ [사용자 요청] 아이템이 시간이 지날수록 늘어나면서, 카테고리 버튼(QuickCategory,
 -- LayoutOrder로 특정 분류를 찾는 방식)에 의존하는 기존 방식은 그 카테고리 안에서도
@@ -3839,6 +3864,270 @@ local function useSpecificItemByNameWithAmount(itemName, useAmountNum)
     end
     return false
 end
+
+-- =============================
+-- [ 상인 자동 구매 ]
+-- =============================
+-- ✅ [사용자 요청] A/B 경로를 찾는 헬퍼들.
+--   A: PlayerGui 안에서 DisplayOrder==3000이고 Enabled==true인 ScreenGui 안의,
+--      AnchorPoint==(1,0.5)인 Frame
+--   B: PlayerGui.MainInterface.Dialog.Choices
+local function FindMerchantFrameA()
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not playerGui then return nil end
+    for _, gui in ipairs(playerGui:GetChildren()) do
+        if gui:IsA("ScreenGui") and gui.DisplayOrder == 3000 and gui.Enabled == true then
+            for _, frame in ipairs(gui:GetChildren()) do
+                if frame:IsA("Frame") and frame.AnchorPoint == Vector2.new(1, 0.5) then
+                    return frame
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function FindDialogChoices()
+    local mainInterface = LocalPlayer.PlayerGui:FindFirstChild("MainInterface")
+    local dialog = mainInterface and mainInterface:FindFirstChild("Dialog")
+    return dialog and dialog:FindFirstChild("Choices")
+end
+
+local RunAutoMerchantBuy
+do
+    local function StopMerchantBuyCleanly()
+        getgenv().MerchantBuyWantsSlot = false
+        StopMacro("MerchantBuy")
+        SetCurrentAction("")
+    end
+
+    RunAutoMerchantBuy = function()
+        if not CanStartMacro("MerchantBuy") then return end
+        StartMacro("MerchantBuy")
+        SetCurrentAction("상인 자동 구매 - 시작")
+
+        local merchantName = getgenv().MerchantBuyMerchantName or "Mari"
+        -- ✅ 신호는 한 번 소모하면 다시 뜰 때까지 꺼둔다 (같은 도착 로그로 반복 실행되지 않도록)
+        getgenv().MerchantBuyWantsSlot = false
+
+        -- ===== 자리 확보 및 상인에게 텔레포트 =====
+        local mainInterface = LocalPlayer.PlayerGui:FindFirstChild("MainInterface")
+        local inventory = mainInterface and mainInterface:FindFirstChild("Inventory")
+        if not inventory then
+            StopMerchantBuyCleanly()
+            return
+        end
+
+        -- 인벤토리가 이미 열려있으면 스킵 (아이템 자동 사용과 동일한 패턴)
+        if not inventory.Visible then
+            local sideButtons = mainInterface:FindFirstChild("SideButtons")
+            if sideButtons then
+                for _, btn in ipairs(sideButtons:GetChildren()) do
+                    if btn.Name == "TextButton" and btn:FindFirstChild("Usage") and btn.Usage.Text == "Inventory" then
+                        SetCurrentAction("상인 자동 구매 - 인벤토리 여는 중")
+                        clickExactly(btn)
+                        task.wait(0.5)
+                        break
+                    end
+                end
+            end
+        end
+        if not inventory.Visible then
+            StopMerchantBuyCleanly()
+            return
+        end
+        task.wait(0.3)
+
+        -- Merchant Teleporter 1개 사용 (아이템 자동 사용과 동일한 방식, 개수는 무조건 1)
+        SetCurrentAction("상인 자동 구매 - Merchant Teleporter 사용")
+        useSpecificItemByNameWithAmount("Merchant Teleporter", 1)
+
+        task.wait(3)
+
+        -- ===== 대화창을 통해 상점 열기 =====
+        SetCurrentAction("상인 자동 구매 - 대화 여는 중 (E)")
+        local vim = Services.VirtualInputManager
+        vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+        task.wait(0.05)
+        vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+
+        -- Choices 안에서 TextButton이 생길 때까지 대기 (이름은 랜덤, ClassName만 TextButton)
+        SetCurrentAction("상인 자동 구매 - 대화 선택지 대기 중")
+        local choices = nil
+        local openButton = nil
+        local waitStart = tick()
+        while (tick() - waitStart) < 15 do
+            choices = FindDialogChoices()
+            if choices then
+                for _, child in ipairs(choices:GetChildren()) do
+                    if child.ClassName == "TextButton" then
+                        openButton = child
+                        break
+                    end
+                end
+            end
+            if openButton then break end
+            task.wait(0.2)
+            if not Settings.Sols.autoMerchantBuy or not Settings.Sols.masterMacroEnabled then
+                StopMerchantBuyCleanly()
+                return
+            end
+        end
+
+        if not (choices and openButton) then
+            StopMerchantBuyCleanly()
+            return
+        end
+
+        task.wait(0.5)
+
+        -- TextButton 중 Text가 "Open"인 것을 찾아 클릭
+        local openTextButton = nil
+        for _, child in ipairs(choices:GetChildren()) do
+            if child.ClassName == "TextButton" and child.Text == "Open" then
+                openTextButton = child
+                break
+            end
+        end
+        if not openTextButton then
+            StopMerchantBuyCleanly()
+            return
+        end
+
+        SetCurrentAction("상인 자동 구매 - Open 클릭")
+        clickExactly(openTextButton)
+
+        task.wait(3)
+
+        -- ===== 사용자가 고른 항목들 구매하기 =====
+        SetCurrentAction("상인 자동 구매 - 구매 루프")
+        while true do
+            if not Settings.Sols.autoMerchantBuy or not Settings.Sols.masterMacroEnabled then
+                break
+            end
+
+            local frameA = FindMerchantFrameA()
+            if not frameA then break end
+
+            -- Position 값이 {0.5,0},{0.99000001,0} 인 Frame - ScrollingFrame
+            local shopListFrame = nil
+            for _, f in ipairs(frameA:GetChildren()) do
+                if f:IsA("Frame")
+                    and math.abs(f.Position.X.Scale - 0.5) < 0.001
+                    and math.abs(f.Position.Y.Scale - 0.99000001) < 0.001 then
+                    shopListFrame = f
+                    break
+                end
+            end
+            local shopScrollingFrame = shopListFrame and shopListFrame:FindFirstChildWhichIsA("ScrollingFrame")
+            if not shopScrollingFrame then break end
+
+            -- ScrollingFrame 안의 Frame들 중, Frame > CanvasGroup > TextButton의 Text가
+            -- 현재 켜진 아이템 토글과 정확히 일치하는 Frame을 찾는다.
+            -- ✅ [사용자 요청] "Lucky Potion" 등은 상인마다 별개 토글이므로, 지금 도착한
+            -- 상인 이름(merchantName)과 조합한 고유 키로 확인한다.
+            local targetItemFrame = nil
+            for _, itemFrame in ipairs(shopScrollingFrame:GetChildren()) do
+                if itemFrame:IsA("Frame") then
+                    local canvasGroup = itemFrame:FindFirstChildWhichIsA("CanvasGroup")
+                    local itemTextButton = canvasGroup and canvasGroup:FindFirstChildWhichIsA("TextButton")
+                    if itemTextButton then
+                        local storageKey = merchantName .. "_" .. itemTextButton.Text
+                        if Settings.Sols.merchantBuyItems[storageKey] == true then
+                            targetItemFrame = itemFrame
+                            break
+                        end
+                    end
+                end
+            end
+
+            -- 조건에 충족하는 아이템이 하나도 없으면 구매 루프 종료
+            if not targetItemFrame then break end
+
+            SetCurrentAction("상인 자동 구매 - 아이템 클릭")
+            clickExactly(targetItemFrame)
+            task.wait(0.5)
+
+            frameA = FindMerchantFrameA()
+            if not frameA then break end
+
+            -- Position 값이 {0.00499999989,0},{0.0799999982,0} 인 Frame - ImageButton (1차 확인)
+            local confirmFrame1 = nil
+            for _, f in ipairs(frameA:GetChildren()) do
+                if f:IsA("Frame")
+                    and math.abs(f.Position.X.Scale - 0.00499999989) < 0.0001
+                    and math.abs(f.Position.Y.Scale - 0.0799999982) < 0.0001 then
+                    confirmFrame1 = f
+                    break
+                end
+            end
+            local confirmButton1 = confirmFrame1 and confirmFrame1:FindFirstChildWhichIsA("ImageButton")
+            if not confirmButton1 then break end
+
+            SetCurrentAction("상인 자동 구매 - 구매 확인 1")
+            clickExactly(confirmButton1)
+            task.wait(0.5)
+
+            frameA = FindMerchantFrameA()
+            if not frameA then break end
+
+            -- 같은 Position의 Frame 안, AnchorPoint가 (0.5, 1)인 Frame - ImageButton (2차 확인)
+            local confirmFrame2Outer = nil
+            for _, f in ipairs(frameA:GetChildren()) do
+                if f:IsA("Frame")
+                    and math.abs(f.Position.X.Scale - 0.00499999989) < 0.0001
+                    and math.abs(f.Position.Y.Scale - 0.0799999982) < 0.0001 then
+                    confirmFrame2Outer = f
+                    break
+                end
+            end
+            local confirmFrame2 = nil
+            if confirmFrame2Outer then
+                for _, f in ipairs(confirmFrame2Outer:GetChildren()) do
+                    if f:IsA("Frame") and f.AnchorPoint == Vector2.new(0.5, 1) then
+                        confirmFrame2 = f
+                        break
+                    end
+                end
+            end
+            local confirmButton2 = confirmFrame2 and confirmFrame2:FindFirstChildWhichIsA("ImageButton")
+            if not confirmButton2 then break end
+
+            SetCurrentAction("상인 자동 구매 - 구매 확인 2")
+            clickExactly(confirmButton2)
+            task.wait(0.5)
+
+            -- ✅ [사용자 요청] 중간에 Emergency 신호가 오면, 각 Side(구매 사이클)가 끝날
+            -- 때마다 확인해서 즉시 종료 및 복귀 단계로 넘어간다.
+            if Settings.Emergency then
+                break
+            end
+        end
+
+        task.wait(1)
+
+        -- ===== 종료 및 복귀 =====
+        SetCurrentAction("상인 자동 구매 - 마무리 재설정 대기 중")
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChild("Humanoid")
+        if hum then hum.Health = 0 end
+        task.wait(3)
+
+        StopMerchantBuyCleanly()
+    end
+end
+
+RegisterSingleAction({
+    name = "MerchantBuy",
+    signalFlagName = "MerchantBuyWantsSlot",
+    logName = "상인 자동 구매",
+    isEnabled = function()
+        return Settings.Sols.autoMerchantBuy and Settings.Sols.masterMacroEnabled
+    end,
+    isSignaled = IsMerchantBuySignaled,
+    run = RunAutoMerchantBuy
+})
+
 
 -- ✅ [사용자 요청] 바이옴별로 어떤 포션을 어떤 순서(우선순위)로, 얼마나 사용할지를
 -- 테이블로 관리한다. 새 바이옴을 추가하려면 이 테이블에 새 키를 추가하면 되고, 특정
@@ -4728,6 +5017,7 @@ local isRejoinSequencePending = isInitialTeleportLoad and ConfigSystem.AutoLoad
 local SolTab = UI.New({ Title = "START", Icon = "Sols" })
 local FeatureTab = UI.New({ Title = "기능 설정", Icon = "settings" })
 local PopSettingTab = UI.New({ Title = "자동 팝핑 설정", Icon = "sparkles" })
+local MerchantTab = UI.New({ Title = "상인 구매 설정", Icon = "shopping-cart" })
 local WebhookTab = UI.New({ Title = "웹후크 설정", Icon = "webhook" })
 
 local biomeMacroConnection = nil
@@ -6286,6 +6576,70 @@ MacroToggle = SolTab.Toggle({
 })
 
 -- =============================
+-- [ 상인 구매 설정 - 마리/제스터 아이템 목록 ]
+-- =============================
+-- ✅ [사용자 요청] "Lucky Potion", "Speed Potion" 등이 마리/제스터 목록에 둘 다 있는데,
+-- 구매 시 서로 다른 재화를 쓰므로 별개 토글로 관리해야 한다. 저장 키를 "상인이름_아이템명"
+-- 형태의 고유 키로 만들어서, 마리의 Lucky Potion과 제스터의 Lucky Potion을 완전히
+-- 독립적으로 켜고 끌 수 있게 한다. 화면에 보이는 토글 텍스트는 그대로 아이템 이름만 표시.
+local function addMerchantItemToggle(merchantName, itemName)
+    local storageKey = merchantName .. "_" .. itemName
+    MerchantTab.Toggle({
+        Text = itemName,
+        Enabled = Settings.Sols.merchantBuyItems[storageKey] == true,
+        Callback = function(v)
+            Settings.Sols.merchantBuyItems[storageKey] = v or nil
+        end
+    })
+end
+
+MerchantTab.Label({ Text = "마리" })
+for _, itemName in ipairs({
+    "Lucky Potion",
+    "Lucky Potion L",
+    "Lucky Potion XL",
+    "Speed Potion",
+    "Speed Potion L",
+    "Speed Potion XL",
+    "Fortune Spoid I",
+    "Fortune Spoid II",
+    "Fortune Spoid III",
+    "Mixed Potion",
+    "Gear A",
+    "Gear B",
+    "Lucky Penny",
+    "Void Coin",
+}) do
+    addMerchantItemToggle("Mari", itemName)
+end
+
+MerchantTab.Label({ Text = "제스터" })
+for _, itemName in ipairs({
+    "Lucky Potion",
+    "Speed Potion",
+    "Merchant Tracker",
+    "Stella's Star",
+    "Rune of Wind",
+    "Rune of Frost",
+    "Rune of Rainstorm",
+    "Rune of Hell",
+    "Rune of Galaxy",
+    "Rune of Corruption",
+    "Rune of Nothing",
+    "Rune of Everything",
+    -- ✅ [사용자 요청] "Strange Potion" 중복 오타 수정 -> "Strange Potion I" / "Strange Potion II"
+    "Strange Potion I",
+    "Strange Potion II",
+    "Stella's Candle",
+    "Random Potion Sack",
+    "Potion of Bound",
+    "Heavenly Potion",
+    "Oblivion Potion",
+}) do
+    addMerchantItemToggle("Jester", itemName)
+end
+
+-- =============================
 -- [ 매크로 설정 / 서버 / 기타 유틸리티 ]
 -- =============================
 SolTab.Label({ Text = "매크로 설정" })
@@ -6429,6 +6783,14 @@ FeatureTab.TextField({
     Callback = function(v)
         ParseMemoryMatchExclusionInput(v)
         if SaveConfig then SaveConfig() end
+    end
+})
+
+FeatureTab.Toggle({
+    Text = "상인 자동 구매",
+    Enabled = Settings.Sols.autoMerchantBuy,
+    Callback = function(v)
+        Settings.Sols.autoMerchantBuy = v
     end
 })
 
