@@ -459,24 +459,6 @@ local function IsMemoryMatchSignaledFast()
     return getgenv().MemoryMatchWantsSlot == true
 end
 
--- 낚시가 Memory Match 신호에게 자리를 양보(대기)하는 함수.
--- 신호가 없으면 즉시 리턴, 있으면 자리를 반납하고 신호가 완전히 사라질 때까지 대기한 뒤 자리를 되찾는다.
-local function YieldFishingForMemoryMatch()
-    if not IsMemoryMatchSignaledFast() then return end
-
-    local prevFlex = getgenv().IsFlexibilityState
-    getgenv().IsFlexibilityState = true
-    StopMacro("Fishing")
-
-    while IsMemoryMatchSignaledFast() do
-        if not Settings.Sols.autoFishActive then break end
-        task.wait(0.5)
-    end
-
-    getgenv().IsFlexibilityState = prevFlex or false
-    if Settings.Sols.autoFishActive then StartMacro("Fishing") end
-end
-
 -- =============================
 -- [ 포션 자동 제작 - 뼈대 ]
 -- =============================
@@ -499,22 +481,10 @@ local function IsPotionCraftSignaled()
     return getgenv().PotionCraftWantsSlot == true
 end
 
--- 낚시가 포션 자동 제작 신호에게 자리를 양보(대기)하는 함수. Memory Match 양보와 동일한 패턴.
-local function YieldFishingForPotionCraft()
-    if not IsPotionCraftSignaled() then return end
-
-    local prevFlex = getgenv().IsFlexibilityState
-    getgenv().IsFlexibilityState = true
-    StopMacro("Fishing")
-
-    while IsPotionCraftSignaled() do
-        if not Settings.Sols.autoFishActive then break end
-        task.wait(0.5)
-    end
-
-    getgenv().IsFlexibilityState = prevFlex or false
-    if Settings.Sols.autoFishActive then StartMacro("Fishing") end
-end
+-- ✅ [사용자 요청] "하드코딩 정리" - YieldFishingForMemoryMatch/YieldFishingForPotionCraft
+-- (Memory Match/Potion Craft 각각을 개별적으로 기다리던 예전 함수)는 이제 통합 함수
+-- YieldFishingForSingleActions()로 완전히 대체되어 실제로 호출되는 곳이 없었다(죽은
+-- 코드). 실제 동작에 영향 없이 제거한다.
 
 -- ✅ [사용자 요청] 상인 자동 구매 신호 감지. 'Mari'/'Jester' 도착 로그를 감지하면
 -- getgenv().MerchantBuyWantsSlot이 true로 세팅된다(바이옴 감시 콜백에서 처리).
@@ -5609,13 +5579,15 @@ local function updateAutoFishState()
                     -- ✅ [사용자 요청] 아무 신호도 없으면 Flexibility 자체를 완전히 무시하고
                     -- 그냥 진행한다. IsFlexibilityState를 켰다 끄는 오버헤드조차 없이
                     -- 신호가 있을 때만 실제로 "Flexibility가 된다".
-                    -- ✅ [리팩터링] Memory Match/Auto Item Use가 각자 자신을 감시하다가
-                    -- 미리 계산해둔 플래그(getgenv().MemoryMatchWantsSlot / AutoItemUseWantsSlot)를
-                    -- 그대로 읽음 - 여기서 매번 직접 UI 스캔이나 타이머 계산을 하지 않음.
-                    local hasAnySignal = Settings.Emergency
-                        or IsMemoryMatchSignaledFast()
-                        or getgenv().AutoItemUseWantsSlot == true
-                        or IsPotionCraftSignaled()
+                    -- ✅ [치명적 버그 수정] "Merchant가 와도 낚시 중이면 절대 안 비켜줌" -
+                    -- 이 함수가 IsAnySingleActionSignaled()(모든 단일성 기능을 자동으로
+                    -- 포함하는 통합 함수)를 쓰지 않고, MemoryMatch/AutoItemUse/PotionCraft
+                    -- 세 가지만 직접 하드코딩해서 확인하고 있었다. 그래서 나중에 추가된
+                    -- MerchantBuy(상인 자동 구매) 신호는 여기서 완전히 누락되어, 낚시가
+                    -- 물고기를 낚는 도중(입질 대기 등, 이 함수가 반복 호출되는 구간)에는
+                    -- 상인이 도착해도 절대 자리를 비켜주지 않았다. 통합 함수 하나로
+                    -- 일원화해서, 앞으로 새 단일성 기능이 추가돼도 이 지점을 놓치지 않게 한다.
+                    local hasAnySignal = Settings.Emergency or IsAnySingleActionSignaled()
 
                     if not hasAnySignal then
                         return false
