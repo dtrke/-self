@@ -2837,19 +2837,18 @@ do
     end
 
     local ROLL_KICK_TARGET_PLACE_ID = 8425637426
-    local hasTriggeredKick = false
-    -- ✅ [사용자 요청] "이미 롤수가 그 이상이면 튕기지 않게" - 토글을 켠 직후 일정 시간
-    -- 동안은 트리거하지 않고, 그 시점의 롤 수만 기록해둔다. 그 이후로 실제로 롤 수가
-    -- 갱신되어 목표에 도달할 때만 텔레포트한다.
-    -- ✅ [치명적 버그 수정] "가끔씩 롤수를 넘어도 안 감" - 기존엔 "방금 켜졌는지"를
-    -- "롤 수를 처음 성공적으로 읽었는지"로 판정했는데, readRollCount()가 UI 로딩 지연
-    -- 등으로 한동안 계속 nil을 반환하다가, 한참 뒤(이미 롤 수가 목표를 훌쩍 넘긴
-    -- 시점)에야 처음 성공하면 그걸 "방금 켠 것"으로 오판해 트리거를 영구히 억제해
-    -- 버렸다. "방금 켜졌는지"를 값 읽기 성공 여부가 아니라 실제 시간(토글을 켠 시점
-    -- 으로부터 몇 초 지났는지)으로 판정하도록 바꿔서, 가장 오래 걸려도 정확히 5초
-    -- 안에는 정상 감시로 넘어가게 한다.
-    local enabledSinceTime = nil
-    local GRACE_PERIOD_SECONDS = 5
+    -- ✅ [치명적 버그 수정] "이제는 롤수가 차도 텔레포트를 아예 안 함" - 이전 방식(유예
+    -- 시간 5초)은, 그 5초 동안 우연히 "이미 목표를 넘긴 상태"로 판정되면
+    -- hasTriggeredKick이 true로 고정됐다. 그런데 롤 수는 시간이 지나면서 계속 증가만
+    -- 하는 값이라, 한 번 목표를 넘기면 그 이후로도 계속 그 이상을 유지하므로 다시는
+    -- 조건(currentRolls >= target and not hasTriggeredKick)이 성립하지 않아 영원히
+    -- 트리거되지 않았다. "얼마나 기다렸는지" 같은 시간 개념 자체를 없애고, 토글을 켠
+    -- 바로 그 순간(정확히 처음으로 롤 수를 읽는 데 성공한 딱 1번)의 롤 수를 "기준값"
+    -- 으로 저장한 뒤, 그 이후로 "기준값보다 낮았다가 목표에 새로 도달"하는 상황만
+    -- 감시한다. 이미 목표를 넘긴 상태로 토글을 켰다면 기준값 자체가 이미 목표 이상
+    -- 이므로 자연스럽게 트리거되지 않고, 이후 서버가 바뀌어 롤 수가 낮아졌다가 다시
+    -- 목표에 도달하면 정상적으로 트리거된다.
+    local baselineRolls = nil
 
     task.spawn(function()
         while true do
@@ -2861,13 +2860,8 @@ do
                 -- 롤수 대비 자동 킥은 낚시/포션 제작 등 다른 매크로 기능과 무관하게 독립적으로
                 -- 동작해야 하므로, 이 토글 하나만 켜면 바로 작동하도록 조건을 완화한다.
                 if not Settings.Sols.autoRollKick then
-                    hasTriggeredKick = false
-                    enabledSinceTime = nil
+                    baselineRolls = nil
                     return
-                end
-
-                if not enabledSinceTime then
-                    enabledSinceTime = tick()
                 end
 
                 local target = tonumber(Settings.Sols.rollKickTarget) or 0
@@ -2876,18 +2870,18 @@ do
                 local currentRolls = readRollCount()
                 if not currentRolls then return end
 
-                -- ✅ 토글을 켠 지 아직 유예 시간(5초) 이내면, 지금 롤 수가 이미 목표
-                -- 이상이어도 트리거하지 않고 그냥 넘어간다(그 이후로도 계속 이 상태가
-                -- 유지되면 유예 시간이 지나는 순간 자동으로 정상 감시로 전환된다).
-                if (tick() - enabledSinceTime) < GRACE_PERIOD_SECONDS then
-                    if currentRolls >= target then
-                        hasTriggeredKick = true -- 이미 넘긴 상태이니, 다시 넘길 때까지는 대기
-                    end
+                -- ✅ 토글을 켠 뒤 처음으로 값을 성공적으로 읽은 시점 - 이 값을 기준값으로
+                -- 저장하고, 이번 확인에서는 트리거하지 않는다.
+                if not baselineRolls then
+                    baselineRolls = currentRolls
                     return
                 end
 
-                if currentRolls >= target and not hasTriggeredKick then
-                    hasTriggeredKick = true
+                -- ✅ [사용자 요청] "이미 롤수가 그 이상이면 튕기지 않게" - 기준값 자체가
+                -- 이미 목표 이상이었다면(토글을 켰을 때 이미 넘긴 상태) 절대 트리거하지
+                -- 않는다. 기준값이 목표 미만이었는데 지금 목표 이상이 됐을 때만(=진짜로
+                -- 새로 도달했을 때만) 트리거한다.
+                if baselineRolls < target and currentRolls >= target then
                     SetCurrentAction("롤수 대비 자동 킥 - 목표 도달, 텔레포트 중")
                     game:GetService("TeleportService"):Teleport(ROLL_KICK_TARGET_PLACE_ID, LocalPlayer)
                 end
