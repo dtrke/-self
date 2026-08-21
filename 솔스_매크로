@@ -228,7 +228,11 @@ local Settings = {
         -- ✅ [사용자 요청] 상인 자동 구매 - 'Mari'/'Jester' 상인이 도착하면 자동으로
         -- 텔레포트해서 사용자가 선택한 아이템들을 구매한다.
         autoMerchantBuy = false,
-        merchantBuyItems = {} -- 아이템 이름(Text) -> true 인 것만 구매 대상
+        merchantBuyItems = {}, -- 아이템 이름(Text) -> true 인 것만 구매 대상
+        -- ✅ [사용자 요청] 롤수 대비 자동 킥 - 설정한 롤 수에 도달하면 지정된 게임으로
+        -- 텔레포트한다.
+        autoRollKick = false,
+        rollKickTarget = 0
     },
 }
 
@@ -2809,6 +2813,81 @@ do
     end)
 end
 
+-- =============================
+-- [ 롤수 대비 자동 킥 ]
+-- =============================
+-- ✅ [사용자 요청] Players -> LocalPlayer -> PlayerGui -> Stats -> ScrollingFrame -> Rolls
+-- 안의 텍스트(쉼표 포함 숫자)를 실시간으로 읽어서, 사용자가 설정한 롤 수에 도달하면
+-- 지정된 게임(PlaceId 118377355457595)으로 텔레포트한다.
+do
+    local function readRollCount()
+        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local stats = playerGui and playerGui:FindFirstChild("Stats")
+        local scrollingFrame = stats and stats:FindFirstChild("ScrollingFrame")
+        local rolls = scrollingFrame and scrollingFrame:FindFirstChild("Rolls")
+        if not rolls then return nil end
+
+        local label = rolls:IsA("TextLabel") and rolls or rolls:FindFirstChildWhichIsA("TextLabel", true)
+        if not label then return nil end
+
+        -- ✅ 쉼표(,)가 포함된 숫자 텍스트("1,234,567" 등)를 정리해서 숫자로 변환
+        local cleaned = label.Text:gsub(",", ""):gsub("%s+", ""):match("%d+")
+        if not cleaned then return nil end
+        return tonumber(cleaned)
+    end
+
+    local ROLL_KICK_TARGET_PLACE_ID = 8425637426
+    local hasTriggeredKick = false
+    -- ✅ [사용자 요청] "이미 롤수가 그 이상이면 튕기지 않게" - 토글을 켠 바로 그 순간에는
+    -- 트리거하지 않고, 그 시점의 롤 수만 기록해둔다. 그 이후로 실제로 롤 수가 갱신되어
+    -- 목표에 도달할 때만 텔레포트한다 - 이미 목표를 넘긴 상태로 토글을 켰다면 아무 일도
+    -- 일어나지 않는다.
+    local wasEnabled = false
+
+    task.spawn(function()
+        while true do
+            task.wait(1)
+
+            local ok, err = pcall(function()
+                -- ✅ [사용자 요청] "자동으로 안 감" - masterMacroEnabled(매크로 시작) 조건이
+                -- 걸려있어서, 매크로 전체를 켜지 않으면 이 기능이 전혀 작동하지 않았다.
+                -- 롤수 대비 자동 킥은 낚시/포션 제작 등 다른 매크로 기능과 무관하게 독립적으로
+                -- 동작해야 하므로, 이 토글 하나만 켜면 바로 작동하도록 조건을 완화한다.
+                if not Settings.Sols.autoRollKick then
+                    hasTriggeredKick = false
+                    wasEnabled = false
+                    return
+                end
+
+                local target = tonumber(Settings.Sols.rollKickTarget) or 0
+                if target <= 0 then return end
+
+                local currentRolls = readRollCount()
+                if not currentRolls then return end
+
+                -- ✅ 토글이 막 켜진 첫 확인 시점이면, 지금 롤 수가 이미 목표 이상이어도
+                -- 트리거하지 않고 그냥 다음 틱부터 정상 감시를 시작한다.
+                if not wasEnabled then
+                    wasEnabled = true
+                    if currentRolls >= target then
+                        hasTriggeredKick = true -- 이미 넘긴 상태이니, 다시 넘길 때까지는 대기
+                    end
+                    return
+                end
+
+                if currentRolls >= target and not hasTriggeredKick then
+                    hasTriggeredKick = true
+                    SetCurrentAction("롤수 대비 자동 킥 - 목표 도달, 텔레포트 중")
+                    game:GetService("TeleportService"):Teleport(ROLL_KICK_TARGET_PLACE_ID, LocalPlayer)
+                end
+            end)
+            if not ok then
+                warn("[롤수 대비 자동 킥 오류] " .. tostring(err))
+            end
+        end
+    end)
+end
+
 -- ✅ B(알림) 프레임 찾기: MainInterface 안, Position {0.994, 0.899} / Size {0.199, 0.5}
 local function GetPotionCraftNotificationFrame()
     local mainUI = LocalPlayer.PlayerGui:FindFirstChild("MainInterface")
@@ -3954,10 +4033,40 @@ do
 
         -- ===== 대화창을 통해 상점 열기 =====
         SetCurrentAction("상인 자동 구매 - 대화 여는 중 (E)")
+
+        -- ✅ [사용자 요청] E키 입력 앞뒤로 1초 간격 동안 화면이 위에서 아래를 내려다보는
+        -- 각도가 되게 한다 (다른 파트 우클릭 이동 때와 동일한 스타일: 캐릭터 위치 위에서
+        -- CFrame.Angles(math.rad(-90), 0, 0)으로 수직 아래를 봄).
+        local cam = workspace.CurrentCamera
+        local originalCamCFrame = nil
+        local originalCamType = nil
+        if cam then
+            originalCamType = cam.CameraType
+            originalCamCFrame = cam.CFrame
+            cam.CameraType = Enum.CameraType.Scriptable
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                cam.CFrame = CFrame.new(hrp.Position + Vector3.new(0, 15, 0)) * CFrame.Angles(math.rad(-90), 0, 0)
+            end
+        end
+
+        task.wait(1)
+
         local vim = Services.VirtualInputManager
         vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
         task.wait(0.05)
         vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+
+        task.wait(1)
+
+        -- ✅ 원래 카메라 상태로 복구
+        if cam and originalCamType then
+            cam.CameraType = originalCamType
+            if originalCamCFrame then
+                cam.CFrame = originalCamCFrame
+            end
+        end
 
         -- Choices 안에서 TextButton이 생길 때까지 대기 (이름은 랜덤, ClassName만 TextButton)
         SetCurrentAction("상인 자동 구매 - 대화 선택지 대기 중")
@@ -4865,7 +4974,12 @@ local PERMANENT_ITEMS = {
     ["희귀 에그 스폰 웹후크 알림"] = true,
     ["통합 웹후크 URL"] = true,
     ["브섭 링크"] = true,
-    ["재접속 시 UI 자동 숨김"] = true
+    ["재접속 시 UI 자동 숨김"] = true,
+    -- ✅ [사용자 요청] "롤수 대비 자동 킥" 설정(토글, 목표 롤 수)만 재접속해도 유지되게
+    -- 한다 - SolTab(매크로 시작 토글이 있는 START 탭) 전체를 영구 유지 대상으로 만들면
+    -- 매크로 시작 토글까지 자동 복원되어 버리므로, 이 두 항목만 정확히 지정한다.
+    ["롤수 대비 자동 킥"] = true,
+    ["목표 롤 수 입력칸"] = true
 }
 -- ✅ [사용자 요청] 탭별로 완전히 분리해야 하는 탭들의 목록. 이 목록에 있는 탭의 토글은
 -- 위 PERMANENT_ITEMS(전역 파일)가 아니라, 그 탭 전용 파일에 저장된다.
@@ -6845,6 +6959,38 @@ SolTab.Button({
     Callback = function()
         if setclipboard then
             pcall(function() setclipboard(tostring(game.PlaceId)) end)
+        end
+    end
+})
+
+-- ✅ [사용자 요청] 서버 라벨 아래쪽에 "롤수 대비 자동 킥" 기능 추가
+SolTab.Label({ Text = "롤수 대비 자동 킥" })
+
+SolTab.Toggle({
+    Text = "롤수 대비 자동 킥",
+    Enabled = Settings.Sols.autoRollKick,
+    Callback = function(v)
+        Settings.Sols.autoRollKick = v
+    end
+})
+
+local rollKickTextField
+rollKickTextField = SolTab.TextField({
+    Text = "목표 롤 수 입력칸",
+    Default = tostring(Settings.Sols.rollKickTarget or 0),
+    Type = "Default",
+    Callback = function(v)
+        local num = tonumber((tostring(v):gsub(",", "")))
+        Settings.Sols.rollKickTarget = num or 0
+
+        -- ✅ [사용자 요청] 입력을 확정하면(엔터/포커스 아웃) 자동으로 쉼표가 붙은 형태로
+        -- 텍스트를 다시 표시한다. 예: 19245821 입력 -> 19,245,821로 표시.
+        if num and rollKickTextField and rollKickTextField.SetText then
+            -- 정수 부분에 3자리마다 쉼표를 넣는 표준적인 방식. 음수/소수는 이 기능
+            -- 특성상 나오지 않으므로 정수만 고려한다.
+            local formatted = tostring(math.floor(num))
+            local formattedWithCommas = formatted:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+            pcall(function() rollKickTextField:SetText(formattedWithCommas) end)
         end
     end
 })
