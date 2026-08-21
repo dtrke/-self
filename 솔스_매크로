@@ -2838,11 +2838,18 @@ do
 
     local ROLL_KICK_TARGET_PLACE_ID = 8425637426
     local hasTriggeredKick = false
-    -- ✅ [사용자 요청] "이미 롤수가 그 이상이면 튕기지 않게" - 토글을 켠 바로 그 순간에는
-    -- 트리거하지 않고, 그 시점의 롤 수만 기록해둔다. 그 이후로 실제로 롤 수가 갱신되어
-    -- 목표에 도달할 때만 텔레포트한다 - 이미 목표를 넘긴 상태로 토글을 켰다면 아무 일도
-    -- 일어나지 않는다.
-    local wasEnabled = false
+    -- ✅ [사용자 요청] "이미 롤수가 그 이상이면 튕기지 않게" - 토글을 켠 직후 일정 시간
+    -- 동안은 트리거하지 않고, 그 시점의 롤 수만 기록해둔다. 그 이후로 실제로 롤 수가
+    -- 갱신되어 목표에 도달할 때만 텔레포트한다.
+    -- ✅ [치명적 버그 수정] "가끔씩 롤수를 넘어도 안 감" - 기존엔 "방금 켜졌는지"를
+    -- "롤 수를 처음 성공적으로 읽었는지"로 판정했는데, readRollCount()가 UI 로딩 지연
+    -- 등으로 한동안 계속 nil을 반환하다가, 한참 뒤(이미 롤 수가 목표를 훌쩍 넘긴
+    -- 시점)에야 처음 성공하면 그걸 "방금 켠 것"으로 오판해 트리거를 영구히 억제해
+    -- 버렸다. "방금 켜졌는지"를 값 읽기 성공 여부가 아니라 실제 시간(토글을 켠 시점
+    -- 으로부터 몇 초 지났는지)으로 판정하도록 바꿔서, 가장 오래 걸려도 정확히 5초
+    -- 안에는 정상 감시로 넘어가게 한다.
+    local enabledSinceTime = nil
+    local GRACE_PERIOD_SECONDS = 5
 
     task.spawn(function()
         while true do
@@ -2855,8 +2862,12 @@ do
                 -- 동작해야 하므로, 이 토글 하나만 켜면 바로 작동하도록 조건을 완화한다.
                 if not Settings.Sols.autoRollKick then
                     hasTriggeredKick = false
-                    wasEnabled = false
+                    enabledSinceTime = nil
                     return
+                end
+
+                if not enabledSinceTime then
+                    enabledSinceTime = tick()
                 end
 
                 local target = tonumber(Settings.Sols.rollKickTarget) or 0
@@ -2865,10 +2876,10 @@ do
                 local currentRolls = readRollCount()
                 if not currentRolls then return end
 
-                -- ✅ 토글이 막 켜진 첫 확인 시점이면, 지금 롤 수가 이미 목표 이상이어도
-                -- 트리거하지 않고 그냥 다음 틱부터 정상 감시를 시작한다.
-                if not wasEnabled then
-                    wasEnabled = true
+                -- ✅ 토글을 켠 지 아직 유예 시간(5초) 이내면, 지금 롤 수가 이미 목표
+                -- 이상이어도 트리거하지 않고 그냥 넘어간다(그 이후로도 계속 이 상태가
+                -- 유지되면 유예 시간이 지나는 순간 자동으로 정상 감시로 전환된다).
+                if (tick() - enabledSinceTime) < GRACE_PERIOD_SECONDS then
                     if currentRolls >= target then
                         hasTriggeredKick = true -- 이미 넘긴 상태이니, 다시 넘길 때까지는 대기
                     end
@@ -6980,8 +6991,18 @@ rollKickTextField = SolTab.TextField({
     Default = tostring(Settings.Sols.rollKickTarget or 0),
     Type = "Default",
     Callback = function(v)
-        local num = tonumber((tostring(v):gsub(",", "")))
-        Settings.Sols.rollKickTarget = num or 0
+        -- ✅ [사용자 요청] "롤수 입력칸이 문제일 수 있음" - 기존엔 쉼표만 제거하고
+        -- tonumber를 바로 불러서, 공백이나 다른 문자가 섞여 있으면 파싱이 실패해
+        -- 조용히 0으로 리셋될 수 있었다. readRollCount()와 동일하게 쉼표/공백을 모두
+        -- 제거한 뒤 숫자 부분만 추출하도록 강화한다.
+        local cleaned = tostring(v):gsub(",", ""):gsub("%s+", ""):match("%d+")
+        local num = cleaned and tonumber(cleaned)
+        if num then
+            Settings.Sols.rollKickTarget = num
+        end
+        -- ✅ 파싱이 실패했을 때(빈 입력, 숫자가 전혀 없는 값 등)는 기존 설정값을 그대로
+        -- 유지한다 - 잘못된 입력 때문에 이미 설정해둔 목표 롤 수가 0으로 조용히
+        -- 리셋되는 것을 방지한다.
 
         -- ✅ [사용자 요청] 입력을 확정하면(엔터/포커스 아웃) 자동으로 쉼표가 붙은 형태로
         -- 텍스트를 다시 표시한다. 예: 19245821 입력 -> 19,245,821로 표시.
