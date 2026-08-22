@@ -232,7 +232,11 @@ local Settings = {
         -- ✅ [사용자 요청] 롤수 대비 자동 킥 - 설정한 롤 수에 도달하면 지정된 게임으로
         -- 텔레포트한다.
         autoRollKick = false,
-        rollKickTarget = 0
+        rollKickTarget = 0,
+        -- ✅ [사용자 요청] "오토 아이템 사용"의 부가 토글 - 기본값 켜짐. 개별로 끄면
+        -- 그 아이템은 사용하지 않는다.
+        useStrangeControllerItem = true,
+        useBiomeRandomizerItem = true
     },
 }
 
@@ -637,12 +641,31 @@ local function RegisterSingleAction(config)
                 local signaled = config.isSignaled()
 
                 if not hasRunInitial then
+                    -- ✅ [치명적 버그 수정] "가끔씩 매크로 시작 시 메모리 매치 등 특정
+                    -- 기능이 실행을 안 함" - 기존엔 CanStartMacro(name)로 자리가 비어있는지
+                    -- "확인"만 하고, 실제로 자리를 "점유"하는 건 한참 뒤 config.run() 내부
+                    -- 에서 호출하는 StartMacro(name)이 했다. 그 확인과 점유 사이(특히
+                    -- WaitForFishingToYield의 실행 시간)에는 자리가 여전히 비어있는 것처럼
+                    -- 보여서, 매크로를 켜는 순간 여러 단일성 기능(MemoryMatch, PotionCraft,
+                    -- AutoItemUse, MerchantBuy 등)이 동시에 이 확인을 통과해버릴 수 있었다.
+                    -- 그러면 나중에 실제로 StartMacro를 호출하는 시점엔 이미 다른 기능이
+                    -- 자리를 차지한 뒤라 조용히 무시되어, 그 기능은 최초 실행 기회를 영영
+                    -- 놓쳐버렸다(hasRunInitial이 false로 계속 남지만, 신호가 없으면 다시는
+                    -- 시도 자체가 없는 기능도 있어 사실상 누락됨). 확인 직후 즉시
+                    -- StartMacro로 자리를 예약해서, 그 뒤로는 다른 코루틴이 절대 끼어들
+                    -- 수 없게 한다. 실제 run()이 다시 StartMacro를 불러도 이미 점유된
+                    -- 상태라 아무 문제 없다(StartMacro는 이미 점유 중이면 그냥 조용히
+                    -- 반환하도록 되어 있음).
                     if CanStartMacro(name) then
+                        StartMacro(name)
                         if WaitForFishingToYield(signalFlagName, logName .. " 루프", name) then
                             hasRunInitial = true
                             config.run()
+                        else
+                            -- 낚시가 끝내 자리를 안 비켜주면, 우리가 미리 점유했던 자리를
+                            -- 다시 반납해서 다음 틱에 정상적으로 재시도할 수 있게 한다.
+                            StopMacro(name)
                         end
-                        -- 자리를 못 비워주면 조용히 다음 틱에 재시도
                     end
                     -- CanStartMacro가 막히면(다른 게 이미 자리를 쥐고 있음) 조용히 다음 틱에 재시도
                 elseif signaled then
@@ -4043,11 +4066,7 @@ do
         -- 각도가 되게 한다 (다른 파트 우클릭 이동 때와 동일한 스타일: 캐릭터 위치 위에서
         -- CFrame.Angles(math.rad(-90), 0, 0)으로 수직 아래를 봄).
         local cam = workspace.CurrentCamera
-        local originalCamCFrame = nil
-        local originalCamType = nil
         if cam then
-            originalCamType = cam.CameraType
-            originalCamCFrame = cam.CFrame
             cam.CameraType = Enum.CameraType.Scriptable
             local char = LocalPlayer.Character
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -4065,12 +4084,14 @@ do
 
         task.wait(1)
 
-        -- ✅ 원래 카메라 상태로 복구
-        if cam and originalCamType then
-            cam.CameraType = originalCamType
-            if originalCamCFrame then
-                cam.CFrame = originalCamCFrame
-            end
+        -- ✅ [사용자 요청] "위에서 아래쪽으로 보게 만들고, 그 상태로 캠을 움직일 수
+        -- 있어야 함" - CameraType을 원래(Custom)로 되돌려 사용자가 다시 마우스로 카메라를
+        -- 조작할 수 있게 하되, CFrame(위→아래를 보는 각도)은 그대로 유지해서 전환 순간에
+        -- 갑자기 원래 각도로 튀지 않게 한다.
+        if cam then
+            local keepCFrame = cam.CFrame
+            cam.CameraType = Enum.CameraType.Custom
+            cam.CFrame = keepCFrame
         end
 
         -- Choices 안에서 TextButton이 생길 때까지 대기 (이름은 랜덤, ClassName만 TextButton)
@@ -4563,8 +4584,12 @@ end
 
 local function performBiomeAutoSequence(force)
     local now = tick()
-    local useStrange = (now - lastStrangeControllerUse) >= (10.5 * 60)
-    local useBiome = (now - lastBiomeRandomizerUse) >= (18 * 60)
+    -- ✅ [사용자 요청] "오토 아이템 사용"의 부가 토글 - 개별로 끄면 쿨타임이 찼어도
+    -- 그 아이템은 사용하지 않는다(기본값은 둘 다 켜짐이라 기존 동작과 동일).
+    local useStrange = Settings.Sols.useStrangeControllerItem
+        and (now - lastStrangeControllerUse) >= (10.5 * 60)
+    local useBiome = Settings.Sols.useBiomeRandomizerItem
+        and (now - lastBiomeRandomizerUse) >= (18 * 60)
 
     if not useStrange and not useBiome then return end
 
@@ -4870,6 +4895,7 @@ local PERMANENT_FILE_DIR = "Workspace/Zajak/SolsRNG/"
 -- 구성한다.
 local TAB_FILE_SLUGS = {
     ["기능 설정"] = "Feature",
+    ["기타 설정"] = "EtcSetting",
     ["자동 팝핑 설정"] = "AutoPop",
     ["상인 아이템 설정"] = "MerchantItem",
 }
@@ -4990,6 +5016,7 @@ local PERMANENT_ITEMS = {
 -- 위 PERMANENT_ITEMS(전역 파일)가 아니라, 그 탭 전용 파일에 저장된다.
 local PERMANENT_TABS = {
     ["기능 설정"] = true,
+    ["기타 설정"] = true,
     ["자동 팝핑 설정"] = true,
     ["상인 아이템 설정"] = true,
 }
@@ -5271,6 +5298,7 @@ end
 --   탭4(웹후크 설정 - 영구 유지): 브섭 링크/웹후크 입력칸
 local SolTab = UI.New({ Title = "START", Icon = "Sols" })
 local FeatureTab = UI.New({ Title = "기능 설정", Icon = "settings" })
+local EtcSettingTab = UI.New({ Title = "기타 설정", Icon = "settings-2" })
 local PopSettingTab = UI.New({ Title = "자동 팝핑 설정", Icon = "sparkles" })
 local MerchantItemTab = UI.New({ Title = "상인 아이템 설정", Icon = "shopping-cart" })
 local WebhookTab = UI.New({ Title = "웹후크 설정", Icon = "webhook" })
@@ -7077,15 +7105,6 @@ FeatureTab.Toggle({
     end
 })
 
-FeatureTab.TextField({
-    Text = "메모리 매치 제외 아이템 입력칸",
-    Type = "Default",
-    Callback = function(v)
-        ParseMemoryMatchExclusionInput(v)
-        if SaveConfig then SaveConfig() end
-    end
-})
-
 FeatureTab.Toggle({
     Text = "상인 자동 구매",
     Enabled = Settings.Sols.autoMerchantBuy,
@@ -7102,12 +7121,50 @@ FeatureTab.Toggle({
     end
 })
 
+-- ✅ [사용자 요청] "오토 아이템 사용 (바이옴) (준비)"를 그냥 "오토 아이템 사용"으로
+-- 이름 변경. 부가 토글(Strange Controller/Biome Randomizer 개별 on/off)은
+-- 기타 설정 탭으로 옮김.
 FeatureTab.Toggle({
-    Text = "오토 아이템 사용 (바이옴) (준비)",
+    Text = "오토 아이템 사용",
     Enabled = Settings.Sols.autoBiomeUse,
     Callback = function(v)
         Settings.Sols.autoBiomeUseReady = v
         updateAutoBiomeUseState()
+    end
+})
+
+-- =============================
+-- [ 탭2-2: 기타 설정 - 메모리 매치 이동 / 오토 아이템 사용 부가 토글 ]
+-- =============================
+-- ✅ [사용자 요청] "기능 설정" 탭 바로 오른쪽에 "기타 설정" 탭을 만들고, 메모리 매치
+-- 제외 아이템 입력칸과 오토 아이템 사용의 부가 토글(Strange Controller/Biome
+-- Randomizer)을 여기로 옮긴다. 이 탭도 영구 저장 대상이다.
+EtcSettingTab.Label({ Text = "메모리 매치" })
+
+EtcSettingTab.TextField({
+    Text = "메모리 매치 제외 아이템 입력칸",
+    Type = "Default",
+    Callback = function(v)
+        ParseMemoryMatchExclusionInput(v)
+        if SaveConfig then SaveConfig() end
+    end
+})
+
+EtcSettingTab.Label({ Text = "오토 아이템 사용" })
+
+EtcSettingTab.Toggle({
+    Text = "Strange Controller",
+    Enabled = Settings.Sols.useStrangeControllerItem,
+    Callback = function(v)
+        Settings.Sols.useStrangeControllerItem = v
+    end
+})
+
+EtcSettingTab.Toggle({
+    Text = "Biome Randomizer",
+    Enabled = Settings.Sols.useBiomeRandomizerItem,
+    Callback = function(v)
+        Settings.Sols.useBiomeRandomizerItem = v
     end
 })
 
