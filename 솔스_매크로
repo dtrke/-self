@@ -2328,18 +2328,29 @@ do
         while true do
             task.wait(0.5) -- 올타임 통계는 실시간성이 덜 중요하므로 0.5초 주기로 충분
             if not allTimeUIVisibleFlag then continue end
-            -- ✅ [사용자 요청] "AAA 통계" 합산 모드일 때는 계속 모든 계정 합산 데이터로
-            -- 갱신하고, 아니면 기존처럼 내 계정 데이터로 갱신한다.
-            local ok, err = pcall(function()
-                if getgenv()._AllTimeShowingAllAccounts then
-                    local combined = getgenv()._GetAllAccountsCombinedStats()
-                    getgenv()._UpdateAllTimeStatsUI(combined, true)
-                else
-                    getgenv()._UpdateAllTimeStatsUI()
-                end
-            end)
+            -- ✅ [사용자 요청] "AAA 통계"는 별도의 5초 주기 루프에서 처리하므로, 여기서는
+            -- 합산 모드일 때 아무 것도 하지 않고 넘어간다 - 내 계정 모드일 때만 갱신한다.
+            if getgenv()._AllTimeShowingAllAccounts then continue end
+            local ok, err = pcall(getgenv()._UpdateAllTimeStatsUI)
             if not ok then
                 warn("[올타임 UI 갱신 오류] " .. tostring(err))
+            end
+        end
+    end)
+
+    -- ✅ [사용자 요청] "AAA를 직접적으로 업데이트하지 말고, 각각 계정들의 올타임 스텟을
+    -- 5초마다 가져와서 띄워지게" - 합산(AAA) 모드는 내 계정 갱신(0.5초)과 완전히 분리된
+    -- 별도 루프에서, 5초마다 한 번씩만 모든 계정 폴더를 다시 읽어와 화면을 갱신한다.
+    task.spawn(function()
+        while true do
+            task.wait(5)
+            if not (allTimeUIVisibleFlag and getgenv()._AllTimeShowingAllAccounts) then continue end
+            local ok, err = pcall(function()
+                local combined = getgenv()._GetAllAccountsCombinedStats()
+                getgenv()._UpdateAllTimeStatsUI(combined, true)
+            end)
+            if not ok then
+                warn("[AAA 통계 갱신 오류] " .. tostring(err))
             end
         end
     end)
@@ -2638,30 +2649,6 @@ do
         getgenv()._TweenService:Create(AAAButton, AAAColorTweenInfo, { TextColor3 = targetText }):Play()
     end
 
-    -- ✅ [사용자 요청] "약간 떨리게 해줘 (0.7초간 점점 떨림이 줄어들게)" - 버튼을 클릭할
-    -- 때마다 좌우로 흔들리다가 점점 잦아드는 감쇠 진동 애니메이션.
-    -- ✅ [치명적 버그 수정] "버튼이 약간 진동하는 기능이 없음" - AAAButton은
-    -- AllTimeButtonRow(UIListLayout이 붙은 컨테이너) 안에 있어서, Position을 직접
-    -- 바꿔도 UIListLayout이 매 프레임 그 즉시 원래 정렬 위치로 강제로 되돌려버려 눈에
-    -- 전혀 보이지 않았다. UIListLayout이 관여하지 않는 Rotation(회전)으로 바꿔서
-    -- 좌우로 떨리는 느낌을 낸다.
-    local function shakeAAAButton()
-        task.spawn(function()
-            local SHAKE_TIME = 0.7
-            local SHAKE_MAGNITUDE = 8 -- 최대 회전 각도(도)
-            local shakeStart = tick()
-            while true do
-                local t = (tick() - shakeStart) / SHAKE_TIME
-                if t >= 1 then break end
-                local decay = 1 - t -- 점점 떨림이 줄어듦
-                local rotation = (math.random() * 2 - 1) * SHAKE_MAGNITUDE * decay
-                AAAButton.Rotation = rotation
-                Services.RunService.Heartbeat:Wait()
-            end
-            AAAButton.Rotation = 0
-        end)
-    end
-
     SwitchButton.MouseButton1Click:Connect(function() switchToScreen("stats") end)
     StatsSwitchButton.MouseButton1Click:Connect(function() switchToScreen("status") end)
     AllTimeOpenButton.MouseButton1Click:Connect(function()
@@ -2676,7 +2663,6 @@ do
         -- 동작한다. 이미 합산 모드라면 다시 눌렀을 때 내 계정(올타임) 모드로 되돌리고,
         -- 아니라면 합산 모드로 전환한다. 버튼 라벨 자체는 항상 "AAA"로 고정, 대신 화면
         -- 안에 "All time All Account" 표시와 버튼 색 반전으로 현재 상태를 알려준다.
-        shakeAAAButton()
         local nowActive = not getgenv()._AllTimeShowingAllAccounts
         getgenv()._AllTimeShowingAllAccounts = nowActive
         AAAModeLabel.Visible = nowActive
