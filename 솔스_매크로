@@ -2233,15 +2233,21 @@ do
         allTimeUptimeValueLabel = allTimeUptimeValueLabel,
     }
 
-    getgenv()._UpdateAllTimeStatsUI = function()
+    -- ✅ [사용자 요청] "AAA 통계(All time All Account)" - 모든 계정의 올타임 통계를
+    -- 합산해서 같은 레이아웃으로 보여주기 위해, 렌더링할 통계 테이블(overrideStats)을
+    -- 선택적으로 받을 수 있도록 확장한다. 넘기지 않으면 기존과 동일하게 "내 계정"
+    -- 통계(getgenv()._AllTimeStats)를 그대로 쓴다. isAllAccounts가 true면(합산 모드),
+    -- "지금 이 순간 실시간으로 진행 중인 이번 세션" 보정(다른 계정에는 적용할 수 없는
+    -- 값)을 생략한다.
+    getgenv()._UpdateAllTimeStatsUI = function(overrideStats, isAllAccounts)
         local refs = getgenv()._AllTimeUIRefs
-        local stats = getgenv()._AllTimeStats
+        local stats = overrideStats or getgenv()._AllTimeStats
 
         -- 작동 시간 (D일 HH시간 MM분 SS초 형식 - 상태 UI와 동일한 형식)
         local totalSec = math.floor(stats.TotalUptimeSeconds or 0)
         -- 지금 매크로가 켜져 있는 중이라면, 저장된 합계에 "지금까지 진행된 이번 세션 시간"도
-        -- 더해서 실시간처럼 보이게 한다.
-        if getgenv().MacroStartTime then
+        -- 더해서 실시간처럼 보이게 한다. (합산 모드에서는 이 계정만의 실시간 보정을 하지 않음)
+        if not isAllAccounts and getgenv().MacroStartTime then
             totalSec = totalSec + math.floor(tick() - getgenv().MacroStartTime)
         end
         local days = math.floor(totalSec / 86400)
@@ -2255,7 +2261,7 @@ do
 
         -- Fish 통계
         refs.allTimeFishCaughtLabel.Text = string.format('<font color="%s">%s마리</font>', getgenv()._VALUE_COLOR, stats.FishCaughtCount or 0)
-        local fishPointTotal = (stats.FishPointGainedTotal or 0) + (getgenv().FishPointGained or 0)
+        local fishPointTotal = (stats.FishPointGainedTotal or 0) + (isAllAccounts and 0 or (getgenv().FishPointGained or 0))
         refs.allTimeFishPointValueLabel.Text = string.format("%s", fishPointTotal)
 
         -- 바이옴이 뜬 횟수
@@ -2322,8 +2328,16 @@ do
         while true do
             task.wait(0.5) -- 올타임 통계는 실시간성이 덜 중요하므로 0.5초 주기로 충분
             if not allTimeUIVisibleFlag then continue end
-            -- ✅ [사용자 요청] 안정성 - pcall로 감싸서 에러가 나도 이 루프 자체는 죽지 않게
-            local ok, err = pcall(getgenv()._UpdateAllTimeStatsUI)
+            -- ✅ [사용자 요청] "AAA 통계" 합산 모드일 때는 계속 모든 계정 합산 데이터로
+            -- 갱신하고, 아니면 기존처럼 내 계정 데이터로 갱신한다.
+            local ok, err = pcall(function()
+                if getgenv()._AllTimeShowingAllAccounts then
+                    local combined = getgenv()._GetAllAccountsCombinedStats()
+                    getgenv()._UpdateAllTimeStatsUI(combined, true)
+                else
+                    getgenv()._UpdateAllTimeStatsUI()
+                end
+            end)
             if not ok then
                 warn("[올타임 UI 갱신 오류] " .. tostring(err))
             end
@@ -2442,7 +2456,77 @@ do
     })
     AllTimeOpenButtonGrad.Parent = AllTimeOpenButton
 
-    local AllTimeSwitchButton = makeSwitchButton("통계 보기", AllTimeFrame)
+    -- ✅ [사용자 요청] "AAA는 올타임 통계 탭에서 보여야 함" - 스탯 화면이 아니라 올타임
+    -- 화면(AllTimeFrame) 안, "통계 보기" 버튼 옆에 나란히 배치한다. AllTimeFrame은
+    -- 세로 정렬 레이아웃이라, 스탯 화면처럼 가로 정렬 Row 컨테이너로 감싼다.
+    local AllTimeButtonRow = Instance.new("Frame")
+    AllTimeButtonRow.Name = "AllTimeButtonRow"
+    AllTimeButtonRow.LayoutOrder = -100
+    AllTimeButtonRow.Size = UDim2.new(1, 0, 0, 40)
+    AllTimeButtonRow.BackgroundTransparency = 1
+    AllTimeButtonRow.ZIndex = 1000
+    AllTimeButtonRow.Parent = AllTimeFrame
+
+    local AllTimeButtonRowLayout = Instance.new("UIListLayout")
+    AllTimeButtonRowLayout.FillDirection = Enum.FillDirection.Horizontal
+    AllTimeButtonRowLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+    AllTimeButtonRowLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    AllTimeButtonRowLayout.Padding = UDim.new(0, 10)
+    AllTimeButtonRowLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    AllTimeButtonRowLayout.Parent = AllTimeButtonRow
+
+    local AllTimeSwitchButton = makeSwitchButton("통계 보기", AllTimeButtonRow)
+    AllTimeSwitchButton.LayoutOrder = 1
+
+    -- ✅ [사용자 요청] "AAA 통계(All time All Account)" 버튼 - 모든 계정의 올타임 통계를
+    -- 합산해서 보여준다. LayoutOrder를 통계 보기(1)보다 큰 2로 둬서, 오른쪽 정렬
+    -- 레이아웃 특성상 이 버튼이 가장 오른쪽에 오고 "통계 보기"는 왼쪽으로 밀려난다.
+    local AAAButton = Instance.new("TextButton")
+    AAAButton.Name = "AAAButton"
+    AAAButton.LayoutOrder = 2
+    AAAButton.Size = UDim2.new(0, 140, 0, 40)
+    AAAButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    AAAButton.BackgroundTransparency = 0.15
+    AAAButton.BorderSizePixel = 0
+    AAAButton.AutoButtonColor = false
+    AAAButton.Text = "AAA"
+    AAAButton.FontFace = GetKoreanFont()
+    AAAButton.TextSize = 26
+    AAAButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+    AAAButton.TextXAlignment = Enum.TextXAlignment.Right
+    AAAButton.ZIndex = 1000
+    AAAButton.Visible = false
+    AAAButton.Parent = AllTimeButtonRow
+    local AAAButtonPad = Instance.new("UIPadding")
+    AAAButtonPad.PaddingRight = UDim.new(0, 12)
+    AAAButtonPad.Parent = AAAButton
+    local AAAButtonGrad = Instance.new("UIGradient")
+    AAAButtonGrad.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0)
+    })
+    AAAButtonGrad.Parent = AAAButton
+
+    -- ✅ [사용자 요청] 합산 모드일 때 "All time All Account"라는 표시가 뜨는 라벨.
+    -- 올타임 화면 최상단, 다른 통계 라인들과 같은 스타일로 만들되 기본은 숨김 상태.
+    local AAAModeLabel = Instance.new("TextLabel")
+    AAAModeLabel.Name = "AAAModeLabel"
+    AAAModeLabel.LayoutOrder = -90
+    AAAModeLabel.Size = UDim2.new(1, 0, 0, 0)
+    AAAModeLabel.AutomaticSize = Enum.AutomaticSize.Y
+    AAAModeLabel.BackgroundTransparency = 1
+    AAAModeLabel.RichText = true
+    AAAModeLabel.TextSize = 20
+    AAAModeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    AAAModeLabel.TextXAlignment = Enum.TextXAlignment.Right
+    AAAModeLabel.FontFace = GetKoreanFont()
+    AAAModeLabel.Text = string.format('<font color="%s">All time All Account</font>', getgenv()._VALUE_COLOR)
+    AAAModeLabel.ZIndex = 1001
+    AAAModeLabel.Visible = false
+    AAAModeLabel.Parent = AllTimeFrame
+
+    -- ✅ [사용자 요청] 이 화면이 지금 합산 모드인지 여부 - 자동 갱신 루프와 버튼 콜백이
+    -- 이 플래그를 참조한다.
+    getgenv()._AllTimeShowingAllAccounts = false
 
     -- ✅ [사용자 요청] 버튼과 그 아래 내용 사이에 구분선 추가 (다른 구분선들과 동일한
     -- 스타일: 얇은 흰색 선, 투명도 0.9). createDivider()는 730~809줄 사이의 다른 스코프에
@@ -2541,15 +2625,84 @@ do
         end
     end
 
+    -- ✅ [사용자 요청] "AAA가 활성화된 상태면 색이 반전되게" - 활성화(합산 모드)일 때는
+    -- 배경 검정 + 텍스트 흰색, 비활성화(원래 상태)일 때는 다른 버튼들과 동일한 배경
+    -- 흰색 + 텍스트 검정으로 되돌린다.
+    -- ✅ [사용자 요청] "색 반전될 때 부드럽게(0.5초)" - 즉시 바뀌던 색을 TweenService로
+    -- 0.5초에 걸쳐 자연스럽게 전환한다.
+    local AAAColorTweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local function updateAAAButtonColors(isActive)
+        local targetBg = isActive and Color3.new(0, 0, 0) or Color3.fromRGB(255, 255, 255)
+        local targetText = isActive and Color3.new(1, 1, 1) or Color3.fromRGB(0, 0, 0)
+        getgenv()._TweenService:Create(AAAButton, AAAColorTweenInfo, { BackgroundColor3 = targetBg }):Play()
+        getgenv()._TweenService:Create(AAAButton, AAAColorTweenInfo, { TextColor3 = targetText }):Play()
+    end
+
+    -- ✅ [사용자 요청] "약간 떨리게 해줘 (0.7초간 점점 떨림이 줄어들게)" - 버튼을 클릭할
+    -- 때마다 좌우로 흔들리다가 점점 잦아드는 감쇠 진동 애니메이션.
+    -- ✅ [치명적 버그 수정] "버튼이 약간 진동하는 기능이 없음" - AAAButton은
+    -- AllTimeButtonRow(UIListLayout이 붙은 컨테이너) 안에 있어서, Position을 직접
+    -- 바꿔도 UIListLayout이 매 프레임 그 즉시 원래 정렬 위치로 강제로 되돌려버려 눈에
+    -- 전혀 보이지 않았다. UIListLayout이 관여하지 않는 Rotation(회전)으로 바꿔서
+    -- 좌우로 떨리는 느낌을 낸다.
+    local function shakeAAAButton()
+        task.spawn(function()
+            local SHAKE_TIME = 0.7
+            local SHAKE_MAGNITUDE = 8 -- 최대 회전 각도(도)
+            local shakeStart = tick()
+            while true do
+                local t = (tick() - shakeStart) / SHAKE_TIME
+                if t >= 1 then break end
+                local decay = 1 - t -- 점점 떨림이 줄어듦
+                local rotation = (math.random() * 2 - 1) * SHAKE_MAGNITUDE * decay
+                AAAButton.Rotation = rotation
+                Services.RunService.Heartbeat:Wait()
+            end
+            AAAButton.Rotation = 0
+        end)
+    end
+
     SwitchButton.MouseButton1Click:Connect(function() switchToScreen("stats") end)
     StatsSwitchButton.MouseButton1Click:Connect(function() switchToScreen("status") end)
-    AllTimeOpenButton.MouseButton1Click:Connect(function() switchToScreen("alltime") end)
-    AllTimeSwitchButton.MouseButton1Click:Connect(function() switchToScreen("stats") end)
+    AllTimeOpenButton.MouseButton1Click:Connect(function()
+        -- ✅ [사용자 요청] "올타임" 버튼은 항상 "내 계정" 모드로 연다.
+        getgenv()._AllTimeShowingAllAccounts = false
+        AAAModeLabel.Visible = false
+        updateAAAButtonColors(false)
+        switchToScreen("alltime")
+    end)
+    AAAButton.MouseButton1Click:Connect(function()
+        -- ✅ [사용자 요청] "다시 누르면 원래 올타임으로 돌아가게" - AAA 버튼이 토글처럼
+        -- 동작한다. 이미 합산 모드라면 다시 눌렀을 때 내 계정(올타임) 모드로 되돌리고,
+        -- 아니라면 합산 모드로 전환한다. 버튼 라벨 자체는 항상 "AAA"로 고정, 대신 화면
+        -- 안에 "All time All Account" 표시와 버튼 색 반전으로 현재 상태를 알려준다.
+        shakeAAAButton()
+        local nowActive = not getgenv()._AllTimeShowingAllAccounts
+        getgenv()._AllTimeShowingAllAccounts = nowActive
+        AAAModeLabel.Visible = nowActive
+        updateAAAButtonColors(nowActive)
+        if nowActive then
+            local combined = getgenv()._GetAllAccountsCombinedStats()
+            pcall(getgenv()._UpdateAllTimeStatsUI, combined, true)
+        else
+            pcall(getgenv()._UpdateAllTimeStatsUI)
+        end
+        switchToScreen("alltime")
+    end)
+    AllTimeSwitchButton.MouseButton1Click:Connect(function()
+        -- ✅ [사용자 요청] 되돌리는 버튼("통계 보기")을 누르면 다시 "내 계정"(올타임)
+        -- 모드로 리셋한다.
+        getgenv()._AllTimeShowingAllAccounts = false
+        AAAModeLabel.Visible = false
+        updateAAAButtonColors(false)
+        switchToScreen("stats")
+    end)
 
     getgenv()._SwitchButtonState = {
         SwitchButton = SwitchButton,
         StatsSwitchButton = StatsSwitchButton,
         AllTimeOpenButton = AllTimeOpenButton,
+        AAAButton = AAAButton,
         AllTimeSwitchButton = AllTimeSwitchButton,
         StatsFrame = StatsFrame,
         AllTimeFrame = AllTimeFrame,
@@ -2579,6 +2732,7 @@ do
         s.SwitchButton.Visible = macroOn
         s.StatsSwitchButton.Visible = macroOn
         s.AllTimeOpenButton.Visible = macroOn
+        s.AAAButton.Visible = macroOn
         s.AllTimeSwitchButton.Visible = macroOn
 
         -- ✅ [치명적 버그 수정] 버튼 밑 구분선들도 매크로 켜짐 여부에 맞게 투명도를
@@ -2596,6 +2750,11 @@ do
             allTimeUIVisibleFlag = false
             s.StatsFrame.Visible = false
             s.AllTimeFrame.Visible = false
+            -- ✅ [사용자 요청] "AAA 통계" 합산 모드 상태도 확실히 리셋 - 다음에 매크로를
+            -- 다시 켰을 때 의도치 않게 AAA 모드로 남아있는 것을 방지.
+            getgenv()._AllTimeShowingAllAccounts = false
+            if AAAModeLabel then AAAModeLabel.Visible = false end
+            if updateAAAButtonColors then updateAAAButtonColors(false) end
 
             local statusUI = LocalPlayer.PlayerGui:FindFirstChild("MacroStatusDisplay")
             local statusFrameForReset = statusUI and statusUI:FindFirstChild("MasterFrame")
@@ -4937,6 +5096,102 @@ end
 -- 발생할 때마다 이 테이블에도 같이 누적하고 주기적으로 디스크에 기록한다.
 local ALLTIME_STATS_FILE = ACCOUNT_FOLDER .. "ZajakScript_AllTimeStats.json"
 
+-- ✅ [사용자 요청] "AAA 통계(All time All Account)" - Workspace/Zajak/SolsRNG/ 아래
+-- 모든 계정(유저 ID) 폴더를 순회하며 각 계정의 올타임 통계 파일을 읽어서 하나로 합산한다.
+local ALL_ACCOUNTS_ROOT = "Workspace/Zajak/SolsRNG/"
+local function GetAllAccountsCombinedStats()
+    local combined = {
+        BiomeAppearCounts = {},
+        BiomeColors = {},
+        StrangeControllerUseCount = 0,
+        BiomeRandomizerUseCount = 0,
+        PotionCraftCompletedCount = 0,
+        FishCaughtCount = 0,
+        FishPointGainedTotal = 0,
+        TotalUptimeSeconds = 0,
+    }
+
+    -- ✅ [치명적 버그 수정] "실시간 업데이트 및 작동 시간이 통합이 안 됨" - 기존엔 자기
+    -- 자신(현재 실행 중인 계정)의 통계도 다른 계정과 똑같이 디스크 파일에서만 읽었다.
+    -- 디스크 파일은 30초마다 한 번씩만 갱신되고, "지금 이 순간 진행 중인 세션 시간"
+    -- 같은 실시간 값은 애초에 저장되지 않으므로, 매크로를 켜놓고 봐도 방금 오른 Fish
+    -- Point나 지금까지 흐른 작동 시간이 전혀 반영되지 않았다. 자기 자신의 계정 폴더는
+    -- 디스크 대신 메모리(getgenv()._AllTimeStats, 항상 최신)와 진행 중인 세션의 실시간
+    -- 보정을 그대로 사용하고, 다른 계정들만 디스크 파일에서 읽어와 합산한다.
+    local myStats = getgenv()._AllTimeStats
+    local myTotalSec = (myStats.TotalUptimeSeconds or 0)
+    if getgenv().MacroStartTime then
+        myTotalSec = myTotalSec + (tick() - getgenv().MacroStartTime)
+    end
+    local myFishPoint = (myStats.FishPointGainedTotal or 0) + (getgenv().FishPointGained or 0)
+
+    combined.StrangeControllerUseCount = myStats.StrangeControllerUseCount or 0
+    combined.BiomeRandomizerUseCount = myStats.BiomeRandomizerUseCount or 0
+    combined.PotionCraftCompletedCount = myStats.PotionCraftCompletedCount or 0
+    combined.FishCaughtCount = myStats.FishCaughtCount or 0
+    combined.FishPointGainedTotal = myFishPoint
+    combined.TotalUptimeSeconds = myTotalSec
+    for biomeName, count in pairs(myStats.BiomeAppearCounts or {}) do
+        combined.BiomeAppearCounts[biomeName] = (combined.BiomeAppearCounts[biomeName] or 0) + (count or 0)
+    end
+    for biomeName, color in pairs(myStats.BiomeColors or {}) do
+        combined.BiomeColors[biomeName] = color
+    end
+
+    if not (listfiles and isfile and readfile) then
+        return combined
+    end
+
+    local ok, entries = pcall(listfiles, ALL_ACCOUNTS_ROOT)
+    if not ok or not entries then
+        return combined
+    end
+
+    -- ✅ 자기 자신의 계정 폴더는 위에서 이미 메모리 기준으로 처리했으므로, 디스크
+    -- 읽기 단계에서는 건너뛴다(중복 합산 방지).
+    local myAccountFolderNormalized = ACCOUNT_FOLDER:gsub("/$", "")
+
+    for _, entryPath in ipairs(entries) do
+        local normalizedEntry = entryPath:gsub("/$", "")
+        if normalizedEntry ~= myAccountFolderNormalized then
+            -- ✅ 계정 폴더(유저 ID로 된 하위 폴더) 안의 ZajakScript_AllTimeStats.json만 대상으로
+            local statsPath = entryPath .. "/ZajakScript_AllTimeStats.json"
+            if isfile(statsPath) then
+                local readOk, data = pcall(readfile, statsPath)
+                if readOk and data then
+                    local decodeOk, decoded = pcall(function()
+                        return HttpService:JSONDecode(data)
+                    end)
+                    if decodeOk and type(decoded) == "table" then
+                        combined.StrangeControllerUseCount = combined.StrangeControllerUseCount + (decoded.StrangeControllerUseCount or 0)
+                        combined.BiomeRandomizerUseCount = combined.BiomeRandomizerUseCount + (decoded.BiomeRandomizerUseCount or 0)
+                        combined.PotionCraftCompletedCount = combined.PotionCraftCompletedCount + (decoded.PotionCraftCompletedCount or 0)
+                        combined.FishCaughtCount = combined.FishCaughtCount + (decoded.FishCaughtCount or 0)
+                        combined.FishPointGainedTotal = combined.FishPointGainedTotal + (decoded.FishPointGainedTotal or 0)
+                        combined.TotalUptimeSeconds = combined.TotalUptimeSeconds + (decoded.TotalUptimeSeconds or 0)
+
+                        if type(decoded.BiomeAppearCounts) == "table" then
+                            for biomeName, count in pairs(decoded.BiomeAppearCounts) do
+                                combined.BiomeAppearCounts[biomeName] = (combined.BiomeAppearCounts[biomeName] or 0) + (count or 0)
+                            end
+                        end
+                        if type(decoded.BiomeColors) == "table" then
+                            for biomeName, color in pairs(decoded.BiomeColors) do
+                                if not combined.BiomeColors[biomeName] then
+                                    combined.BiomeColors[biomeName] = color
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return combined
+end
+getgenv()._GetAllAccountsCombinedStats = GetAllAccountsCombinedStats
+
 getgenv()._AllTimeStats = {
     BiomeAppearCounts = {},
     BiomeColors = {}, -- ✅ [사용자 요청] 올타임 통계에서도 바이옴 색을 표시하기 위해 저장
@@ -4966,7 +5221,27 @@ end)
 getgenv()._SaveAllTimeStats = function()
     pcall(function()
         if writefile then
-            writefile(ALLTIME_STATS_FILE, HttpService:JSONEncode(getgenv()._AllTimeStats))
+            -- ✅ [치명적 버그 수정] "Fish Point 합산이 이상하게 보임" - 기존엔
+            -- getgenv()._AllTimeStats를 그대로 저장했는데, 이 테이블의 FishPointGainedTotal/
+            -- TotalUptimeSeconds는 매크로를 "끌 때"만 갱신되고, 매크로가 켜져 있는 동안(수십
+            -- 분씩 계속될 수 있음) 30초마다 도는 이 주기적 저장은 오래된 값 그대로 디스크에
+            -- 기록했다. 그래서 다른 계정이 AAA(합산) 통계를 볼 때, 지금 한창 플레이 중인
+            -- 계정의 실시간 진행 상황이 전혀 반영되지 않은 값을 읽게 됐다. 저장 직전에
+            -- "지금까지 진행 중인 세션의 실시간 증가분"을 반영한 별도 복사본을 만들어 그것을
+            -- 저장한다 - 원본 getgenv()._AllTimeStats 자체는 건드리지 않아서, 매크로를 끌
+            -- 때의 정상적인 최종 누적 로직과 절대 충돌하지 않는다.
+            local original = getgenv()._AllTimeStats
+            local snapshot = {}
+            for key, value in pairs(original) do
+                snapshot[key] = value
+            end
+            if getgenv().MacroStartTime then
+                snapshot.TotalUptimeSeconds = (snapshot.TotalUptimeSeconds or 0)
+                    + (tick() - getgenv().MacroStartTime)
+                snapshot.FishPointGainedTotal = (snapshot.FishPointGainedTotal or 0)
+                    + (getgenv().FishPointGained or 0)
+            end
+            writefile(ALLTIME_STATS_FILE, HttpService:JSONEncode(snapshot))
         end
     end)
 end
@@ -6885,8 +7160,16 @@ MacroToggle = SolTab.Toggle({
                 getgenv()._AllTimeStats.TotalUptimeSeconds =
                     (getgenv()._AllTimeStats.TotalUptimeSeconds or 0) + sessionUptime
             end
+            -- ✅ [치명적 버그 수정] "Fish Point 합산이 이상함" - getgenv().FishPointGained
+            -- (이번 세션 증가량)를 FishPointGainedTotal에 누적한 뒤, 이 값을 0으로
+            -- 리셋하는 코드가 전혀 없었다. 그래서 매크로를 끈 뒤에도 FishPointGained가
+            -- 이전 값 그대로 계속 남아있어서, 다음에 이 값을 다시 참조하는 곳(합산
+            -- 통계, 올타임 UI 표시 등)에서 이미 저장된 값에 같은 값을 또 더해 사실상
+            -- 두 배로 계산되는 문제가 있었다. 누적 직후 반드시 0으로 리셋한다.
+            local sessionFishPointGained = getgenv().FishPointGained or 0
             getgenv()._AllTimeStats.FishPointGainedTotal =
-                (getgenv()._AllTimeStats.FishPointGainedTotal or 0) + (getgenv().FishPointGained or 0)
+                (getgenv()._AllTimeStats.FishPointGainedTotal or 0) + sessionFishPointGained
+            getgenv().FishPointGained = 0
             getgenv()._SaveAllTimeStats()
 
             getgenv().MacroStartTime = nil
