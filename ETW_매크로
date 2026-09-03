@@ -1,1 +1,581 @@
+-- =============================
+-- [ ETW 매크로 - MaterialLua UI 버전 v3 ]
+-- =============================
+-- v3 변경 사항:
+-- 1) "Auto Time Reward" 토글 추가 (Anti AFK 위)
+--    -> Rewards.TimedRewards.RewardGrid 안의 Template들을 감시해서 "Tap to claim!"이면
+--       자동으로 수령. 전부 "Claimed!"가 되면 전체 로직 10초 정지 -> Sell 3번 클릭 -> 재접속.
+-- 2) 재접속 시 자동으로 스크립트를 다시 불러오고(queue_on_teleport), 재접속 직전의 토글
+--    상태를 파일에 저장해뒀다가 다시 불러와서 그대로 복원.
 
+-- ✅ 재접속(텔레포트) 로드 여부를 파일 맨 앞에서 한 번만 스냅샷하고 원본 플래그는 즉시 초기화
+if getgenv then
+    getgenv().IS_TELEPORT_LOAD_SNAPSHOT = getgenv().IS_TELEPORT_LOAD or false
+    getgenv().IS_TELEPORT_LOAD = nil
+end
+
+local Material = loadstring(game:HttpGet("https://raw.githubusercontent.com/Kinlei/MaterialLua/master/Module.lua"))()
+
+local Players             = game:GetService("Players")
+local ReplicatedStorage    = game:GetService("ReplicatedStorage")
+local VirtualInputManager  = game:GetService("VirtualInputManager")
+local GuiService           = game:GetService("GuiService")
+local TweenService         = game:GetService("TweenService")
+local HttpService          = game:GetService("HttpService")
+local TeleportService      = game:GetService("TeleportService")
+local LocalPlayer          = Players.LocalPlayer
+
+math.randomseed(tick())
+
+-- ============================================================
+-- 재접속 시 자동 스크립트 로드 + 토글 상태 저장/복원
+-- (Sol's RNG 매크로 스크립트의 makefolder / writefile,readfile / queue_on_teleport /
+--  IS_TELEPORT_LOAD 스냅샷 패턴을 참고함)
+-- ============================================================
+local SCRIPT_URL = "https://raw.githubusercontent.com/dtrke/-self/refs/heads/main/ETW_%EB%A7%A4%ED%81%AC%EB%A1%9C"
+
+local BASE_FOLDER = "Workspace/ETW"
+local ACCOUNT_FOLDER = BASE_FOLDER .. "/" .. tostring(LocalPlayer.UserId)
+if makefolder then
+    pcall(function() makefolder("Workspace") end)
+    pcall(function() makefolder(BASE_FOLDER) end)
+    pcall(function() makefolder(ACCOUNT_FOLDER) end)
+end
+local TOGGLE_STATE_FILE = ACCOUNT_FOLDER .. "/ETW_ToggleStates.json"
+
+local function SaveToggleStates(state)
+    if not writefile then return end
+    local ok, err = pcall(function()
+        writefile(TOGGLE_STATE_FILE, HttpService:JSONEncode({
+            AutoEating = state.AutoEating,
+            AutoSell = state.AutoSell,
+            AutoTimeReward = state.AutoTimeReward,
+            AntiAFK = state.AntiAFK,
+        }))
+    end)
+    if not ok then
+        warn("[토글 상태 저장 오류] " .. tostring(err))
+    end
+end
+
+local function LoadToggleStates()
+    if not (isfile and readfile and isfile(TOGGLE_STATE_FILE)) then return nil end
+    local ok, decoded = pcall(function()
+        return HttpService:JSONDecode(readfile(TOGGLE_STATE_FILE))
+    end)
+    if ok and type(decoded) == "table" then
+        return decoded
+    end
+    return nil
+end
+
+-- 재접속(텔레포트)으로 다시 실행된 경우에만 저장된 토글 상태를 불러온다
+local SavedToggleStates = nil
+if getgenv and getgenv().IS_TELEPORT_LOAD_SNAPSHOT then
+    SavedToggleStates = LoadToggleStates()
+end
+
+-- 재접속 시 이 스크립트를 자동으로 다시 불러오도록 예약
+local queue_on_teleport = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
+    or (getgenv and getgenv().queue_on_teleport)
+
+local function SetupTeleportAutoLoad()
+    if not queue_on_teleport then return end
+    local teleportConn
+    teleportConn = LocalPlayer.OnTeleport:Connect(function(teleportState)
+        if teleportState == Enum.TeleportState.Started or teleportState == Enum.TeleportState.InProgress then
+            local autoLoadCode = [[
+                pcall(function()
+                    if getgenv then getgenv().IS_TELEPORT_LOAD = true end
+                    loadstring(game:HttpGet("]] .. SCRIPT_URL .. [["))()
+                end)
+            ]]
+            pcall(function() queue_on_teleport(autoLoadCode) end)
+            if teleportConn then teleportConn:Disconnect() end
+        end
+    end)
+end
+SetupTeleportAutoLoad()
+
+local function ReconnectNow()
+    pcall(function()
+        TeleportService:Teleport(game.PlaceId, LocalPlayer)
+    end)
+end
+
+-- ============================================================
+-- 기능 On/Off 상태 (Material 토글이 이 값을 직접 갱신함)
+-- ============================================================
+local STATE = {
+    AutoEating     = (SavedToggleStates and SavedToggleStates.AutoEating) or false,
+    AutoSell       = (SavedToggleStates and SavedToggleStates.AutoSell) or false,
+    AutoTimeReward = (SavedToggleStates and SavedToggleStates.AutoTimeReward) or false,
+    AntiAFK        = (SavedToggleStates and SavedToggleStates.AntiAFK) or false,
+
+    SellConditionActive = false, -- Sell 조건(SellText.Visible)이 충족된 동안 true -> Auto Eating 일시 정지용
+    FirePausedUntil = 0,         -- tick() 기준 이 시각이 지나기 전까진 Grab/Eat Fire만 정지 (텔레포트는 계속 작동)
+    GlobalPause = false,         -- Time Reward가 전부 Claimed! 감지 -> 재접속 직전까지 모든 로직 정지
+}
+
+local function PersistCurrentToggleStates()
+    SaveToggleStates(STATE)
+end
+
+-- ============================================================
+-- [Sols RNG와 동일한 방식] 클릭 위치 인디케이터
+-- ============================================================
+local function showClickIndicator(x, y)
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "SellClickIndicatorGui"
+    sg.IgnoreGuiInset = true
+    sg.DisplayOrder = 2147483647
+    sg.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+    local indicator = Instance.new("Frame")
+    indicator.AnchorPoint = Vector2.new(0.5, 0.5)
+    indicator.Position = UDim2.new(0, x, 0, y)
+    indicator.Size = UDim2.new(0, 20, 0, 20)
+    indicator.BackgroundColor3 = Color3.new(1, 1, 1)
+    indicator.BackgroundTransparency = 0.4
+    indicator.BorderSizePixel = 0
+    indicator.Parent = sg
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(1, 0)
+    corner.Parent = indicator
+
+    local tween = TweenService:Create(indicator,
+        TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        { Size = UDim2.new(0, 60, 0, 60), BackgroundTransparency = 1 }
+    )
+    tween:Play()
+    tween.Completed:Connect(function()
+        sg:Destroy()
+    end)
+end
+
+-- ============================================================
+-- 버튼 정중앙 좌표를 계산해서 실제 마우스 클릭 시뮬레이션
+-- ============================================================
+local function clickExactly(button)
+    if button and button.AbsoluteSize.X > 0 and button.Visible then
+        local absPos = button.AbsolutePosition
+        local absSize = button.AbsoluteSize
+        local topBarHeight = GuiService:GetGuiInset().Y
+        local centerX = absPos.X + (absSize.X / 2)
+        local centerY = absPos.Y + (absSize.Y / 2) + topBarHeight
+
+        showClickIndicator(centerX, centerY)
+        VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 0)
+        task.wait(0.05)
+        VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 0)
+        return true
+    end
+    return false
+end
+
+-- ============================================================
+-- Sell 조건 감지 — SellText.Visible이 true인 동안 STATE.SellConditionActive = true
+-- (AutoSell 토글 On/Off와 무관하게 항상 감지: Sell 조건이 충족되는 동안엔
+--  Auto Eating을 일시적으로 멈추기 위함)
+-- ============================================================
+local function watchSellCondition()
+    task.spawn(function()
+        while true do
+            task.wait(0.1)
+            local ok, err = pcall(function()
+                local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+                local screenGui = playerGui and playerGui:FindFirstChild("ScreenGui")
+                local sell = screenGui and screenGui:FindFirstChild("Sell")
+                local sellText = sell and sell:FindFirstChild("SellText")
+                STATE.SellConditionActive = (sellText ~= nil and sellText.Visible == true)
+            end)
+            if not ok then
+                warn("[Sell 조건 감지 오류] " .. tostring(err))
+            end
+        end
+    end)
+end
+
+-- ============================================================
+-- Auto Sell (Sell 자동 클릭) — STATE.AutoSell 일 때만 클릭
+-- ============================================================
+local function watchSell()
+    task.spawn(function()
+        while true do
+            task.wait(0.1)
+            if STATE.AutoSell and not STATE.GlobalPause then
+                local ok, err = pcall(function()
+                    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+                    local screenGui = playerGui and playerGui:FindFirstChild("ScreenGui")
+                    local sell = screenGui and screenGui:FindFirstChild("Sell")
+                    local sellText = sell and sell:FindFirstChild("SellText")
+                    local outline = sell and sell:FindFirstChild("outline")
+
+                    if sellText and sellText.Visible and outline then
+                        clickExactly(outline)
+                    end
+                end)
+                if not ok then
+                    warn("[Auto Sell 오류] " .. tostring(err))
+                end
+            end
+        end
+    end)
+end
+
+-- ============================================================
+-- Anti AFK — STATE.AntiAFK 일 때만 15분마다 스페이스바 입력
+-- ============================================================
+local function preventAfkKick()
+    task.spawn(function()
+        while true do
+            task.wait(15 * 60) -- 15분
+            if STATE.AntiAFK and not STATE.GlobalPause then
+                local ok, err = pcall(function()
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+                    task.wait(0.05)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+                end)
+                if not ok then
+                    warn("[Anti AFK 오류] " .. tostring(err))
+                end
+            end
+        end
+    end)
+end
+
+-- ============================================================
+-- Auto Eating (통합 기능) — STATE.AutoEating 일 때만 동작
+--   1) Fragmentable 랜덤 텔레포트 (최근 30개 중복 제외, 스폰 대기 좌표 제외)
+--   2) LocalEvents.Grab / LocalEvents.Eat Fire (0.01초 별도 루프)
+--   3) ProgressText 정체 감지 (15초/30초/60초 3단계) → Fire만 일시정지, 60초는 Sell 3번+리셋
+-- ============================================================
+local function autoEatingLoop()
+    local RECENT_EXCLUDE_COUNT = 30
+    local recentParts = {}
+
+    local lastProgressText = nil
+    local lastChangeTime = tick()
+    local stalledFor15Triggered = false
+    local stalledFor30Triggered = false
+    local stalledFor60Triggered = false
+
+    local function rememberPart(part, capCount)
+        table.insert(recentParts, part)
+        while #recentParts > capCount do
+            table.remove(recentParts, 1)
+        end
+    end
+
+    task.spawn(function()
+        while true do
+            task.wait(1)
+            if STATE.AutoEating and not STATE.SellConditionActive and not STATE.GlobalPause then
+                -- 1) 랜덤 Fragmentable 텔레포트
+                local ok1, err1 = pcall(function()
+                    local map = workspace:FindFirstChild("Map")
+                    local fragmentable = map and map:FindFirstChild("Fragmentable")
+                    if not fragmentable then return end
+
+                    local PENDING_POS = Vector3.new(0, -20, 0)
+                    local PENDING_EPSILON = 1 -- 스터드 오차 허용
+
+                    local candidates = {}
+                    for _, child in ipairs(fragmentable:GetChildren()) do
+                        if child:IsA("BasePart") then
+                            -- 아직 실제 위치로 배치되지 않은(스폰 대기) 템플릿 파트는 제외
+                            if (child.Position - PENDING_POS).Magnitude > PENDING_EPSILON then
+                                table.insert(candidates, child)
+                            end
+                        end
+                    end
+                    local totalCount = #candidates
+                    if totalCount == 0 then return end
+
+                    -- 후보 총 개수가 30개보다 적으면, 제외 개수도 "후보 수 - 1"로 줄여서
+                    -- pickPool이 절대 비지 않게(항상 최소 1곳은 선택 가능하게) 만든다.
+                    local effectiveExcludeCount = math.max(0, math.min(RECENT_EXCLUDE_COUNT, totalCount - 1))
+                    while #recentParts > effectiveExcludeCount do
+                        table.remove(recentParts, 1)
+                    end
+
+                    local excludeSet = {}
+                    for _, p in ipairs(recentParts) do
+                        excludeSet[p] = true
+                    end
+
+                    local pickPool = {}
+                    for _, part in ipairs(candidates) do
+                        if not excludeSet[part] then
+                            table.insert(pickPool, part)
+                        end
+                    end
+                    if #pickPool == 0 then
+                        pickPool = candidates
+                    end
+
+                    local targetPart = pickPool[math.random(1, #pickPool)]
+                    rememberPart(targetPart, effectiveExcludeCount)
+
+                    local char = LocalPlayer.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    if not hrp then return end
+
+                    local partTopOffset = targetPart.Size.Y / 2
+                    local partTopPosition = (targetPart.CFrame * CFrame.new(0, partTopOffset, 0)).Position
+
+                    local humanoid = char:FindFirstChildOfClass("Humanoid")
+                    local hipHeight = (humanoid and humanoid.HipHeight) or 2
+                    local safeMargin = (hrp.Size.Y / 2) + hipHeight + 1
+
+                    hrp.CFrame = CFrame.new(partTopPosition + Vector3.new(0, safeMargin, 0))
+                end)
+                if not ok1 then
+                    warn("[Auto Eating - 텔레포트 오류] " .. tostring(err1))
+                end
+
+                -- 2) ProgressText 정체 감지 (3단계: 15초 -> 5초 대기 / 30초 -> 10초 대기 /
+                --    60초 -> 10초 대기 후 Sell 버튼 3번 클릭 후 재설정)
+                local ok2, err2 = pcall(function()
+                    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+                    local screenGui = playerGui and playerGui:FindFirstChild("ScreenGui")
+                    local sell = screenGui and screenGui:FindFirstChild("Sell")
+                    local progressText = sell and sell:FindFirstChild("ProgressText")
+                    if not progressText then return end
+
+                    local currentText = progressText.Text
+                    if currentText ~= lastProgressText then
+                        lastProgressText = currentText
+                        lastChangeTime = tick()
+                        stalledFor15Triggered = false
+                        stalledFor30Triggered = false
+                        stalledFor60Triggered = false
+                        STATE.FirePausedUntil = 0 -- 진행 재개됐으니 Fire 일시정지도 즉시 해제
+                        return
+                    end
+
+                    local elapsed = tick() - lastChangeTime
+
+                    if elapsed >= 60 and not stalledFor60Triggered then
+                        stalledFor60Triggered = true
+                        STATE.FirePausedUntil = tick() + 10 -- Fire만 10초 정지 (텔레포트는 계속 작동)
+
+                        -- 10초 대기 -> Sell 3번 클릭 -> 재설정 은 별도 코루틴으로 처리해서
+                        -- 이 함수(=메인 루프)를 블로킹하지 않게 함 (텔레포트가 계속 돌아야 하므로)
+                        task.spawn(function()
+                            task.wait(10)
+
+                            local okClick, errClick = pcall(function()
+                                local playerGui2 = LocalPlayer:FindFirstChild("PlayerGui")
+                                local screenGui2 = playerGui2 and playerGui2:FindFirstChild("ScreenGui")
+                                local sell2 = screenGui2 and screenGui2:FindFirstChild("Sell")
+                                local outline2 = sell2 and sell2:FindFirstChild("outline")
+                                for _ = 1, 3 do
+                                    if outline2 then
+                                        clickExactly(outline2)
+                                    end
+                                    task.wait(0.2)
+                                end
+                            end)
+                            if not okClick then
+                                warn("[Auto Eating - 60초 정체 Sell 클릭 오류] " .. tostring(errClick))
+                            end
+
+                            local char = LocalPlayer.Character
+                            local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+                            if humanoid then
+                                humanoid.Health = 0
+                            end
+                        end)
+                    elseif elapsed >= 30 and not stalledFor30Triggered then
+                        stalledFor30Triggered = true
+                        STATE.FirePausedUntil = tick() + 10 -- Fire만 10초 정지
+                    elseif elapsed >= 15 and not stalledFor15Triggered then
+                        stalledFor15Triggered = true
+                        STATE.FirePausedUntil = tick() + 5 -- Fire만 5초 정지
+                    end
+                end)
+                if not ok2 then
+                    warn("[Auto Eating - 정체 감지 오류] " .. tostring(err2))
+                end
+            end
+        end
+    end)
+end
+
+-- ============================================================
+-- Auto Eating - Grab/Eat Fire 전용 루프 (0.01초 간격, 텔레포트/정체감지와 분리)
+-- ============================================================
+local function autoEatingFireLoop()
+    task.spawn(function()
+        while true do
+            task.wait(0.01)
+            if STATE.AutoEating and not STATE.SellConditionActive and tick() >= STATE.FirePausedUntil and not STATE.GlobalPause then
+                local ok, err = pcall(function()
+                    local localEvents = ReplicatedStorage:FindFirstChild("LocalEvents")
+                    local grab = localEvents and localEvents:FindFirstChild("Grab")
+                    local eat = localEvents and localEvents:FindFirstChild("Eat")
+                    if grab then grab:Fire() end
+                    if eat then eat:Fire() end
+                end)
+                if not ok then
+                    warn("[Auto Eating - Grab/Eat Fire 오류] " .. tostring(err))
+                end
+            end
+        end
+    end)
+end
+
+-- ============================================================
+-- Auto Time Reward — STATE.AutoTimeReward 일 때만 동작
+--   1) Rewards.TimedRewards.RewardGrid 안의 모든 Template 감시
+--   2) Template.Time.Text == "Tap to claim!" 이면 Rewards.Visible 켜고(0.35초) 클릭 ->
+--      0.25초 대기 후 Rewards.Visible 끄기. 여러 개면 각각 5초 간격으로 순서대로 처리.
+--   3) 모든 Template.Time.Text == "Claimed!" 이면, 전체 로직 10초 정지 -> Sell 3번 클릭
+--      -> 재접속 (재접속 전 토글 상태 저장, 재접속 후 자동 복원)
+-- ============================================================
+local function autoTimeRewardLoop()
+    task.spawn(function()
+        while true do
+            task.wait(1)
+            if STATE.AutoTimeReward and not STATE.GlobalPause then
+                local ok, err = pcall(function()
+                    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+                    local screenGui = playerGui and playerGui:FindFirstChild("ScreenGui")
+                    local rewards = screenGui and screenGui:FindFirstChild("Rewards")
+                    local timedRewards = rewards and rewards:FindFirstChild("TimedRewards")
+                    local rewardGrid = timedRewards and timedRewards:FindFirstChild("RewardGrid")
+                    if not rewardGrid then return end
+
+                    local templates = {}
+                    for _, child in ipairs(rewardGrid:GetChildren()) do
+                        if child.Name == "Template" then
+                            table.insert(templates, child)
+                        end
+                    end
+                    if #templates == 0 then return end
+
+                    local claimableTemplates = {}
+                    local allClaimed = true
+                    for _, tmpl in ipairs(templates) do
+                        local timeLabel = tmpl:FindFirstChild("Time")
+                        local txt = timeLabel and timeLabel.Text
+                        if txt ~= "Claimed!" then
+                            allClaimed = false
+                        end
+                        if txt == "Tap to claim!" then
+                            table.insert(claimableTemplates, tmpl)
+                        end
+                    end
+
+                    -- 모든 템플릿이 Claimed! 상태 -> 전체 정지 -> Sell 3번 -> 재접속
+                    if allClaimed then
+                        STATE.GlobalPause = true
+                        task.wait(10)
+
+                        local okClick, errClick = pcall(function()
+                            local playerGui2 = LocalPlayer:FindFirstChild("PlayerGui")
+                            local screenGui2 = playerGui2 and playerGui2:FindFirstChild("ScreenGui")
+                            local sell2 = screenGui2 and screenGui2:FindFirstChild("Sell")
+                            local outline2 = sell2 and sell2:FindFirstChild("outline")
+                            for _ = 1, 3 do
+                                if outline2 then
+                                    clickExactly(outline2)
+                                end
+                                task.wait(0.2)
+                            end
+                        end)
+                        if not okClick then
+                            warn("[Auto Time Reward - Sell 클릭 오류] " .. tostring(errClick))
+                        end
+
+                        PersistCurrentToggleStates()
+                        ReconnectNow()
+                        return
+                    end
+
+                    -- Tap to claim! 인 것들을 순서대로 처리 (여러 개면 5초 간격)
+                    for _, tmpl in ipairs(claimableTemplates) do
+                        if not (STATE.AutoTimeReward and not STATE.GlobalPause) then break end
+
+                        if rewards then
+                            rewards.Visible = true
+                        end
+                        task.wait(0.35)
+                        clickExactly(tmpl)
+                        task.wait(0.25)
+                        if rewards then
+                            rewards.Visible = false
+                        end
+                        task.wait(5)
+                    end
+                end)
+                if not ok then
+                    warn("[Auto Time Reward 오류] " .. tostring(err))
+                end
+            end
+        end
+    end)
+end
+
+-- ============================================================
+-- Material UI 구성
+-- ============================================================
+local ui = Material.Load({
+    Title = "ETW 매크로",
+    Style = 1,
+    SizeX = 300,
+    SizeY = 400,
+    Theme = "Dark",
+})
+
+local tabMacro = ui.New({
+    Title = "매크로",
+})
+
+tabMacro.Toggle({
+    Text = "Auto Eating",
+    Enabled = STATE.AutoEating,
+    Callback = function(value)
+        STATE.AutoEating = value
+        PersistCurrentToggleStates()
+    end,
+})
+
+tabMacro.Toggle({
+    Text = "Auto Sell",
+    Enabled = STATE.AutoSell,
+    Callback = function(value)
+        STATE.AutoSell = value
+        PersistCurrentToggleStates()
+    end,
+})
+
+tabMacro.Toggle({
+    Text = "Auto Time Reward",
+    Enabled = STATE.AutoTimeReward,
+    Callback = function(value)
+        STATE.AutoTimeReward = value
+        PersistCurrentToggleStates()
+    end,
+})
+
+tabMacro.Toggle({
+    Text = "Anti AFK",
+    Enabled = STATE.AntiAFK,
+    Callback = function(value)
+        STATE.AntiAFK = value
+        PersistCurrentToggleStates()
+    end,
+})
+
+-- ============================================================
+-- 백그라운드 루프 시작 (실제 동작 여부는 STATE 값으로 제어됨)
+-- ============================================================
+autoEatingLoop()
+autoEatingFireLoop()
+watchSellCondition()
+watchSell()
+autoTimeRewardLoop()
+preventAfkKick()
