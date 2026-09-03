@@ -17,6 +17,225 @@ if getgenv then
     getgenv().IS_TELEPORT_LOAD = nil
 end
 
+-- ✅ [사용자 요청] 이 자작스크를 ETW 매크로 게임(PlaceId 16480898254)에서 실행하면,
+-- 이 게임에는 ETW 관련 기능이 빠진 이 스크립트 대신 ETW 매크로 전용 스크립트를 쓰는
+-- 게 맞다는 걸 알려주고 선택하게 한다. YES를 누르면 이 스크립트의 나머지 실행을 즉시
+-- 중단하고(return) ETW 매크로 전용 스크립트를 대신 실행한다.
+-- (구조는 위쪽 Sol's RNG 감지 블록과 완전히 동일함 - PlaceId와 문구, 로드할 URL만 다름)
+if game.PlaceId == 16480898254 then
+    local shouldSwitch = false
+    local choiceMade = false
+
+    local switchGui = Instance.new("ScreenGui")
+    switchGui.Name = "ETWSwitchPrompt"
+    switchGui.ResetOnSpawn = false
+    switchGui.IgnoreGuiInset = true
+    switchGui.DisplayOrder = 2147483647
+    switchGui.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+
+    local TweenService = game:GetService("TweenService")
+
+    local promptFrame = Instance.new("Frame")
+    promptFrame.Name = "PromptFrame"
+    promptFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    promptFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+    promptFrame.Size = UDim2.new(0, 440, 0, 170)
+    promptFrame.BackgroundColor3 = Color3.new(0, 0, 0)
+    promptFrame.BackgroundTransparency = 0.65
+    promptFrame.BorderSizePixel = 0
+    promptFrame.Parent = switchGui
+
+    local promptStroke = Instance.new("UIStroke")
+    promptStroke.Color = Color3.fromRGB(255, 255, 255)
+    promptStroke.Thickness = 1
+    promptStroke.Transparency = 0.7
+    promptStroke.Parent = promptFrame
+
+    local promptLabel = Instance.new("TextLabel")
+    promptLabel.Name = "PromptLabel"
+    promptLabel.BackgroundTransparency = 1
+    promptLabel.AnchorPoint = Vector2.new(0.5, 0)
+    promptLabel.Position = UDim2.new(0.5, 0, 0, 20)
+    promptLabel.Size = UDim2.new(1, -40, 0, 60)
+    promptLabel.Text = "현재 있는 게임이 ETW인걸 감지했습니다.\nETW 매크로 전용 탭으로 이동하시겠습니까?"
+    promptLabel.TextColor3 = Color3.new(1, 1, 1)
+    promptLabel.TextSize = 22
+    promptLabel.TextWrapped = true
+    promptLabel.TextXAlignment = Enum.TextXAlignment.Center
+    promptLabel.TextYAlignment = Enum.TextYAlignment.Top
+    promptLabel.FontFace = Font.new(
+        "rbxasset://fonts/families/NotoSansKR.json",
+        Enum.FontWeight.Medium,
+        Enum.FontStyle.Normal
+    )
+    promptLabel.Parent = promptFrame
+
+    local buttonRow = Instance.new("Frame")
+    buttonRow.Name = "ButtonRow"
+    buttonRow.AnchorPoint = Vector2.new(0.5, 1)
+    buttonRow.Position = UDim2.new(0.5, 0, 1, -20)
+    buttonRow.Size = UDim2.new(1, -40, 0, 48)
+    buttonRow.BackgroundTransparency = 1
+    buttonRow.Parent = promptFrame
+
+    local buttonLayout = Instance.new("UIListLayout")
+    buttonLayout.FillDirection = Enum.FillDirection.Horizontal
+    buttonLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    buttonLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    buttonLayout.Padding = UDim.new(0, 20)
+    buttonLayout.Parent = buttonRow
+
+    local noButton = Instance.new("TextButton")
+    noButton.Name = "NoButton"
+    noButton.LayoutOrder = 1
+    noButton.Size = UDim2.new(0, 160, 1, 0)
+    noButton.BackgroundColor3 = Color3.new(0, 0, 0)
+    noButton.BorderSizePixel = 0
+    noButton.AutoButtonColor = false
+    noButton.Text = "NO"
+    noButton.TextColor3 = Color3.new(1, 1, 1)
+    noButton.TextSize = 22
+    noButton.FontFace = Font.new(
+        "rbxasset://fonts/families/NotoSansKR.json",
+        Enum.FontWeight.Medium,
+        Enum.FontStyle.Normal
+    )
+    noButton.Parent = buttonRow
+
+    local noGradient = Instance.new("UIGradient")
+    noGradient.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    noGradient.Parent = noButton
+
+    local yesButton = Instance.new("TextButton")
+    yesButton.Name = "YesButton"
+    yesButton.LayoutOrder = 2
+    yesButton.Size = UDim2.new(0, 160, 1, 0)
+    yesButton.BackgroundColor3 = Color3.new(1, 1, 1)
+    yesButton.BorderSizePixel = 0
+    yesButton.AutoButtonColor = false
+    yesButton.Text = "YES"
+    yesButton.TextColor3 = Color3.new(0, 0, 0)
+    yesButton.TextSize = 22
+    yesButton.FontFace = Font.new(
+        "rbxasset://fonts/families/NotoSansKR.json",
+        Enum.FontWeight.Medium,
+        Enum.FontStyle.Normal
+    )
+    yesButton.Parent = buttonRow
+
+    local yesGradient = Instance.new("UIGradient")
+    yesGradient.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(1, 0),
+    })
+    yesGradient.Parent = yesButton
+
+    promptFrame.Size = UDim2.new(0, 400, 0, 150)
+    promptFrame.BackgroundTransparency = 1
+    promptLabel.TextTransparency = 1
+    promptStroke.Transparency = 1
+
+    TweenService:Create(promptFrame, TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+        Size = UDim2.new(0, 440, 0, 170),
+        BackgroundTransparency = 0.65,
+    }):Play()
+    TweenService:Create(promptStroke, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Transparency = 0.7,
+    }):Play()
+    task.delay(0.12, function()
+        TweenService:Create(promptLabel, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            TextTransparency = 0,
+        }):Play()
+    end)
+
+    local function setupHoverRevealText(button, textColor)
+        button.Text = ""
+        local textOverlay = Instance.new("TextLabel")
+        textOverlay.Name = "TextOverlay"
+        textOverlay.BackgroundTransparency = 1
+        textOverlay.AnchorPoint = Vector2.new(0.5, 1)
+        textOverlay.Position = UDim2.new(0.5, 0, 0, 0)
+        textOverlay.Size = UDim2.new(1, 0, 0, 24)
+        textOverlay.Text = button.Name == "NoButton" and "NO" or "YES"
+        textOverlay.TextColor3 = textColor
+        textOverlay.TextTransparency = 1
+        textOverlay.TextSize = 22
+        textOverlay.FontFace = Font.new(
+            "rbxasset://fonts/families/NotoSansKR.json",
+            Enum.FontWeight.Medium,
+            Enum.FontStyle.Normal
+        )
+        textOverlay.ZIndex = button.ZIndex + 1
+        textOverlay.Parent = button
+
+        button.MouseEnter:Connect(function()
+            TweenService:Create(textOverlay, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Position = UDim2.new(0.5, 0, 0, -6),
+                TextTransparency = 0,
+            }):Play()
+        end)
+        button.MouseLeave:Connect(function()
+            TweenService:Create(textOverlay, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                Position = UDim2.new(0.5, 0, 0, 0),
+                TextTransparency = 1,
+            }):Play()
+        end)
+    end
+
+    setupHoverRevealText(noButton, Color3.new(1, 1, 1))
+    setupHoverRevealText(yesButton, Color3.new(1, 1, 1))
+
+    noButton.MouseEnter:Connect(function()
+        TweenService:Create(noButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = Color3.fromRGB(35, 35, 35),
+        }):Play()
+    end)
+    noButton.MouseLeave:Connect(function()
+        TweenService:Create(noButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = Color3.new(0, 0, 0),
+        }):Play()
+    end)
+    yesButton.MouseEnter:Connect(function()
+        TweenService:Create(yesButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = Color3.fromRGB(225, 225, 225),
+        }):Play()
+    end)
+    yesButton.MouseLeave:Connect(function()
+        TweenService:Create(yesButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = Color3.new(1, 1, 1),
+        }):Play()
+    end)
+
+    noButton.MouseButton1Click:Connect(function()
+        shouldSwitch = false
+        choiceMade = true
+    end)
+    yesButton.MouseButton1Click:Connect(function()
+        shouldSwitch = true
+        choiceMade = true
+    end)
+
+    while not choiceMade do
+        task.wait(0.1)
+    end
+
+    switchGui:Destroy()
+
+    if shouldSwitch then
+        -- ✅ [사용자 요청] YES를 선택하면 이 스크립트의 나머지 실행을 즉시 중단하고,
+        -- ETW 매크로 전용 스크립트를 실행한다.
+        pcall(function()
+            loadstring(game:HttpGet(
+                "https://raw.githubusercontent.com/dtrke/-self/refs/heads/main/ETW_%EB%A7%A4%ED%81%AC%EB%A1%9C"
+            ))()
+        end)
+        return
+    end
+end
+
 -- ✅ [사용자 요청] 이 자작스크를 Sol's RNG 게임(PlaceId 15532962292)에서 실행하면,
 -- 이 게임에는 Sols 관련 기능이 전부 빠진 이 스크립트 대신 SolsRNG 전용 스크립트를 쓰는
 -- 게 맞다는 걸 알려주고 선택하게 한다. YES를 누르면 이 스크립트의 나머지 실행을 즉시
