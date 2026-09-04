@@ -321,8 +321,8 @@ end
 -- ============================================================
 local function autoEatingLoop()
     local RECENT_EXCLUDE_COUNT = 5
-    local recentPositions = {} -- 최근에 실제로 텔레포트한 장소(클러스터 중심) 위치들
-    local CLUSTER_RADIUS = 10 -- 이 거리 안에서 사슬처럼 이어지면 "같은 장소"로 묶음
+    local recentClusterKeys = {}
+    local CLUSTER_GRID_SIZE = 10 -- 이 범위(스터드) 안에 몰려있는 파트는 "같은 위치"로 묶음
 
     local lastProgressText = nil
     local lastChangeTime = tick()
@@ -330,12 +330,25 @@ local function autoEatingLoop()
     local stalledFor30Triggered = false
     local stalledFor60Triggered = false
 
+    local function rememberCluster(clusterKey, capCount)
+        table.insert(recentClusterKeys, clusterKey)
+        while #recentClusterKeys > capCount do
+            table.remove(recentClusterKeys, 1)
+        end
+    end
+
+    local function getClusterKey(pos)
+        return string.format("%d_%d_%d",
+            math.floor(pos.X / CLUSTER_GRID_SIZE + 0.5),
+            math.floor(pos.Y / CLUSTER_GRID_SIZE + 0.5),
+            math.floor(pos.Z / CLUSTER_GRID_SIZE + 0.5))
+    end
+
     task.spawn(function()
         while true do
             task.wait(1)
             if STATE.AutoEating and not STATE.SellConditionActive and not STATE.GlobalPause then
-                -- 1) 랜덤 Fragmentable 텔레포트 (근접도 기반 클러스터링 - 아무리 넓게
-                --    퍼져있어도 서로 이어진 파트 전체를 "하나의 장소"로 묶어서 딱 1표만 줌)
+                -- 1) 랜덤 Fragmentable 텔레포트 (고정 그리드로 위치를 묶어서 균등하게 선택)
                 local ok1, err1 = pcall(function()
                     local map = workspace:FindFirstChild("Map")
                     local fragmentable = map and map:FindFirstChild("Fragmentable")
@@ -344,121 +357,46 @@ local function autoEatingLoop()
                     local PENDING_POS = Vector3.new(0, -20, 0)
                     local PENDING_EPSILON = 1 -- 스터드 오차 허용
 
-                    local candidates = {}
+                    local clusters = {}
                     for _, child in ipairs(fragmentable:GetChildren()) do
                         if child:IsA("BasePart") then
                             -- 아직 실제 위치로 배치되지 않은(스폰 대기) 템플릿 파트는 제외
                             if (child.Position - PENDING_POS).Magnitude > PENDING_EPSILON then
-                                table.insert(candidates, child)
-                            end
-                        end
-                    end
-
-                    local n = #candidates
-                    if n == 0 then return end
-
-                    -- ✅ [사용자 요청] 파트끼리 사슬처럼 이어진 무리는 그게 아무리 넓게
-                    -- 퍼져있어도(예: 한 곳이 계속 커지는 버그) 통째로 "하나의 장소"로
-                    -- 묶어서 다른 위치 하나와 똑같이 딱 1표만 가진다 - 몰린 지역이 아무리
-                    -- 넓어도 전체 확률이 커지지 않음. 성능을 위해 공간을 CLUSTER_RADIUS
-                    -- 크기의 버킷으로 나누고, "같은 버킷 = 무조건 한 장소"(거리 계산 없이
-                    -- 바로 묶음), "인접 버킷만" 실제 거리로 확인해서 경계를 이어붙인다.
-                    local parent = {}
-                    for i = 1, n do parent[i] = i end
-                    local function find(x)
-                        while parent[x] ~= x do
-                            parent[x] = parent[parent[x]]
-                            x = parent[x]
-                        end
-                        return x
-                    end
-                    local function union(a, b)
-                        local ra, rb = find(a), find(b)
-                        if ra ~= rb then
-                            parent[ra] = rb
-                        end
-                    end
-
-                    local buckets = {}
-                    local function cellCoord(pos)
-                        return math.floor(pos.X / CLUSTER_RADIUS),
-                            math.floor(pos.Y / CLUSTER_RADIUS),
-                            math.floor(pos.Z / CLUSTER_RADIUS)
-                    end
-
-                    for i = 1, n do
-                        local cx, cy, cz = cellCoord(candidates[i].Position)
-                        local key = cx .. "_" .. cy .. "_" .. cz
-                        if not buckets[key] then buckets[key] = {} end
-                        table.insert(buckets[key], i)
-                    end
-
-                    -- 같은 버킷 안은 거리 계산 없이 무조건 한 장소로 묶는다 (선형 시간,
-                    -- 파트가 몇천 개 몰려있어도 가볍다).
-                    for _, bucket in pairs(buckets) do
-                        local first = bucket[1]
-                        for k = 2, #bucket do
-                            union(first, bucket[k])
-                        end
-                    end
-
-                    -- 버킷 경계에 걸친 경우만 인접 26개 버킷과 실제 거리로 확인해서 연결.
-                    for i = 1, n do
-                        local cx, cy, cz = cellCoord(candidates[i].Position)
-                        for dx = -1, 1 do
-                            for dy = -1, 1 do
-                                for dz = -1, 1 do
-                                    if not (dx == 0 and dy == 0 and dz == 0) then
-                                        local key = (cx + dx) .. "_" .. (cy + dy) .. "_" .. (cz + dz)
-                                        local bucket = buckets[key]
-                                        if bucket then
-                                            for _, j in ipairs(bucket) do
-                                                local dist = (candidates[i].Position - candidates[j].Position).Magnitude
-                                                if dist <= CLUSTER_RADIUS then
-                                                    union(i, j)
-                                                end
-                                            end
-                                        end
-                                    end
+                                local key = getClusterKey(child.Position)
+                                if not clusters[key] then
+                                    clusters[key] = {}
                                 end
+                                table.insert(clusters[key], child)
                             end
                         end
-                    end
-
-                    -- 그룹핑 결과 취합 + 각 장소의 중심 좌표 계산
-                    local groupsByRoot = {}
-                    for i = 1, n do
-                        local root = find(i)
-                        if not groupsByRoot[root] then
-                            groupsByRoot[root] = { parts = {}, sumPos = Vector3.new(0, 0, 0) }
-                        end
-                        local g = groupsByRoot[root]
-                        table.insert(g.parts, candidates[i])
-                        g.sumPos = g.sumPos + candidates[i].Position
                     end
 
                     local clusterList = {}
-                    for _, group in pairs(groupsByRoot) do
-                        table.insert(clusterList, { centroid = group.sumPos / #group.parts, parts = group.parts })
+                    for key, parts in pairs(clusters) do
+                        table.insert(clusterList, { key = key, parts = parts })
                     end
 
-                    -- 인게임 시각화: 장소(클러스터)마다 라벨 1개만 표시
+                    -- 인게임 시각화: 장소(그리드 칸)마다 라벨 1개만 표시
                     updateDensityViz(clusterList)
 
                     local totalCount = #clusterList
                     if totalCount == 0 then return end
 
-                    -- 최근에 방문했던 장소(중심좌표가 CLUSTER_RADIUS 이내)는 이번 후보에서 제외
+                    -- 후보(장소) 총 개수가 5개보다 적으면, 제외 개수도 "장소 수 - 1"로 줄여서
+                    -- pickPool이 절대 비지 않게(항상 최소 1곳은 선택 가능하게) 만든다.
+                    local effectiveExcludeCount = math.max(0, math.min(RECENT_EXCLUDE_COUNT, totalCount - 1))
+                    while #recentClusterKeys > effectiveExcludeCount do
+                        table.remove(recentClusterKeys, 1)
+                    end
+
+                    local excludeSet = {}
+                    for _, k in ipairs(recentClusterKeys) do
+                        excludeSet[k] = true
+                    end
+
                     local pickPool = {}
                     for _, cluster in ipairs(clusterList) do
-                        local tooRecent = false
-                        for _, pos in ipairs(recentPositions) do
-                            if (cluster.centroid - pos).Magnitude <= CLUSTER_RADIUS then
-                                tooRecent = true
-                                break
-                            end
-                        end
-                        if not tooRecent then
+                        if not excludeSet[cluster.key] then
                             table.insert(pickPool, cluster)
                         end
                     end
@@ -468,10 +406,7 @@ local function autoEatingLoop()
 
                     -- 장소 단위로 균등 랜덤 선택 (한 곳에 몇 개가 있든 각 장소는 1표씩)
                     local chosenCluster = pickPool[math.random(1, #pickPool)]
-                    table.insert(recentPositions, chosenCluster.centroid)
-                    while #recentPositions > RECENT_EXCLUDE_COUNT do
-                        table.remove(recentPositions, 1)
-                    end
+                    rememberCluster(chosenCluster.key, effectiveExcludeCount)
 
                     -- 뽑힌 장소 안에서는 그 안의 파트 중 아무거나 하나 사용
                     local targetPart = chosenCluster.parts[math.random(1, #chosenCluster.parts)]
