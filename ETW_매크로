@@ -115,6 +115,7 @@ local STATE = {
     SellConditionActive = false, -- Sell 조건(SellText.Visible)이 충족된 동안 true -> Auto Eating 일시 정지용
     FirePausedUntil = 0,         -- tick() 기준 이 시각이 지나기 전까진 Grab/Eat Fire만 정지 (텔레포트는 계속 작동)
     GlobalPause = false,         -- Time Reward가 전부 Claimed! 감지 -> 재접속 직전까지 모든 로직 정지
+    ShowDensityViz = false,      -- 켜면 Fragmentable 파트 위에 밀도(색)를 인게임에 표시
 }
 
 local function PersistCurrentToggleStates()
@@ -172,6 +173,71 @@ local function clickExactly(button)
         return true
     end
     return false
+end
+
+-- ============================================================
+-- 밀도 시각화 — STATE.ShowDensityViz가 켜져 있으면 각 Fragmentable 파트 위에
+-- 밀도 숫자를 색깔로 표시 (초록 = 밀도 낮음/확률 높음, 빨강 = 밀도 높음/확률 낮음)
+-- ============================================================
+local vizGuis = {} -- part -> BillboardGui 캐시
+
+local function updateDensityViz(candidatesList, densityList)
+    if not STATE.ShowDensityViz then
+        if next(vizGuis) then
+            for part, gui in pairs(vizGuis) do
+                if gui then gui:Destroy() end
+            end
+            vizGuis = {}
+        end
+        return
+    end
+
+    local seen = {}
+    local maxDensity = 1
+    for _, d in ipairs(densityList) do
+        if d > maxDensity then maxDensity = d end
+    end
+
+    for i, part in ipairs(candidatesList) do
+        seen[part] = true
+        local d = densityList[i]
+        local t = maxDensity > 1 and math.clamp((d - 1) / (maxDensity - 1), 0, 1) or 0
+        local color = Color3.new(t, 1 - t, 0) -- 초록(안전) -> 빨강(몰림)
+
+        local gui = vizGuis[part]
+        if not gui then
+            gui = Instance.new("BillboardGui")
+            gui.Name = "DensityVizGui"
+            gui.Size = UDim2.new(0, 60, 0, 24)
+            gui.StudsOffset = Vector3.new(0, 2, 0)
+            gui.AlwaysOnTop = true
+            gui.Parent = part
+
+            local label = Instance.new("TextLabel")
+            label.Name = "Label"
+            label.Size = UDim2.new(1, 0, 1, 0)
+            label.TextSize = 16
+            label.Font = Enum.Font.GothamBold
+            label.TextColor3 = Color3.new(1, 1, 1)
+            label.Parent = gui
+
+            vizGuis[part] = gui
+        end
+
+        local label = gui:FindFirstChild("Label")
+        if label then
+            label.Text = tostring(d)
+            label.BackgroundColor3 = color
+            label.BackgroundTransparency = 0.25
+        end
+    end
+
+    for part, gui in pairs(vizGuis) do
+        if not seen[part] then
+            if gui then gui:Destroy() end
+            vizGuis[part] = nil
+        end
+    end
 end
 
 -- ============================================================
@@ -253,8 +319,8 @@ end
 -- ============================================================
 local function autoEatingLoop()
     local RECENT_EXCLUDE_COUNT = 5
-    local recentClusterKeys = {}
-    local CLUSTER_GRID_SIZE = 10 -- 이 범위(스터드) 안에 몰려있는 파트는 "같은 위치"로 묶음
+    local recentPositions = {} -- 최근에 실제로 텔레포트한 위치들
+    local DENSITY_RADIUS = 10 -- 이 반경 안에 몇 개가 몰려있는지로 밀도를 계산
 
     local lastProgressText = nil
     local lastChangeTime = tick()
@@ -262,25 +328,19 @@ local function autoEatingLoop()
     local stalledFor30Triggered = false
     local stalledFor60Triggered = false
 
-    local function rememberCluster(clusterKey, capCount)
-        table.insert(recentClusterKeys, clusterKey)
-        while #recentClusterKeys > capCount do
-            table.remove(recentClusterKeys, 1)
+    local function rememberPosition(pos, capCount)
+        table.insert(recentPositions, pos)
+        while #recentPositions > capCount do
+            table.remove(recentPositions, 1)
         end
-    end
-
-    local function getClusterKey(pos)
-        return string.format("%d_%d_%d",
-            math.floor(pos.X / CLUSTER_GRID_SIZE + 0.5),
-            math.floor(pos.Y / CLUSTER_GRID_SIZE + 0.5),
-            math.floor(pos.Z / CLUSTER_GRID_SIZE + 0.5))
     end
 
     task.spawn(function()
         while true do
             task.wait(1)
             if STATE.AutoEating and not STATE.SellConditionActive and not STATE.GlobalPause then
-                -- 1) 랜덤 Fragmentable 텔레포트 (위치별로 묶어서 균등하게 선택)
+                -- 1) 랜덤 Fragmentable 텔레포트 (밀도 역가중치 방식 - 몰려있는 곳은 파트
+                --    하나하나의 확률을 낮춰서, 지역 전체로 보면 어디든 확률이 똑같아지게 함)
                 local ok1, err1 = pcall(function()
                     local map = workspace:FindFirstChild("Map")
                     local fragmentable = map and map:FindFirstChild("Fragmentable")
@@ -289,59 +349,109 @@ local function autoEatingLoop()
                     local PENDING_POS = Vector3.new(0, -20, 0)
                     local PENDING_EPSILON = 1 -- 스터드 오차 허용
 
-                    -- 후보 파트를 위치(클러스터) 기준으로 묶는다. 예: 한 곳에 100개,
-                    -- 다른 곳에 10개, 또 다른 곳에 1개가 몰려있어도 "장소" 자체는 3곳이므로
-                    -- 각 장소가 뽑힐 확률은 1:1:1이 된다 (파트 개수는 확률에 영향 없음).
-                    local clusters = {}
+                    local candidates = {}
                     for _, child in ipairs(fragmentable:GetChildren()) do
                         if child:IsA("BasePart") then
                             -- 아직 실제 위치로 배치되지 않은(스폰 대기) 템플릿 파트는 제외
                             if (child.Position - PENDING_POS).Magnitude > PENDING_EPSILON then
-                                local key = getClusterKey(child.Position)
-                                if not clusters[key] then
-                                    clusters[key] = {}
-                                end
-                                table.insert(clusters[key], child)
+                                table.insert(candidates, child)
                             end
                         end
                     end
 
-                    local clusterKeys = {}
-                    for key in pairs(clusters) do
-                        table.insert(clusterKeys, key)
-                    end
-                    local totalCount = #clusterKeys
-                    if totalCount == 0 then return end
+                    local n = #candidates
+                    if n == 0 then return end
 
-                    -- 후보(장소) 총 개수가 30개보다 적으면, 제외 개수도 "장소 수 - 1"로 줄여서
-                    -- pickPool이 절대 비지 않게(항상 최소 1곳은 선택 가능하게) 만든다.
-                    local effectiveExcludeCount = math.max(0, math.min(RECENT_EXCLUDE_COUNT, totalCount - 1))
-                    while #recentClusterKeys > effectiveExcludeCount do
-                        table.remove(recentClusterKeys, 1)
-                    end
-
-                    local excludeSet = {}
-                    for _, k in ipairs(recentClusterKeys) do
-                        excludeSet[k] = true
+                    -- ✅ [사용자 요청] "장소"를 미리 나누지 않고, 각 파트마다 "내 주변
+                    -- DENSITY_RADIUS 안에 몇 개가 더 있는지"만 계산해서 그 역수를 확률
+                    -- 가중치로 쓴다. 예: 한 곳에 100개가 몰려있으면 그 100개는 각자
+                    -- 1/100씩만 가지고, 다 더해도 1 - 파트 1개짜리 위치(가중치 1)와
+                    -- 정확히 같은 총 확률을 갖는다. 맵 크기나 몰린 정도와 무관하게 항상
+                    -- "위치 자체"의 확률이 균등해짐. 공간을 DENSITY_RADIUS 크기의 버킷으로
+                    -- 나눠서 인접 버킷만 비교하므로 파트가 몇천 개여도 가볍게 처리된다.
+                    local buckets = {}
+                    local function cellCoord(pos)
+                        return math.floor(pos.X / DENSITY_RADIUS),
+                            math.floor(pos.Y / DENSITY_RADIUS),
+                            math.floor(pos.Z / DENSITY_RADIUS)
                     end
 
-                    local pickPool = {}
-                    for _, key in ipairs(clusterKeys) do
-                        if not excludeSet[key] then
-                            table.insert(pickPool, key)
+                    for i = 1, n do
+                        local cx, cy, cz = cellCoord(candidates[i].Position)
+                        local key = cx .. "_" .. cy .. "_" .. cz
+                        if not buckets[key] then buckets[key] = {} end
+                        table.insert(buckets[key], i)
+                    end
+
+                    local density = {}
+                    for i = 1, n do
+                        local cx, cy, cz = cellCoord(candidates[i].Position)
+                        local count = 0
+                        for dx = -1, 1 do
+                            for dy = -1, 1 do
+                                for dz = -1, 1 do
+                                    local key = (cx + dx) .. "_" .. (cy + dy) .. "_" .. (cz + dz)
+                                    local bucket = buckets[key]
+                                    if bucket then
+                                        for _, j in ipairs(bucket) do
+                                            local dist = (candidates[i].Position - candidates[j].Position).Magnitude
+                                            if dist <= DENSITY_RADIUS then
+                                                count = count + 1
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                        density[i] = math.max(count, 1)
+                    end
+
+                    -- 인게임 시각화: 토글이 켜져있으면 각 파트 위에 밀도 숫자를 색으로
+                    -- 표시 (초록 = 밀도 낮음/확률 높음, 빨강 = 밀도 높음/확률 낮음)
+                    updateDensityViz(candidates, density)
+
+                    -- 최근에 방문했던 위치(DENSITY_RADIUS 이내)는 이번 후보에서 제외
+                    local pickIndices = {}
+                    for i = 1, n do
+                        local tooRecent = false
+                        for _, pos in ipairs(recentPositions) do
+                            if (candidates[i].Position - pos).Magnitude <= DENSITY_RADIUS then
+                                tooRecent = true
+                                break
+                            end
+                        end
+                        if not tooRecent then
+                            table.insert(pickIndices, i)
                         end
                     end
-                    if #pickPool == 0 then
-                        pickPool = clusterKeys
+                    if #pickIndices == 0 then
+                        for i = 1, n do
+                            table.insert(pickIndices, i)
+                        end
                     end
 
-                    local chosenClusterKey = pickPool[math.random(1, #pickPool)]
-                    rememberCluster(chosenClusterKey, effectiveExcludeCount)
+                    -- 가중치(1/density) 기반 랜덤 선택
+                    local totalWeight = 0
+                    local weights = {}
+                    for _, i in ipairs(pickIndices) do
+                        local w = 1 / density[i]
+                        weights[i] = w
+                        totalWeight = totalWeight + w
+                    end
 
-                    -- 뽑힌 장소 안에서는 그 장소에 있는 파트 중 아무거나 하나 사용 (여기서부턴
-                    -- 개수가 목적지에 영향 없음 - 어차피 같은 위치이므로 어떤 파트를 골라도 무방)
-                    local clusterParts = clusters[chosenClusterKey]
-                    local targetPart = clusterParts[math.random(1, #clusterParts)]
+                    local roll = math.random() * totalWeight
+                    local chosenIndex = pickIndices[#pickIndices]
+                    local cumulative = 0
+                    for _, i in ipairs(pickIndices) do
+                        cumulative = cumulative + weights[i]
+                        if roll <= cumulative then
+                            chosenIndex = i
+                            break
+                        end
+                    end
+
+                    local targetPart = candidates[chosenIndex]
+                    rememberPosition(targetPart.Position, RECENT_EXCLUDE_COUNT)
 
                     local char = LocalPlayer.Character
                     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -727,6 +837,14 @@ tabMacro.Toggle({
     Callback = function(value)
         STATE.AntiAFK = value
         PersistCurrentToggleStates()
+    end,
+})
+
+tabMacro.Toggle({
+    Text = "Show Density",
+    Enabled = STATE.ShowDensityViz,
+    Callback = function(value)
+        STATE.ShowDensityViz = value
     end,
 })
 
