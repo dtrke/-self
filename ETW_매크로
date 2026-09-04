@@ -243,6 +243,69 @@ local function updateDensityViz(clusterList)
 end
 
 -- ============================================================
+-- 파트 크기(Size)까지 반영해서, 기준 위치에서 가장 먼 "모서리 지점"을 계산
+-- (중심점만 보지 않고, 파트가 크면 그만큼 더 멀리 뻗어있는 모서리까지 고려)
+-- ============================================================
+local function getFarthestCornerXZ(part, fromPos)
+    local cf = part.CFrame
+    local halfSize = part.Size / 2
+    local farthestPoint = nil
+    local farthestDistSq = -1
+    for sx = -1, 1, 2 do
+        for sz = -1, 1, 2 do
+            local corner = (cf * CFrame.new(halfSize.X * sx, 0, halfSize.Z * sz)).Position
+            local dx = corner.X - fromPos.X
+            local dz = corner.Z - fromPos.Z
+            local distSq = dx * dx + dz * dz
+            if distSq > farthestDistSq then
+                farthestDistSq = distSq
+                farthestPoint = corner
+            end
+        end
+    end
+    return farthestPoint, farthestDistSq
+end
+
+-- ============================================================
+-- 가장 먼 지점에 검정색 UI를 1초간 표시
+-- ============================================================
+local function showFarthestPointMarker(position)
+    local ok, err = pcall(function()
+        local anchor = Instance.new("Part")
+        anchor.Name = "FarthestPointMarkerAnchor"
+        anchor.Anchored = true
+        anchor.CanCollide = false
+        anchor.CanQuery = false
+        anchor.CanTouch = false
+        anchor.Transparency = 1
+        anchor.Size = Vector3.new(0.2, 0.2, 0.2)
+        anchor.CFrame = CFrame.new(position)
+        anchor.Parent = workspace
+
+        local billboard = Instance.new("BillboardGui")
+        billboard.Name = "FarthestPointMarker"
+        billboard.Size = UDim2.new(0, 40, 0, 40)
+        billboard.AlwaysOnTop = true
+        billboard.Parent = anchor
+
+        local frame = Instance.new("Frame")
+        frame.BackgroundColor3 = Color3.new(0, 0, 0)
+        frame.BorderSizePixel = 0
+        frame.Size = UDim2.new(1, 0, 1, 0)
+        frame.Parent = billboard
+
+        task.delay(1, function()
+            if anchor and anchor.Parent then
+                anchor:Destroy()
+            end
+        end)
+    end)
+    if not ok then
+        warn("[가장 먼 지점 마커 오류] " .. tostring(err))
+    end
+end
+
+-- ============================================================
 -- Sell 조건 감지 — SellText.Visible이 true인 동안 STATE.SellConditionActive = true
 -- (AutoSell 토글 On/Off와 무관하게 항상 감지: Sell 조건이 충족되는 동안엔
 --  Auto Eating을 일시적으로 멈추기 위함)
@@ -329,6 +392,10 @@ local function autoEatingLoop()
     local stalledFor15Triggered = false
     local stalledFor30Triggered = false
     local stalledFor60Triggered = false
+    local vizTickCounter = 0
+    local CLUSTER_REBUILD_INTERVAL = 5 -- 초 단위 - 무거운 그룹핑 계산은 이 주기로만 다시 함
+    local lastClusterBuildTime = 0
+    local cachedClusterList = nil
 
     local function rememberCluster(clusterKey, capCount)
         table.insert(recentClusterKeys, clusterKey)
@@ -337,11 +404,40 @@ local function autoEatingLoop()
         end
     end
 
-    local function getClusterKey(pos)
-        return string.format("%d_%d_%d",
-            math.floor(pos.X / CLUSTER_GRID_SIZE + 0.5),
-            math.floor(pos.Y / CLUSTER_GRID_SIZE + 0.5),
-            math.floor(pos.Z / CLUSTER_GRID_SIZE + 0.5))
+    -- ✅ [최적화] 매초 fragmentable:GetChildren()으로 전체 목록을 통째로 다시 긁어오는
+    -- 대신, ChildAdded/ChildRemoved로 실시간 목록(Set)을 한 번만 만들어두고 계속
+    -- 갱신한다. 파트 개수가 계속 늘어나는 버그가 있는 상황에서, 매초 전체 배열을
+    -- 새로 만드는 GetChildren()이 반복될수록 점점 더 무거워지는 걸 방지한다.
+    local watchFolder = nil
+    local watchParts = {} -- Set: part -> true
+    local watchAddedConn, watchRemovedConn
+
+    local function ensureFragmentableWatch()
+        local map = workspace:FindFirstChild("Map")
+        local fragmentable = map and map:FindFirstChild("Fragmentable")
+        if not fragmentable then
+            return nil
+        end
+        if watchFolder ~= fragmentable then
+            if watchAddedConn then watchAddedConn:Disconnect() end
+            if watchRemovedConn then watchRemovedConn:Disconnect() end
+            watchFolder = fragmentable
+            watchParts = {}
+            for _, child in ipairs(fragmentable:GetChildren()) do
+                if child:IsA("BasePart") then
+                    watchParts[child] = true
+                end
+            end
+            watchAddedConn = fragmentable.ChildAdded:Connect(function(child)
+                if child:IsA("BasePart") then
+                    watchParts[child] = true
+                end
+            end)
+            watchRemovedConn = fragmentable.ChildRemoved:Connect(function(child)
+                watchParts[child] = nil
+            end)
+        end
+        return watchFolder
     end
 
     task.spawn(function()
@@ -350,34 +446,84 @@ local function autoEatingLoop()
             if STATE.AutoEating and not STATE.SellConditionActive and not STATE.GlobalPause then
                 -- 1) 랜덤 Fragmentable 텔레포트 (고정 그리드로 위치를 묶어서 균등하게 선택)
                 local ok1, err1 = pcall(function()
-                    local map = workspace:FindFirstChild("Map")
-                    local fragmentable = map and map:FindFirstChild("Fragmentable")
+                    local fragmentable = ensureFragmentableWatch()
                     if not fragmentable then return end
 
                     local PENDING_POS = Vector3.new(0, -20, 0)
                     local PENDING_EPSILON = 1 -- 스터드 오차 허용
 
-                    local clusters = {}
-                    for _, child in ipairs(fragmentable:GetChildren()) do
-                        if child:IsA("BasePart") then
-                            -- 아직 실제 위치로 배치되지 않은(스폰 대기) 템플릿 파트는 제외
-                            if (child.Position - PENDING_POS).Magnitude > PENDING_EPSILON then
-                                local key = getClusterKey(child.Position)
-                                if not clusters[key] then
-                                    clusters[key] = {}
+                    -- ✅ [최적화] "위치 그룹핑"(전체 파트 훑기)은 무거운 작업이라, 텔레포트할
+                    -- 때마다(매초) 매번 다시 하지 않고 CLUSTER_REBUILD_INTERVAL(5초)에
+                    -- 한 번만 다시 계산한다. 그 사이의 텔레포트들은 캐시된 목록에서만
+                    -- 골라서, 무거운 계산과 실제 순간이동(물리 스텝)이 매번 겹쳐서 렉이
+                    -- 겹으로 오는 걸 줄인다.
+                    local now = tick()
+                    if not cachedClusterList or (now - lastClusterBuildTime) >= CLUSTER_REBUILD_INTERVAL then
+                        -- 문자열 키(string.format) 대신 좌표를 그대로 중첩 테이블의 인덱스로
+                        -- 써서 묶는다. 파트 개수만큼 반복되는 문자열 생성 비용이 없어지고,
+                        -- 문자열 키는 최종적으로 훨씬 적은 "장소" 개수만큼만 만든다.
+                        local gridX = {}
+                        for part in pairs(watchParts) do
+                            if part.Parent and (part.Position - PENDING_POS).Magnitude > PENDING_EPSILON then
+                                local pos = part.Position
+                                local cx = math.floor(pos.X / CLUSTER_GRID_SIZE + 0.5)
+                                local cy = math.floor(pos.Y / CLUSTER_GRID_SIZE + 0.5)
+                                local cz = math.floor(pos.Z / CLUSTER_GRID_SIZE + 0.5)
+
+                                local yTab = gridX[cx]
+                                if not yTab then
+                                    yTab = {}
+                                    gridX[cx] = yTab
                                 end
-                                table.insert(clusters[key], child)
+                                local zTab = yTab[cy]
+                                if not zTab then
+                                    zTab = {}
+                                    yTab[cy] = zTab
+                                end
+                                local bucket = zTab[cz]
+                                if not bucket then
+                                    bucket = {}
+                                    zTab[cz] = bucket
+                                end
+                                table.insert(bucket, part)
                             end
                         end
+
+                        local freshClusterList = {}
+                        for cx, yTab in pairs(gridX) do
+                            for cy, zTab in pairs(yTab) do
+                                for cz, parts in pairs(zTab) do
+                                    table.insert(freshClusterList, {
+                                        key = cx .. "_" .. cy .. "_" .. cz,
+                                        parts = parts,
+                                        -- 그리드 칸 중심 좌표(정확한 평균은 아니지만 "이 장소가
+                                        -- 대략 어디쯤인지" 비교하는 용도로는 충분하고, 계산 비용이
+                                        -- 거의 없음 - 매번 파트를 다시 훑지 않아도 됨)
+                                        centroidX = cx * CLUSTER_GRID_SIZE,
+                                        centroidZ = cz * CLUSTER_GRID_SIZE,
+                                    })
+                                end
+                            end
+                        end
+
+                        cachedClusterList = freshClusterList
+                        lastClusterBuildTime = now
                     end
 
-                    local clusterList = {}
-                    for key, parts in pairs(clusters) do
-                        table.insert(clusterList, { key = key, parts = parts })
-                    end
+                    local clusterList = cachedClusterList
 
-                    -- 인게임 시각화: 장소(그리드 칸)마다 라벨 1개만 표시
-                    updateDensityViz(clusterList)
+                    -- 인게임 시각화: 켜져있을 때만 3틱(약 3초)에 한 번씩 갱신해서 부담을
+                    -- 줄임. 꺼져있으면 즉시 정리(가벼운 작업)한다.
+                    if not STATE.ShowDensityViz then
+                        vizTickCounter = 0
+                        updateDensityViz(clusterList)
+                    else
+                        vizTickCounter = vizTickCounter + 1
+                        if vizTickCounter >= 3 then
+                            vizTickCounter = 0
+                            updateDensityViz(clusterList)
+                        end
+                    end
 
                     local totalCount = #clusterList
                     if totalCount == 0 then return end
@@ -406,10 +552,25 @@ local function autoEatingLoop()
 
                     -- 장소 단위로 균등 랜덤 선택 (한 곳에 몇 개가 있든 각 장소는 1표씩)
                     local chosenCluster = pickPool[math.random(1, #pickPool)]
+
+                    -- ✅ 캐시된 목록이라 그 사이(최대 5초) 파트가 사라졌을 수 있음 - 실제
+                    -- 사용 직전에 살아있는 파트만 걸러낸다. 이 장소가 통째로 사라졌으면
+                    -- 다음 틱에 강제로 재계산하도록 캐시를 비우고 이번 틱은 건너뛴다.
+                    local validParts = {}
+                    for _, p in ipairs(chosenCluster.parts) do
+                        if p.Parent then
+                            table.insert(validParts, p)
+                        end
+                    end
+                    if #validParts == 0 then
+                        cachedClusterList = nil
+                        return
+                    end
+
                     rememberCluster(chosenCluster.key, effectiveExcludeCount)
 
-                    -- 뽑힌 장소 안에서는 그 안의 파트 중 아무거나 하나 사용
-                    local targetPart = chosenCluster.parts[math.random(1, #chosenCluster.parts)]
+                    -- 뽑힌 장소 안에서는 살아있는 파트 중 아무거나 하나 사용
+                    local targetPart = validParts[math.random(1, #validParts)]
 
                     local char = LocalPlayer.Character
                     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -422,7 +583,47 @@ local function autoEatingLoop()
                     local hipHeight = (humanoid and humanoid.HipHeight) or 2
                     local safeMargin = (hrp.Size.Y / 2) + hipHeight + 1
 
-                    hrp.CFrame = CFrame.new(partTopPosition + Vector3.new(0, safeMargin, 0))
+                    local finalPosition = partTopPosition + Vector3.new(0, safeMargin, 0)
+
+                    -- ✅ [사용자 요청] "가장 먼 지점"을 이번에 도착한 좁은 칸(10스터드) 안이
+                    -- 아니라, 지도 전체의 장소(클러스터) 중에서 찾는다. 매번 파트 수천 개를
+                    -- 다 훑으면 다시 느려지니, 2단계로 나눈다:
+                    --   1) 먼저 장소(클러스터)들의 중심 좌표끼리만 비교해서(개수가 훨씬
+                    --      적음) 가장 먼 "장소"를 찾고,
+                    --   2) 그 장소 안에서만 파트 크기(Size)까지 반영한 진짜 모서리를 계산.
+                    local farthestCluster = nil
+                    local farthestCentroidDistSq = -1
+                    for _, cluster in ipairs(clusterList) do
+                        local dx = cluster.centroidX - finalPosition.X
+                        local dz = cluster.centroidZ - finalPosition.Z
+                        local distSq = dx * dx + dz * dz
+                        if distSq > farthestCentroidDistSq then
+                            farthestCentroidDistSq = distSq
+                            farthestCluster = cluster
+                        end
+                    end
+
+                    local overallFarthestPoint = nil
+                    local overallFarthestDistSq = -1
+                    if farthestCluster then
+                        for _, p in ipairs(farthestCluster.parts) do
+                            if p.Parent then
+                                local corner, distSq = getFarthestCornerXZ(p, finalPosition)
+                                if distSq > overallFarthestDistSq then
+                                    overallFarthestDistSq = distSq
+                                    overallFarthestPoint = corner
+                                end
+                            end
+                        end
+                    end
+
+                    if overallFarthestPoint and overallFarthestDistSq > 0.01 then
+                        local lookAtPos = Vector3.new(overallFarthestPoint.X, finalPosition.Y, overallFarthestPoint.Z)
+                        hrp.CFrame = CFrame.new(finalPosition, lookAtPos)
+                        showFarthestPointMarker(overallFarthestPoint)
+                    else
+                        hrp.CFrame = CFrame.new(finalPosition)
+                    end
                 end)
                 if not ok1 then
                     warn("[Auto Eating - 텔레포트 오류] " .. tostring(err1))
