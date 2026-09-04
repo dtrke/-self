@@ -252,8 +252,9 @@ end
 --   3) ProgressText 정체 감지 (15초/30초/60초 3단계) → Fire만 일시정지, 60초는 Sell 3번+리셋
 -- ============================================================
 local function autoEatingLoop()
-    local RECENT_EXCLUDE_COUNT = 30
-    local recentParts = {}
+    local RECENT_EXCLUDE_COUNT = 5
+    local recentClusterKeys = {}
+    local CLUSTER_GRID_SIZE = 10 -- 이 범위(스터드) 안에 몰려있는 파트는 "같은 위치"로 묶음
 
     local lastProgressText = nil
     local lastChangeTime = tick()
@@ -261,18 +262,25 @@ local function autoEatingLoop()
     local stalledFor30Triggered = false
     local stalledFor60Triggered = false
 
-    local function rememberPart(part, capCount)
-        table.insert(recentParts, part)
-        while #recentParts > capCount do
-            table.remove(recentParts, 1)
+    local function rememberCluster(clusterKey, capCount)
+        table.insert(recentClusterKeys, clusterKey)
+        while #recentClusterKeys > capCount do
+            table.remove(recentClusterKeys, 1)
         end
+    end
+
+    local function getClusterKey(pos)
+        return string.format("%d_%d_%d",
+            math.floor(pos.X / CLUSTER_GRID_SIZE + 0.5),
+            math.floor(pos.Y / CLUSTER_GRID_SIZE + 0.5),
+            math.floor(pos.Z / CLUSTER_GRID_SIZE + 0.5))
     end
 
     task.spawn(function()
         while true do
             task.wait(1)
             if STATE.AutoEating and not STATE.SellConditionActive and not STATE.GlobalPause then
-                -- 1) 랜덤 Fragmentable 텔레포트
+                -- 1) 랜덤 Fragmentable 텔레포트 (위치별로 묶어서 균등하게 선택)
                 local ok1, err1 = pcall(function()
                     local map = workspace:FindFirstChild("Map")
                     local fragmentable = map and map:FindFirstChild("Fragmentable")
@@ -281,42 +289,59 @@ local function autoEatingLoop()
                     local PENDING_POS = Vector3.new(0, -20, 0)
                     local PENDING_EPSILON = 1 -- 스터드 오차 허용
 
-                    local candidates = {}
+                    -- 후보 파트를 위치(클러스터) 기준으로 묶는다. 예: 한 곳에 100개,
+                    -- 다른 곳에 10개, 또 다른 곳에 1개가 몰려있어도 "장소" 자체는 3곳이므로
+                    -- 각 장소가 뽑힐 확률은 1:1:1이 된다 (파트 개수는 확률에 영향 없음).
+                    local clusters = {}
                     for _, child in ipairs(fragmentable:GetChildren()) do
                         if child:IsA("BasePart") then
                             -- 아직 실제 위치로 배치되지 않은(스폰 대기) 템플릿 파트는 제외
                             if (child.Position - PENDING_POS).Magnitude > PENDING_EPSILON then
-                                table.insert(candidates, child)
+                                local key = getClusterKey(child.Position)
+                                if not clusters[key] then
+                                    clusters[key] = {}
+                                end
+                                table.insert(clusters[key], child)
                             end
                         end
                     end
-                    local totalCount = #candidates
+
+                    local clusterKeys = {}
+                    for key in pairs(clusters) do
+                        table.insert(clusterKeys, key)
+                    end
+                    local totalCount = #clusterKeys
                     if totalCount == 0 then return end
 
-                    -- 후보 총 개수가 30개보다 적으면, 제외 개수도 "후보 수 - 1"로 줄여서
+                    -- 후보(장소) 총 개수가 30개보다 적으면, 제외 개수도 "장소 수 - 1"로 줄여서
                     -- pickPool이 절대 비지 않게(항상 최소 1곳은 선택 가능하게) 만든다.
                     local effectiveExcludeCount = math.max(0, math.min(RECENT_EXCLUDE_COUNT, totalCount - 1))
-                    while #recentParts > effectiveExcludeCount do
-                        table.remove(recentParts, 1)
+                    while #recentClusterKeys > effectiveExcludeCount do
+                        table.remove(recentClusterKeys, 1)
                     end
 
                     local excludeSet = {}
-                    for _, p in ipairs(recentParts) do
-                        excludeSet[p] = true
+                    for _, k in ipairs(recentClusterKeys) do
+                        excludeSet[k] = true
                     end
 
                     local pickPool = {}
-                    for _, part in ipairs(candidates) do
-                        if not excludeSet[part] then
-                            table.insert(pickPool, part)
+                    for _, key in ipairs(clusterKeys) do
+                        if not excludeSet[key] then
+                            table.insert(pickPool, key)
                         end
                     end
                     if #pickPool == 0 then
-                        pickPool = candidates
+                        pickPool = clusterKeys
                     end
 
-                    local targetPart = pickPool[math.random(1, #pickPool)]
-                    rememberPart(targetPart, effectiveExcludeCount)
+                    local chosenClusterKey = pickPool[math.random(1, #pickPool)]
+                    rememberCluster(chosenClusterKey, effectiveExcludeCount)
+
+                    -- 뽑힌 장소 안에서는 그 장소에 있는 파트 중 아무거나 하나 사용 (여기서부턴
+                    -- 개수가 목적지에 영향 없음 - 어차피 같은 위치이므로 어떤 파트를 골라도 무방)
+                    local clusterParts = clusters[chosenClusterKey]
+                    local targetPart = clusterParts[math.random(1, #clusterParts)]
 
                     local char = LocalPlayer.Character
                     local hrp = char and char:FindFirstChild("HumanoidRootPart")
