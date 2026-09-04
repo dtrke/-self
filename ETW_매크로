@@ -520,6 +520,141 @@ local function autoTimeRewardLoop()
 end
 
 -- ============================================================
+-- 재접속 시 UI 자동 숨김 + 이미지 표시 (P키로 다시 보이기)
+-- (붙여넣어주신 자작 스크립트의 TriggerUIHide 로직을 그대로 참고해서 이식함)
+-- ============================================================
+getgenv().TriggerUIHide = function(customImageId, onShowCallback)
+    local coreGui = game:GetService("CoreGui")
+
+    -- 이미 실행 중인 숨김 UI 및 이벤트 제거 (중복 방지)
+    if getgenv()._reconScreenGui then
+        pcall(function() getgenv()._reconScreenGui:Destroy() end)
+    end
+    if getgenv()._reconMoveConn then
+        getgenv()._reconMoveConn:Disconnect()
+    end
+    if getgenv()._reconInputConn then
+        getgenv()._reconInputConn:Disconnect()
+    end
+    if getgenv()._reconForceHideConn then
+        getgenv()._reconForceHideConn:Disconnect()
+    end
+
+    -- ETW 매크로 UI의 ScreenGui 이름 (Material.Load의 Title과 동일)
+    local scriptUIName = "ETW 매크로"
+    local isHidden = true
+    local scriptUI
+    local forceHideConn
+
+    local function hideUI(gui)
+        if gui:IsA("ScreenGui") and isHidden then
+            scriptUI = gui
+            gui.Enabled = false
+            if not forceHideConn then
+                forceHideConn = gui:GetPropertyChangedSignal("Enabled"):Connect(function()
+                    if isHidden and gui.Enabled then
+                        gui.Enabled = false
+                    end
+                end)
+                getgenv()._reconForceHideConn = forceHideConn
+            end
+        end
+    end
+
+    local function checkChild(child)
+        if child.Name == scriptUIName then
+            hideUI(child)
+        end
+    end
+
+    coreGui.ChildAdded:Connect(checkChild)
+    for _, child in ipairs(coreGui:GetChildren()) do checkChild(child) end
+
+    local hiddenUI = coreGui:FindFirstChild("HiddenUI")
+    if hiddenUI then
+        hiddenUI.ChildAdded:Connect(checkChild)
+        for _, child in ipairs(hiddenUI:GetChildren()) do checkChild(child) end
+    end
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "ETWReconnectionPromptGui"
+    screenGui.Parent = coreGui
+    getgenv()._reconScreenGui = screenGui
+
+    local imgLabel = Instance.new("ImageLabel")
+    imgLabel.Size = UDim2.new(0, 960, 0, 288)
+    imgLabel.Position = UDim2.new(0.5, -480, 1, -300)
+    imgLabel.BackgroundTransparency = 1
+
+    -- 최고 화질 로딩: 썸네일 우회 후 원본 데칼 텍스처 직접 추출
+    local imgId = customImageId or "rbxassetid://129920542078687"
+    task.spawn(function()
+        pcall(function()
+            local objs = game:GetObjects(imgId)
+            if objs and objs[1] and objs[1]:IsA("Decal") then
+                imgLabel.Image = objs[1].Texture
+            end
+        end)
+    end)
+    imgLabel.Image = imgId
+
+    imgLabel.ScaleType = Enum.ScaleType.Fit
+    imgLabel.ImageTransparency = 0.1
+    imgLabel.Parent = screenGui
+
+    -- 무한 기호(∞) 궤적을 그리며 둥둥 떠다니는 부드러운 모션 (Lissajous 곡선)
+    local RS = game:GetService("RunService")
+    local basePos = UDim2.new(0.5, -480, 1, -300)
+    local moveConn
+
+    moveConn = RS.RenderStepped:Connect(function()
+        local t = os.clock() * 1.5
+        local offsetX = math.sin(t) * 45
+        local offsetY = math.sin(t * 2) * 20
+        local rot = math.cos(t) * 2.5
+        local trans = 0.35 + math.sin(t * 0.8) * 0.25
+
+        imgLabel.Position = UDim2.new(basePos.X.Scale, basePos.X.Offset + offsetX, basePos.Y.Scale,
+            basePos.Y.Offset + offsetY)
+        imgLabel.Rotation = rot
+        imgLabel.ImageTransparency = trans
+    end)
+    getgenv()._reconMoveConn = moveConn
+
+    local uis = game:GetService("UserInputService")
+    local conn
+    conn = uis.InputBegan:Connect(function(input, gp)
+        if not gp and input.KeyCode == Enum.KeyCode.P then
+            if isHidden then
+                isHidden = false
+                if forceHideConn then forceHideConn:Disconnect() end
+                if scriptUI then scriptUI.Enabled = true end
+                if conn then conn:Disconnect() end
+
+                if onShowCallback then
+                    pcall(onShowCallback)
+                end
+
+                if moveConn then moveConn:Disconnect() end
+                local TS = TweenService
+                local fadeOut = TS:Create(imgLabel, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                    { ImageTransparency = 1 })
+                fadeOut:Play()
+                fadeOut.Completed:Connect(function()
+                    if screenGui then screenGui:Destroy() end
+                end)
+            end
+        end
+    end)
+    getgenv()._reconInputConn = conn
+end
+
+-- 재접속(텔레포트)으로 다시 실행된 경우, UI가 만들어지는 즉시 숨기고 이미지를 띄운다
+if getgenv and getgenv().IS_TELEPORT_LOAD_SNAPSHOT then
+    getgenv().TriggerUIHide()
+end
+
+-- ============================================================
 -- Material UI 구성
 -- ============================================================
 local ui = Material.Load({
