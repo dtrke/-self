@@ -5,8 +5,8 @@
 -- 텍스트가 표시되면서 스크립트가 실행되지 않고 즉시 중단된다.
 -- 예: FATAL_ERROR_CODE = "Cannot found Username"
 --     -> 화면/콘솔에 `Fatal error. Code : "Cannot found Username"` 이 표시되고 종료
-local SHOW_FATAL_ERROR = true
-local FATAL_ERROR_CODE = "Unknown Error"
+local SHOW_FATAL_ERROR = false
+local FATAL_ERROR_CODE = ""
 
 if SHOW_FATAL_ERROR then
     local message = string.format('Fatal error. Code : "%s"', FATAL_ERROR_CODE)
