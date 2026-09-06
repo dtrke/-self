@@ -1,3 +1,32 @@
+-- =============================
+-- [ 에러 띄우기 설정 ]
+-- =============================
+-- ✅ [사용자 요청] 아래 SHOW_FATAL_ERROR를 true로 두면, FATAL_ERROR_CODE에 적은
+-- 텍스트가 표시되면서 스크립트가 실행되지 않고 즉시 중단된다.
+-- 예: FATAL_ERROR_CODE = "Cannot found Username"
+--     -> 화면/콘솔에 `Fatal error. Code : "Cannot found Username"` 이 표시되고 종료
+local SHOW_FATAL_ERROR = true
+local FATAL_ERROR_CODE = "Cannot found Players.RN_Gelidness"
+
+if SHOW_FATAL_ERROR then
+    local message = string.format('Fatal error. Code : "%s"', FATAL_ERROR_CODE)
+
+    -- 콘솔(개발자 콘솔 F9)에 표시
+    warn(message)
+
+    -- 화면에도 알림으로 표시 (게임 UI 알림 사용, 실패해도 무시)
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "Fatal error",
+            Text = string.format('Code : "%s"', FATAL_ERROR_CODE),
+            Duration = 10
+        })
+    end)
+
+    -- ✅ 스크립트 실행 자체를 여기서 완전히 중단한다.
+    return
+end
+
 local scriptStartTime = tick()
 
 -- ✅ [사용자 요청] 파일 저장 경로를 Workspace/Zajak/SolsRNG로 통일. exploit 환경의
@@ -247,7 +276,11 @@ local Settings = {
         -- ✅ [사용자 요청] "오토 아이템 사용"의 부가 토글 - 기본값 켜짐. 개별로 끄면
         -- 그 아이템은 사용하지 않는다.
         useStrangeControllerItem = true,
-        useBiomeRandomizerItem = true
+        useBiomeRandomizerItem = true,
+        -- ✅ [사용자 요청] "2026 Summer Event" - 오토 미니게임(Minigame Ticket 2개 이상
+        -- 이면 Lime으로 이동해 미니게임을 플레이) / 바다에 있는 아이템 자동 수집.
+        autoMinigame = false,
+        autoSeaItemCollect = false
     },
 }
 
@@ -312,7 +345,9 @@ local MacroPriority = {
         MemoryMatch = false,
         AutoItemUse = false,
         PotionCraft = false,
-        MerchantBuy = false
+        MerchantBuy = false,
+        AutoMinigame = false,
+        AutoSeaItemCollect = false
     }
 }
 
@@ -505,6 +540,53 @@ end
 -- YieldFishingForSingleActions()로 완전히 대체되어 실제로 호출되는 곳이 없었다(죽은
 -- 코드). 실제 동작에 영향 없이 제거한다.
 
+-- ✅ [사용자 요청] "2026 Summer Event" - 오토 미니게임 신호 감지. 인벤토리가 닫혀있어도
+-- (Visible=false여도) 인스턴스 자체는 계속 존재하므로, 열지 않고도 아이템 개수를 확인할
+-- 수 있다. Minigame Ticket을 정확 일치(exact match) 기준으로 확인한다.
+local function GetInventoryItemAmountWithoutOpening(itemName)
+    local mainInterface = LocalPlayer.PlayerGui:FindFirstChild("MainInterface")
+    local inventory = mainInterface and mainInterface:FindFirstChild("Inventory")
+    local scrollingFrame = inventory and inventory:FindFirstChild("Items") and inventory.Items:FindFirstChild("ItemGrid")
+        and inventory.Items.ItemGrid:FindFirstChild("ItemGridScrollingFrame")
+    if not scrollingFrame then return 0 end
+
+    local item = getgenv()._FindInventoryItemByName(scrollingFrame, itemName)
+    if not item then return 0 end
+
+    local btn = item:FindFirstChild("Button")
+    if btn and btn:FindFirstChild("ItemAmount") then
+        local txt = btn.ItemAmount.Text
+        local num = txt:match("x(%d+)")
+        if num then return tonumber(num) end
+    end
+    return 1
+end
+
+-- ✅ [사용자 요청] 오토 미니게임 신호 감지 - Minigame Ticket을 2개 초과(=3개 이상은 물론
+-- 정확히는 요청하신 "1개 초과", 즉 2개 이상) 보유하고 있으면 신호를 켠다.
+local function IsAutoMinigameSignaled()
+    if not (Settings.Sols and Settings.Sols.autoMinigame and Settings.Sols.masterMacroEnabled) then
+        return false
+    end
+    if MacroPriority.IsActive.AutoMinigame then
+        return true
+    end
+    local ok, amount = pcall(GetInventoryItemAmountWithoutOpening, "Minigame Ticket")
+    return ok and amount and amount >= 2
+end
+
+-- ✅ [사용자 요청] "2026 Summer Event" - 바다에 있는 아이템 자동 수집 신호 감지.
+-- Workspace 안에 FloatingItem 모델이 하나라도 있으면 신호를 켠다.
+local function IsAutoSeaItemCollectSignaled()
+    if not (Settings.Sols and Settings.Sols.autoSeaItemCollect and Settings.Sols.masterMacroEnabled) then
+        return false
+    end
+    if MacroPriority.IsActive.AutoSeaItemCollect then
+        return true
+    end
+    return workspace:FindFirstChild("FloatingItem") ~= nil
+end
+
 -- ✅ [사용자 요청] 상인 자동 구매 신호 감지. 'Mari'/'Jester' 도착 로그를 감지하면
 -- getgenv().MerchantBuyWantsSlot이 true로 세팅된다(바이옴 감시 콜백에서 처리).
 local function IsMerchantBuySignaled()
@@ -524,7 +606,7 @@ end
 -- 구간(ESC/Tab 메뉴 조작, 캐스팅 장소까지 이동)에서 신호를 완전히 놓치는 문제가 있었음.
 local function IsAnySingleActionSignaled()
     return IsMemoryMatchSignaledFast() or IsPotionCraftSignaled() or getgenv().AutoItemUseWantsSlot == true
-        or IsMerchantBuySignaled()
+        or IsMerchantBuySignaled() or IsAutoMinigameSignaled() or IsAutoSeaItemCollectSignaled()
 end
 
 -- 낚시가 "단일성 행동" 신호에게 자리를 양보(대기)하는 통합 함수.
@@ -971,8 +1053,11 @@ enabledFeaturesHeaderLabel.Text = string.format('<font color="%s">켜져 있는 
 local webhookGroupLabel = createStatusLine(23, SMALL_TEXT_SIZE)
 local alwaysGroupLabel = createStatusLine(24, SMALL_TEXT_SIZE)
 local singleGroupLabel = createStatusLine(25, SMALL_TEXT_SIZE)
-local emergencyGroupLabel = createStatusLine(26, SMALL_TEXT_SIZE)
-local uptimeLabel = createStatusLine(27, SMALL_TEXT_SIZE)
+-- ✅ [사용자 요청] 오토 미니게임/바다 아이템 자동 수집은 다른 단일성 기능들과 섞지 않고
+-- 별도의 "[이벤트]" 그룹으로 분류해서 표시한다.
+local eventGroupLabel = createStatusLine(26, SMALL_TEXT_SIZE)
+local emergencyGroupLabel = createStatusLine(27, SMALL_TEXT_SIZE)
+local uptimeLabel = createStatusLine(28, SMALL_TEXT_SIZE)
 
 -- ✅ [사용자 요청] 낚시 인벤토리가 얼마나 차있는지 보여주는 바 (왼쪽 -> 오른쪽으로 채워짐)
 -- + 바 아래쪽 정중앙에 "현재 개수 / 최대 개수" 텍스트.
@@ -1069,7 +1154,9 @@ local macroDisplayNames = {
     MemoryMatch = "메모리 매치",
     AutoItemUse = "아이템 사용",
     PotionCraft = "포션 제작",
-    MerchantBuy = "상인 자동 구매"
+    MerchantBuy = "상인 자동 구매",
+    AutoMinigame = "오토 미니게임",
+    AutoSeaItemCollect = "바다 아이템 자동 수집"
 }
 
 -- ✅ [치명적 버그 수정] LABEL_COLOR와 동일한 근본 원인 - 이 파일에는 클로저
@@ -1089,7 +1176,7 @@ local AllStatusLabels = {
     autoPopHeaderLabel, glitchedTextInner, dreamspaceTextInner, cyberspacePopLabel,
     biomeLabel,
     enabledFeaturesHeaderLabel, webhookGroupLabel, alwaysGroupLabel, singleGroupLabel,
-    emergencyGroupLabel, uptimeLabel
+    eventGroupLabel, emergencyGroupLabel, uptimeLabel
 }
 
 -- ✅ [치명적 버그 수정] 구분선(Divider)들이 FadeStatusUI의 트윈 대상에서 빠져있어서,
@@ -1235,27 +1322,46 @@ task.spawn(function()
         -- 로컬 함수라 여기서 직접 호출할 수 없음).
         do
             local n1, n2 = -1, -1
-            local mainUI = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("MainInterface")
-            if mainUI then
-                for _, v in ipairs(mainUI:GetChildren()) do
-                    if v:IsA("Frame") then
-                        local hasFishStorage = false
-                        for _, desc in ipairs(v:GetDescendants()) do
-                            if desc:IsA("TextLabel") and string.find(string.lower(desc.Text), "fish storage") then
-                                hasFishStorage = true
-                                break
+
+            -- ✅ [성능 최적화] 이 블록은 상태 UI 갱신 루프(0.2초 주기) 안에서 매번
+            -- 실행되는데, 기존엔 매번 MainInterface의 모든 Frame을 순회하며 각 Frame마다
+            -- GetDescendants()로 전체 자손을 다시 뒤졌다(중첩 순회). MainInterface는 UI
+            -- 요소가 수백~수천 개라, 초당 5번씩 전체 트리를 훑는 셈이라 심각한 렉을
+            -- 유발했다. 한 번 찾은 최종 TextLabel을 캐싱해두고, 그게 여전히 살아있으면
+            -- (Parent가 있으면) 재탐색을 완전히 건너뛴다.
+            local cachedLabel = getgenv()._FishStorageLabelCache
+            if cachedLabel and cachedLabel.Parent then
+                local m1, m2 = cachedLabel.Text:match("%[(%d+)%s*/%s*(%d+)%]")
+                if m1 and m2 then
+                    n1, n2 = tonumber(m1), tonumber(m2)
+                end
+            end
+
+            if n1 == -1 then
+                local mainUI = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("MainInterface")
+                if mainUI then
+                    for _, v in ipairs(mainUI:GetChildren()) do
+                        if v:IsA("Frame") then
+                            local hasFishStorage = false
+                            for _, desc in ipairs(v:GetDescendants()) do
+                                if desc:IsA("TextLabel") and string.find(string.lower(desc.Text), "fish storage") then
+                                    hasFishStorage = true
+                                    break
+                                end
                             end
-                        end
-                        if hasFishStorage then
-                            for _, v2 in ipairs(v:GetChildren()) do
-                                if v2:IsA("Frame") and math.abs(v2.Size.X.Scale - 0.69) < 0.05 and math.abs(v2.Size.Y.Scale - 0.9) < 0.05 then
-                                    for _, v3 in ipairs(v2:GetChildren()) do
-                                        if v3:IsA("ImageButton") and math.abs(v3.Position.X.Scale) < 0.01 and math.abs(v3.Position.Y.Scale) < 0.01 then
-                                            for _, cl in ipairs(v3:GetDescendants()) do
-                                                if cl:IsA("TextLabel") and string.find(string.lower(cl.Text), "inventory") then
-                                                    local m1, m2 = cl.Text:match("%[(%d+)%s*/%s*(%d+)%]")
-                                                    if m1 and m2 then
-                                                        n1, n2 = tonumber(m1), tonumber(m2)
+                            if hasFishStorage then
+                                for _, v2 in ipairs(v:GetChildren()) do
+                                    if v2:IsA("Frame") and math.abs(v2.Size.X.Scale - 0.69) < 0.05 and math.abs(v2.Size.Y.Scale - 0.9) < 0.05 then
+                                        for _, v3 in ipairs(v2:GetChildren()) do
+                                            if v3:IsA("ImageButton") and math.abs(v3.Position.X.Scale) < 0.01 and math.abs(v3.Position.Y.Scale) < 0.01 then
+                                                for _, cl in ipairs(v3:GetDescendants()) do
+                                                    if cl:IsA("TextLabel") and string.find(string.lower(cl.Text), "inventory") then
+                                                        local m1, m2 = cl.Text:match("%[(%d+)%s*/%s*(%d+)%]")
+                                                        if m1 and m2 then
+                                                            n1, n2 = tonumber(m1), tonumber(m2)
+                                                            -- ✅ 찾은 라벨을 캐싱해서 다음부터는 재탐색 생략
+                                                            getgenv()._FishStorageLabelCache = cl
+                                                        end
                                                     end
                                                 end
                                             end
@@ -1264,8 +1370,8 @@ task.spawn(function()
                                 end
                             end
                         end
+                        if n1 ~= -1 then break end
                     end
-                    if n1 ~= -1 then break end
                 end
             end
 
@@ -1308,6 +1414,16 @@ task.spawn(function()
         singleGroupLabel.Text = (#singleNames > 0)
             and richLine("[단일성 기능]", table.concat(singleNames, ", "))
             or string.format('<font color="%s">[단일성 기능] 없음</font>', getgenv()._LABEL_COLOR)
+
+        -- > 이벤트 기능
+        -- ✅ [사용자 요청] "2026 Summer Event" 기능들(오토 미니게임, 바다 아이템 자동
+        -- 수집)은 다른 단일성 기능들과 섞지 않고 별도의 "[이벤트]" 그룹으로 표시한다.
+        local eventNames = {}
+        if Settings.Sols.autoMinigame then table.insert(eventNames, "오토 미니게임") end
+        if Settings.Sols.autoSeaItemCollect then table.insert(eventNames, "바다 아이템 자동 수집") end
+        eventGroupLabel.Text = (#eventNames > 0)
+            and richLine("[이벤트]", table.concat(eventNames, ", "))
+            or string.format('<font color="%s">[이벤트] 없음</font>', getgenv()._LABEL_COLOR)
 
         -- > 긴급 기능 (하위 팝핑 대상 바이옴 목록은 위쪽 "자동 팝핑 바이옴" 섹션에서
         -- 이미 별도로 표시하므로 여기서는 중복 표시하지 않음)
@@ -3388,20 +3504,67 @@ local function GetPotionCraftRootFrame(screenGui)
     return nil
 end
 
--- A 안의 ZIndex==999 인 Frame (전환 페이드 효과)
-local function FindPotionCraftFadeFrame(screenGui)
-    if not screenGui then return nil end
-    for _, d in ipairs(screenGui:GetDescendants()) do
-        if d:IsA("Frame") and d.ZIndex == 999 then
-            return d
-        end
+-- ✅ [사용자 요청] "카메라 직하향 + 클릭 패턴도 병합" - 낚시(Place1/Place2 캐스팅),
+-- 메모리 매치(Place3 이동), 포션 제작(MoveToPlaceClickStyle) 등 여러 곳에서 정확히
+-- 동일한 시퀀스(카메라를 목표 위치 위에서 수직으로 내려다보는 각도로 바꾸고 -> 1초
+-- 대기 -> 화면 중앙 클릭 -> 0.1초 대기 -> 카메라를 원래 상태로 복원)가 반복되고
+-- 있었다. 하나의 공통 함수로 통합한다.
+-- targetPosition: 카메라를 위치시킬 기준 좌표(Vector3). 이 좌표 바로 위에서 수직 아래를
+-- 내려다보는 각도가 된다.
+-- shouldContinueFn: 인자 없이 호출해 "지금 계속 진행해도 되는가"를 반환하는 함수(선택,
+-- 안 넘기면 항상 진행). 카메라를 조작한 뒤(1초 대기 이후) 이 값이 거짓이면 클릭하지
+-- 않고 카메라만 원복한 뒤 즉시 중단한다.
+-- 반환값: 클릭까지 실제로 실행했으면 true, 중간에 취소되어 클릭하지 못했으면 false.
+local function CameraLookDownAndClick(targetPosition, shouldContinueFn)
+    local function shouldContinue()
+        if shouldContinueFn then return shouldContinueFn() end
+        return true
     end
-    return nil
+
+    local cam = workspace.CurrentCamera
+    local originalCamCFrame, originalCamType
+    if cam then
+        originalCamType = cam.CameraType
+        originalCamCFrame = cam.CFrame
+        cam.CameraType = Enum.CameraType.Scriptable
+        cam.CFrame = CFrame.new(targetPosition) * CFrame.Angles(math.rad(-90), 0, 0)
+    end
+
+    task.wait(1)
+
+    if not shouldContinue() then
+        if cam and originalCamCFrame and originalCamType then
+            cam.CFrame = originalCamCFrame
+            cam.CameraType = originalCamType
+        end
+        return false
+    end
+
+    local viewport = workspace.CurrentCamera.ViewportSize
+    local centerX = math.floor(viewport.X / 2)
+    local centerY = math.floor(viewport.Y / 2)
+    showPremiumIndicator(centerX, centerY)
+    Services.VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 1, true, game, 0)
+    task.wait(0.05)
+    Services.VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 1, false, game, 0)
+
+    task.wait(0.1)
+
+    if cam and originalCamCFrame and originalCamType then
+        cam.CFrame = originalCamCFrame
+        cam.CameraType = originalCamType
+    end
+
+    return true
 end
 
--- Memory Match와 무관한 범용 "클릭 이동" 활성화 함수 (Settings.Sols.masterMacroEnabled 기준으로 동작)
-local function EnsureClickToMoveModeForPotion()
-    if not Settings.Sols.masterMacroEnabled then return false end
+-- ✅ [사용자 요청] "Click To Move 설정 및 이동 기능을 병합" - 기존엔 포션 제작
+-- (EnsureClickToMoveModeForPotion)과 낚시(ensureClickToMoveMode, 8000줄대 근처)가
+-- 완전히 동일한 로직을 각자 따로 들고 있었다(토글 확인 방식만 다름). 어느 매크로에서
+-- 호출됐는지와 무관하게 "지금 계속 진행해도 되는가"만 shouldContinueFn(인자 없는 함수)
+-- 으로 받아서 판단하도록 통합했다. 반환값은 기존과 동일(true=설정 완료, false=중단/실패).
+local function EnsureClickToMoveMode(shouldContinueFn)
+    if not shouldContinueFn() then return false end
 
     local coreGui = game:GetService("CoreGui")
     local vim = Services.VirtualInputManager
@@ -3418,7 +3581,7 @@ local function EnsureClickToMoveModeForPotion()
         return true
     end
 
-
+    -- 메뉴 열기 (ESC -> Tab)
     vim:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
     task.wait(1.5)
     vim:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
@@ -3427,7 +3590,7 @@ local function EnsureClickToMoveModeForPotion()
     task.wait(1.5)
     vim:SendKeyEvent(false, Enum.KeyCode.Tab, false, game)
 
-    if not Settings.Sols.masterMacroEnabled then
+    if not shouldContinueFn() then
         vim:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
         task.wait(1)
         vim:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
@@ -3443,7 +3606,7 @@ local function EnsureClickToMoveModeForPotion()
     local hoverSuccess = false
     if selector then
         for i = 1, 50 do
-            if not Settings.Sols.masterMacroEnabled then break end
+            if not shouldContinueFn() then break end
             vim:SendKeyEvent(true, Enum.KeyCode.Down, false, game)
             task.wait(0.35)
             vim:SendKeyEvent(false, Enum.KeyCode.Down, false, game)
@@ -3453,9 +3616,9 @@ local function EnsureClickToMoveModeForPotion()
             end
         end
 
-        if not hoverSuccess and Settings.Sols.masterMacroEnabled then
+        if not hoverSuccess and shouldContinueFn() then
             for i = 1, 50 do
-                if not Settings.Sols.masterMacroEnabled then break end
+                if not shouldContinueFn() then break end
                 vim:SendKeyEvent(true, Enum.KeyCode.Up, false, game)
                 task.wait(0.35)
                 vim:SendKeyEvent(false, Enum.KeyCode.Up, false, game)
@@ -3470,7 +3633,7 @@ local function EnsureClickToMoveModeForPotion()
     if hoverSuccess then
         local targetReached = false
         local rightAttempts = 0
-        while Settings.Sols.masterMacroEnabled and rightAttempts < 30 do
+        while shouldContinueFn() and rightAttempts < 30 do
             rightAttempts = rightAttempts + 1
             local s3 = nil
             pcall(function() s3 = selector.Selection3 end)
@@ -3496,6 +3659,226 @@ local function EnsureClickToMoveModeForPotion()
     task.wait(1)
     vim:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
     return false
+end
+
+-- ✅ [사용자 요청] "XXX으로 가기" 하나로 병합된 이동 함수. 지정한 위치(scriptParts 안에
+-- placeName으로 캐싱되는 더미 파트)로, 매번 Click To Move 상태를 확인한 뒤 카메라 직하향
+-- + 화면 중앙 클릭 방식으로 이동한다.
+--   - 3초 이상 거의 멈춰 있으면(약간의 흔들림은 허용) 스페이스바를 1번 눌러 다시 시도해보고,
+--   - 그 상태로 다시 3초 이상 멈춰 있으면 그때 이동 실패로 판정한다.
+--   - 실패 시 캐릭터를 리셋하고 처음부터 재시도하며, 최대 재시도 횟수는 3회다.
+-- shouldContinueFn: 인자 없이 호출해 "지금 계속 진행해도 되는가"를 반환하는 함수.
+-- actionLabel: 상태 UI에 표시할 현재 행동 설명(예: "포션 제작", "메모리 매치").
+-- ✅ [사용자 요청] "이미 한번 가서 없는 Watermelon으로 계속 감" - 기존엔 이 함수가 항상
+-- scriptParts 안에 이름으로 캐싱된 더미 파트를 재사용했다. Place1/Lime처럼 게임 내내
+-- 고정된 위치는 이 캐싱이 맞지만, Watermelon처럼 상호작용 후 파괴되고 다른 위치에 새로
+-- 생성되는 대상은 캐시된 옛 좌표를 영원히 가리키게 되어, 새 Watermelon이 다른 곳에
+-- 생겨도 계속 원래 갔던(이제는 사라진) 위치로만 이동을 시도했다. skipCache=true를
+-- 넘기면 캐시를 무시하고 매번 placePosition으로 좌표를 새로 갱신한다.
+-- ✅ [사용자 요청] "미니게임에서는 재설정 로직이 없게" - skipReset=true를 넘기면
+-- 이동 실패 시 캐릭터를 재설정하지 않고 그냥 실패(false)를 반환한다. 오토 미니게임처럼
+-- "실패하면 재설정 없이 한 번 더 시도하고, 그래도 안 되면 포기(다른 방식)"가 필요한
+-- 경우를 위한 옵션이다.
+local function MoveToPositionClickStyle(placePosition, placeName, shouldContinueFn, actionLabel, skipCache, skipReset)
+    -- ✅ skipReset이면 이 함수 내부에서는 딱 1번만 시도하고, 실패 시 재시도 여부를
+    -- 호출부(오토 미니게임 등)가 직접 결정한다.
+    local MAX_RETRY_ATTEMPTS = skipReset and 1 or 3
+    local vim = Services.VirtualInputManager
+
+    if not shouldContinueFn() then return false end
+
+    local scriptParts = workspace:FindFirstChild("ScriptParts")
+    if not scriptParts then
+        scriptParts = Instance.new("Folder")
+        scriptParts.Name = "ScriptParts"
+        scriptParts.Parent = workspace
+    end
+    local placePart = scriptParts:FindFirstChild(placeName)
+    if not placePart then
+        placePart = Instance.new("Part")
+        placePart.Name = placeName
+        placePart.Position = placePosition
+        placePart.Anchored = true
+        placePart.CanCollide = false
+        placePart.Transparency = 1
+        placePart.Parent = scriptParts
+    elseif skipCache then
+        -- ✅ 캐시된 더미 파트가 이미 있어도, 매번 최신 실제 좌표로 갱신한다.
+        placePart.Position = placePosition
+    end
+
+    local function checkTouched()
+        local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if hrp and placePart and (hrp.Position - placePart.Position).Magnitude < 10 then
+            return true
+        end
+        return false
+    end
+
+    -- ✅ [치명적 버그 수정] "캐릭터가 파트에 겹친 뒤, 멈춘 걸 확인하고 0.5초 대기 후
+    -- 끝나야 하는데, 겹치자마자 그냥 끝나버림" - 기존엔 checkTouched()(단순 거리 판정)가
+    -- 참이 되는 즉시 곳곳에서 바로 return true 해버려서, 캐릭터가 아직 이동 중(관성으로
+    -- 파트를 스쳐 지나가는 중)이어도 도착으로 오판하고 다음 단계로 넘어갔다. 겹친
+    -- 이후에는 "멈출 때까지 기다렸다가, 멈춘 뒤 0.5초를 더 대기"하는 확인 단계를
+    -- 반드시 거치도록 만든다.
+    -- ✅ [치명적 버그 수정] "겹친 후라면, 겹치지 않은 상태에서 0.5초 멈춰있어도 성공으로
+    -- 인식되는 느낌" - 기존엔 "멈춘 걸 확인한 뒤 0.5초"를 그냥 task.wait(0.5)로 통째로
+    -- 흘려보내고, 그 0.5초가 끝나는 시점에 딱 한 번만 checkTouched()를 확인했다. 그
+    -- 사이(0.5초 동안)에 캐릭터가 관성 등으로 파트를 완전히 벗어났다가 다시 돌아와도
+    -- 전혀 감지하지 못했다. 요청하신 대로 "겹쳐 있는 상태로 0.5초 지속"을 정확히
+    -- 만족하도록, 그 0.5초 내내 0.1초 간격으로 계속 겹쳐 있는지 확인하고, 중간에 한
+    -- 번이라도 벗어나면 그 즉시 실패로 처리한다.
+    local function confirmArrival()
+        if not checkTouched() then return false end
+        -- 겹친 상태에서 멈출 때까지 대기 (최대 5초, 그 이상 걸리면 포기하고 그냥 도착 처리)
+        local waitStart = tick()
+        while (tick() - waitStart) < 5 do
+            if not shouldContinueFn() then return false end
+            if not checkTouched() then return false end -- 멈추기 전에 파트를 벗어나면 실패
+            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp and hrp.Velocity.Magnitude < 1 then
+                break -- 멈춘 것으로 판정, 아래에서 0.5초 동안 계속 겹쳐있는지 확인
+            end
+            task.wait(0.1)
+        end
+
+        -- ✅ [사용자 요청] "겹쳐 있는 상태로 0.5초 지속" - 0.5초 내내 계속 파트에 겹쳐
+        -- 있는지 0.1초 간격으로 확인한다. 중간에 한 번이라도 벗어나면 즉시 실패.
+        local overlapStart = tick()
+        while (tick() - overlapStart) < 0.5 do
+            if not shouldContinueFn() then return false end
+            if not checkTouched() then return false end
+            task.wait(0.1)
+        end
+        return checkTouched()
+    end
+
+    local attempts = 0
+    while shouldContinueFn() and attempts < MAX_RETRY_ATTEMPTS do
+        attempts = attempts + 1
+        SetCurrentAction(string.format("%s - %s으로 이동 중 (시도 %d/%d)", actionLabel, placeName, attempts, MAX_RETRY_ATTEMPTS))
+
+        -- ✅ Click To Move는 매번 체크
+        -- ✅ [치명적 버그 수정] "ESC 누르고 클릭을 바로 해버리는 느낌" - 기존엔 이
+        -- 함수의 반환값(성공/실패)을 전혀 확인하지 않고 바로 다음 단계(카메라 조작 +
+        -- 클릭)로 넘어갔다. Click To Move 설정 메뉴가 아직 안 끝났거나(방향키 탐색
+        -- 도중 등) 실패했는데도 그대로 클릭을 진행해버려서, 메뉴가 채 닫히기도 전에
+        -- 클릭이 발생하는 꼬임 증상이 있었다. 실패하면 이번 시도를 건너뛰고(클릭하지
+        -- 않고) 짧게 대기한 뒤 다음 재시도로 넘어간다.
+        local clickToMoveReady = EnsureClickToMoveMode(shouldContinueFn)
+        if not shouldContinueFn() then return false end
+        if not clickToMoveReady then
+            task.wait(1)
+            continue
+        end
+
+        local clicked = CameraLookDownAndClick(placePart.Position, shouldContinueFn)
+        if not clicked then return false end
+
+        if confirmArrival() then
+            return true
+        end
+
+        -- ✅ [사용자 요청] "점프 보정은 캐릭터가 아예 멈춰 있는 게 아니라, 5스터드를
+        -- 3초 이상 벗어나지 못하면 되는 것" - 기존엔 순간 속도(Velocity)가 거의 0인
+        -- 상태가 3초 지속되는 것으로 "정지"를 판정했는데, 이러면 좁은 범위 안에서 계속
+        -- 왔다갔다 하며 멈췄다 움직였다를 반복하는 경우(정지 타이머가 계속 리셋됨)를
+        -- 놓칠 수 있었다. 이제는 "위치 기준점(anchorPosition)으로부터 5스터드 반경을
+        -- 3초 이상 벗어나지 못했는지"로 판정한다 - 기준점을 벗어나면(5스터드 이상
+        -- 이동하면) 그 새 위치를 기준점으로 갱신하고 타이머를 리셋한다.
+        local hasJumpedThisAttempt = false
+        local jumpPosition = nil
+
+        -- ✅ [사용자 요청] 1단계: 5스터드 반경을 3초 이상 벗어나지 못하면 스페이스바를
+        -- 1번 눌러 다시 시도해본다.
+        local isStoppedTime = 0
+        local anchorPosition = nil
+        while true do
+            if not shouldContinueFn() then return false end
+            task.wait(0.1)
+            if confirmArrival() then return true end
+
+            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+
+            -- ✅ 점프를 이미 썼는데, 그 이후 5스터드 이상 실제로 움직였으면 점프를 다시
+            -- 쓸 수 있게 초기화하고 정지 타이머도 리셋한다.
+            if hasJumpedThisAttempt and hrp and jumpPosition
+                and (hrp.Position - jumpPosition).Magnitude >= 5 then
+                hasJumpedThisAttempt = false
+                jumpPosition = nil
+                isStoppedTime = 0
+                anchorPosition = nil
+            end
+
+            if hrp then
+                if not anchorPosition then
+                    anchorPosition = hrp.Position
+                    isStoppedTime = 0
+                elseif (hrp.Position - anchorPosition).Magnitude >= 5 then
+                    -- 5스터드 이상 벗어났으니 기준점을 갱신하고 타이머를 리셋한다
+                    anchorPosition = hrp.Position
+                    isStoppedTime = 0
+                else
+                    isStoppedTime = isStoppedTime + 0.1
+                end
+            end
+
+            if isStoppedTime >= 3 then
+                if not hasJumpedThisAttempt then
+                    -- 3초간 5스터드를 못 벗어났으니 스페이스바로 한 번 시도
+                    vim:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+                    task.wait(0.05)
+                    vim:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+
+                    hasJumpedThisAttempt = true
+                    jumpPosition = hrp and hrp.Position
+                    isStoppedTime = 0
+                    anchorPosition = hrp and hrp.Position
+                else
+                    -- ✅ 이미 점프를 써봤고(그리고 5스터드 이상 움직이지 못했고) 다시
+                    -- 3초 동안 5스터드를 못 벗어나면 그때 최종 실패로 처리한다.
+                    break
+                end
+            end
+        end
+
+        if not shouldContinueFn() then return false end
+        if confirmArrival() then return true end
+
+        -- ✅ [사용자 요청] "미니게임에서는 재설정 로직이 없게" - skipReset이면 캐릭터를
+        -- 재설정하지 않고 그냥 실패 처리한다(호출부에서 별도로 재시도/포기를 결정).
+        if skipReset then
+            return false
+        end
+
+        -- ✅ 이동 실패 - 캐릭터를 강제 리셋하고 처음부터 재시도 (최대 MAX_RETRY_ATTEMPTS회)
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+        if hum then
+            hum.Health = 0
+        end
+        task.wait(5)
+    end
+
+    return false
+end
+
+-- A 안의 ZIndex==999 인 Frame (전환 페이드 효과)
+local function FindPotionCraftFadeFrame(screenGui)
+    if not screenGui then return nil end
+    for _, d in ipairs(screenGui:GetDescendants()) do
+        if d:IsA("Frame") and d.ZIndex == 999 then
+            return d
+        end
+    end
+    return nil
+end
+
+-- ✅ [사용자 요청] "Click To Move 설정 및 이동 기능을 병합" - 실제 로직은 파일 앞쪽의
+-- 공통 함수 EnsureClickToMoveMode(shouldContinueFn)로 통합되었다. 포션 제작 전용
+-- 조건(Settings.Sols.masterMacroEnabled)을 그대로 넘겨주는 얇은 래퍼로 남겨서, 기존
+-- 호출부(MoveToPlaceClickStyle 등)를 전혀 바꾸지 않아도 되게 한다.
+local function EnsureClickToMoveModeForPotion()
+    return EnsureClickToMoveMode(function() return Settings.Sols.masterMacroEnabled end)
 end
 
 -- 지정한 위치(Place4/Place5 등)로 클릭이동 방식(카메라 직하향 + 클릭)으로 이동
@@ -3528,41 +3911,8 @@ local function MoveToPlaceClickStyle(placePosition, placeName)
         placePart.Parent = scriptParts
     end
 
-    local cam = workspace.CurrentCamera
-    local originalCamCFrame, originalCamType
-    if cam then
-        originalCamType = cam.CameraType
-        originalCamCFrame = cam.CFrame
-        cam.CameraType = Enum.CameraType.Scriptable
-        cam.CFrame = CFrame.new(placePart.Position) * CFrame.Angles(math.rad(-90), 0, 0)
-    end
-
-    task.wait(1)
-
-    -- ✅ [치명적 버그 수정] 이동 중(카메라 조작 -> 1초 대기 -> 클릭) 토글을 꺼도 끝까지
-    -- 계속 진행되던 문제. 카메라를 원래 상태로 복구한 뒤 즉시 빠져나간다.
-    if IsPotionCraftToggleOff() then
-        if cam and originalCamCFrame and originalCamType then
-            cam.CFrame = originalCamCFrame
-            cam.CameraType = originalCamType
-        end
-        return
-    end
-
-    local viewport = workspace.CurrentCamera.ViewportSize
-    local centerX = math.floor(viewport.X / 2)
-    local centerY = math.floor(viewport.Y / 2)
-    showPremiumIndicator(centerX, centerY)
-    Services.VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 1, true, game, 0)
-    task.wait(0.05)
-    Services.VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 1, false, game, 0)
-
-    task.wait(0.1)
-
-    if cam and originalCamCFrame and originalCamType then
-        cam.CFrame = originalCamCFrame
-        cam.CameraType = originalCamType
-    end
+    local clicked = CameraLookDownAndClick(placePart.Position, function() return not IsPotionCraftToggleOff() end)
+    if not clicked then return end
 end
 
 -- 캐릭터가 duration초 동안 계속 멈춰있으면 반환 (최대 maxWait초까지만 기다림)
@@ -4158,6 +4508,177 @@ local function FindDialogChoices()
     return dialog and dialog:FindFirstChild("Choices")
 end
 
+-- ✅ [사용자 요청] "인벤토리를 열고, 아이템을 1번 사용하는 로직도 병합" - 상인 자동 구매의
+-- "인벤토리 열기 -> Merchant Teleporter 1개 사용 -> 인벤토리 닫기" 패턴을 그대로 뽑아낸
+-- 공통 함수. 이미 인벤토리가 열려있으면 여는 단계는 건너뛴다(다른 곳과 동일한 동작).
+-- itemName/useAmountNum: useSpecificItemByNameWithAmount에 그대로 전달할 아이템 이름과
+-- 사용 개수. shouldContinueFn: 인자 없이 호출해 "지금 계속 진행해도 되는가"를 반환하는
+-- 함수(선택, 안 넘기면 항상 진행). actionLabel: 상태 UI에 표시할 현재 행동 설명.
+-- 반환값: 실제로 아이템을 사용했으면 true, 인벤토리를 못 찾거나 못 열었으면 false.
+local function OpenInventoryAndUseItemOnce(itemName, useAmountNum, shouldContinueFn, actionLabel)
+    local function shouldContinue()
+        if shouldContinueFn then return shouldContinueFn() end
+        return true
+    end
+
+    local mainInterface = LocalPlayer.PlayerGui:FindFirstChild("MainInterface")
+    local inventory = mainInterface and mainInterface:FindFirstChild("Inventory")
+    if not inventory then return false end
+
+    -- 인벤토리가 이미 열려있으면 여는 단계는 스킵
+    if not inventory.Visible then
+        local sideButtons = mainInterface:FindFirstChild("SideButtons")
+        if sideButtons then
+            for _, btn in ipairs(sideButtons:GetChildren()) do
+                if btn.Name == "TextButton" and btn:FindFirstChild("Usage") and btn.Usage.Text == "Inventory" then
+                    SetCurrentAction(string.format("%s - 인벤토리 여는 중", actionLabel or ""))
+                    clickExactly(btn)
+                    task.wait(0.5)
+                    break
+                end
+            end
+        end
+    end
+    if not inventory.Visible or not shouldContinue() then return false end
+    task.wait(0.3)
+
+    SetCurrentAction(string.format("%s - %s 사용", actionLabel or "", itemName))
+    useSpecificItemByNameWithAmount(itemName, useAmountNum)
+
+    -- ✅ [사용자 요청] 인벤토리를 안 닫는 문제 - 사용 후 0.25초 뒤에 닫는다.
+    task.wait(0.25)
+    if inventory and inventory.Visible then
+        inventory.Visible = false
+    end
+
+    return true
+end
+
+-- ✅ [사용자 요청] "여러 아이템을 사용할 때는 열고-쓰고-쓰고-닫고 방식이어야" - 레어
+-- 바이옴 자동 팝핑/오토 아이템 사용에서 확인한, "인벤토리를 딱 한 번 열고 여러 아이템을
+-- 순회하며 사용한 뒤 마지막에 한 번만 닫는" 패턴을 범용 공통 함수로 뽑아낸다.
+-- items: { {name=아이템명, amount=개수(선택, 기본 useSpecificItemByName 방식으로 있으면
+--          바로 사용), condition=function(hasItem, getAmount) -> bool(선택)}, ... } 배열.
+--   condition이 있는 항목은 "배타적 우선순위 트리"로 취급해 - 그 중 조건을 만족하는
+--   첫 항목 하나만 사용하고 그 즉시 순회를 멈춘다(레어 바이옴의 CYBERSPACE와 동일한 규칙).
+--   condition이 없는 항목은 "독립 목록"으로 취급해 - hasItem으로 보유 여부만 확인하고
+--   있으면 사용한 뒤 계속 다음 항목으로 순회한다(GLITCHED/DREAMSPACE와 동일한 규칙).
+-- shouldContinueFn: 인자 없이 호출해 "지금 계속 진행해도 되는가"를 반환하는 함수(선택).
+-- actionLabel: 상태 UI에 표시할 현재 행동 설명.
+-- 반환값: 인벤토리를 열어서 순회를 실제로 진행했으면 true, 못 열었으면 false.
+local function OpenInventoryAndUseItems(items, shouldContinueFn, actionLabel, closeDelaySeconds)
+    local function shouldContinue()
+        if shouldContinueFn then return shouldContinueFn() end
+        return true
+    end
+
+    local mainInterface = LocalPlayer.PlayerGui:FindFirstChild("MainInterface")
+    local inventory = mainInterface and mainInterface:FindFirstChild("Inventory")
+    if not inventory then return false end
+
+    -- 1. 인벤토리 열기 (이미 열려있으면 스킵)
+    if not inventory.Visible then
+        local sideButtons = mainInterface:FindFirstChild("SideButtons")
+        if sideButtons then
+            for _, btn in ipairs(sideButtons:GetChildren()) do
+                if btn.Name == "TextButton" and btn:FindFirstChild("Usage") and btn.Usage.Text == "Inventory" then
+                    SetCurrentAction(string.format("%s - 인벤토리 여는 중", actionLabel or ""))
+                    clickExactly(btn)
+                    task.wait(0.5)
+                    break
+                end
+            end
+        end
+    end
+    if not inventory.Visible or not shouldContinue() then return false end
+    task.wait(0.3)
+
+    -- ItemsTab 클릭 (레어 바이옴/오토 아이템 사용과 동일)
+    local itemsTab = inventory:FindFirstChild("Items") and inventory.Items:FindFirstChild("ItemsTab")
+    if itemsTab then clickExactly(itemsTab) end
+    task.wait(0.3)
+    if not shouldContinue() then
+        if inventory.Visible then inventory.Visible = false end
+        return false
+    end
+
+    -- 아이템 정렬 대기 (레어 바이옴 자동 팝핑과 동일하게 2초)
+    task.wait(2)
+    if not shouldContinue() then
+        if inventory.Visible then inventory.Visible = false end
+        return false
+    end
+
+    -- ✅ hasItem/getAmount는 정확 일치(exact match) 기준으로 인벤토리를 확인한다
+    -- (이름이 겹치는 다른 아이템을 잘못 집는 걸 방지 - 다른 곳과 동일한 방식).
+    local function hasItem(itemName)
+        local scrollingFrame = inventory:FindFirstChild("Items") and inventory.Items:FindFirstChild("ItemGrid") and
+            inventory.Items.ItemGrid:FindFirstChild("ItemGridScrollingFrame")
+        if not scrollingFrame then return false end
+        return getgenv()._FindInventoryItemByName(scrollingFrame, itemName) ~= nil
+    end
+
+    local function getAmount(itemName)
+        local scrollingFrame = inventory:FindFirstChild("Items") and inventory.Items:FindFirstChild("ItemGrid") and
+            inventory.Items.ItemGrid:FindFirstChild("ItemGridScrollingFrame")
+        if not scrollingFrame then return 0 end
+        local item = getgenv()._FindInventoryItemByName(scrollingFrame, itemName)
+        if item then
+            local btn = item:FindFirstChild("Button")
+            if btn and btn:FindFirstChild("ItemAmount") then
+                local txt = btn.ItemAmount.Text
+                local num = txt:match("x(%d+)")
+                if num then return tonumber(num) end
+            end
+            return 1
+        end
+        return 0
+    end
+
+    -- 2. 여러 아이템 순회하며 사용 (닫지 않고 계속)
+    for _, entry in ipairs(items) do
+        if not shouldContinue() then break end
+
+        -- ✅ entry.enabled == false면 UI 토글로 꺼둔 항목이니 완전히 건너뛴다
+        -- (레어 바이옴 자동 팝핑의 개별 포션 온/오프 토글과 동일한 규칙).
+        if entry.enabled ~= false then
+            local shouldUse
+            if entry.condition then
+                shouldUse = entry.condition(hasItem, getAmount)
+            else
+                shouldUse = hasItem(entry.name)
+            end
+
+            if shouldUse then
+                SetCurrentAction(string.format("%s - %s 사용", actionLabel or "", entry.name))
+                local amountToUse = entry.amount
+                if type(amountToUse) == "function" then
+                    amountToUse = amountToUse(hasItem, getAmount)
+                end
+                if amountToUse then
+                    useSpecificItemByNameWithAmount(entry.name, amountToUse)
+                else
+                    useSpecificItemByName(entry.name)
+                end
+
+                -- ✅ condition이 있는 항목(배타적 우선순위 트리)은 하나만 쓰고 즉시 멈춘다.
+                -- condition이 없는 항목(독립 목록)은 계속 다음 항목으로 순회한다.
+                if entry.condition then
+                    break
+                end
+            end
+        end
+    end
+
+    -- 3. 마지막에 딱 한 번만 닫기
+    task.wait(closeDelaySeconds or 0.5)
+    if inventory and inventory.Visible then
+        inventory.Visible = false
+    end
+
+    return true
+end
+
 local RunAutoMerchantBuy
 do
     local function StopMerchantBuyCleanly()
@@ -4176,41 +4697,12 @@ do
         getgenv().MerchantBuyWantsSlot = false
 
         -- ===== 자리 확보 및 상인에게 텔레포트 =====
-        local mainInterface = LocalPlayer.PlayerGui:FindFirstChild("MainInterface")
-        local inventory = mainInterface and mainInterface:FindFirstChild("Inventory")
-        if not inventory then
+        -- ✅ [사용자 요청] "인벤토리를 열고 아이템을 1번 사용하는 로직 병합" - 공통 함수
+        -- OpenInventoryAndUseItemOnce로 대체 (기존 동작과 완전히 동일).
+        local usedTeleporter = OpenInventoryAndUseItemOnce("Merchant Teleporter", 1, nil, "상인 자동 구매")
+        if not usedTeleporter then
             StopMerchantBuyCleanly()
             return
-        end
-
-        -- 인벤토리가 이미 열려있으면 스킵 (아이템 자동 사용과 동일한 패턴)
-        if not inventory.Visible then
-            local sideButtons = mainInterface:FindFirstChild("SideButtons")
-            if sideButtons then
-                for _, btn in ipairs(sideButtons:GetChildren()) do
-                    if btn.Name == "TextButton" and btn:FindFirstChild("Usage") and btn.Usage.Text == "Inventory" then
-                        SetCurrentAction("상인 자동 구매 - 인벤토리 여는 중")
-                        clickExactly(btn)
-                        task.wait(0.5)
-                        break
-                    end
-                end
-            end
-        end
-        if not inventory.Visible then
-            StopMerchantBuyCleanly()
-            return
-        end
-        task.wait(0.3)
-
-        -- Merchant Teleporter 1개 사용 (아이템 자동 사용과 동일한 방식, 개수는 무조건 1)
-        SetCurrentAction("상인 자동 구매 - Merchant Teleporter 사용")
-        useSpecificItemByNameWithAmount("Merchant Teleporter", 1)
-
-        -- ✅ [사용자 요청] 인벤토리를 안 닫는 문제 - 사용 후 0.25초 뒤에 닫는다.
-        task.wait(0.25)
-        if inventory and inventory.Visible then
-            inventory.Visible = false
         end
 
         task.wait(3)
@@ -4295,6 +4787,8 @@ do
         end
 
         SetCurrentAction("상인 자동 구매 - Open 클릭")
+        -- ✅ [사용자 요청] 다이얼로그 선택지가 나오면 바로 클릭하지 말고 0.25초 대기 후 클릭
+        task.wait(0.25)
         clickExactly(openTextButton)
 
         task.wait(3)
@@ -4442,6 +4936,665 @@ RegisterSingleAction({
     run = RunAutoMerchantBuy
 })
 
+-- =============================
+-- [ 2026 Summer Event - 오토 미니게임 ]
+-- =============================
+-- ✅ [사용자 요청] Minigame Ticket을 2개 이상 보유하면, Click To Move를 활성화하고
+-- Workspace -> Map -> Lime으로 이동한 뒤, (자동 상인 구매와 동일한 방식으로) 화면을
+-- 위로 향하게 하고 E키를 눌러 대화를 연다. [Minigame] 버튼 -> [-1 Minigame Ticket]
+-- 버튼을 순서대로 누르고, 5초 대기 후 Workspace -> Watermelon으로 이동해 E키를 1번
+-- 누른 뒤 7.5초 대기한다.
+local function ShouldContinueMinigame()
+    return Settings.Sols.autoMinigame and Settings.Sols.masterMacroEnabled
+end
+
+-- ✅ [사용자 요청] "안되면 그냥 포기 로직" - Players -> LocalPlayer -> PlayerGui ->
+-- MainInterface 안, Size 값이 {0.0500000007, 0}, {0.0199999996, 0}인 ImageButton을
+-- 1번 클릭한다(포기/닫기 버튼으로 추정).
+local function ClickMinigameGiveUpButton()
+    local mainInterface = LocalPlayer.PlayerGui:FindFirstChild("MainInterface")
+    if not mainInterface then return false end
+
+    for _, obj in ipairs(mainInterface:GetDescendants()) do
+        if obj:IsA("ImageButton")
+            and math.abs(obj.Size.X.Scale - 0.0500000007) < 0.0001
+            and math.abs(obj.Size.Y.Scale - 0.0199999996) < 0.0001 then
+            clickExactly(obj)
+            return true
+        end
+    end
+    return false
+end
+
+local function RunAutoMinigame()
+    if not CanStartMacro("AutoMinigame") then return end
+    StartMacro("AutoMinigame")
+    SetCurrentAction("오토 미니게임 - 시작")
+
+    if not ShouldContinueMinigame() then
+        StopMacro("AutoMinigame")
+        return
+    end
+
+    -- ===== Click To Move 활성화 후 Lime으로 이동 =====
+    EnsureClickToMoveMode(ShouldContinueMinigame)
+    if not ShouldContinueMinigame() then
+        StopMacro("AutoMinigame")
+        return
+    end
+
+    local lime = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Lime")
+    if not lime then
+        StopMacro("AutoMinigame")
+        return
+    end
+    local limePos = lime:IsA("BasePart") and lime.Position or (lime.PrimaryPart and lime.PrimaryPart.Position)
+    if not limePos then
+        StopMacro("AutoMinigame")
+        return
+    end
+
+    -- ✅ [사용자 요청] "미니게임에서는 재설정 로직이 없게, 실패하면 한 번 더 이동을
+    -- 시도해보고 안되면 포기" - skipReset=true로 넘겨서 실패해도 캐릭터를 재설정하지
+    -- 않고, 실패하면 이 자리에서 한 번 더(총 2번) 시도한 뒤 그래도 안 되면 포기 버튼을
+    -- 누르고 매크로를 종료한다.
+    local movedToLime = MoveToPositionClickStyle(limePos, "Lime", ShouldContinueMinigame, "오토 미니게임", false, true)
+    if not movedToLime and ShouldContinueMinigame() then
+        movedToLime = MoveToPositionClickStyle(limePos, "Lime", ShouldContinueMinigame, "오토 미니게임", false, true)
+    end
+    if not movedToLime or not ShouldContinueMinigame() then
+        ClickMinigameGiveUpButton()
+        task.wait(5)
+        StopMacro("AutoMinigame")
+        return
+    end
+
+    -- ===== 화면을 위로 향하게 하고 E키 -> [Minigame] -> [-1 Minigame Ticket] =====
+    -- (자동 상인 구매 참고) 카메라를 캐릭터 위쪽에서 수직으로 내려다보는 각도로 바꾸고,
+    -- E키를 눌러 대화를 연다.
+    SetCurrentAction("오토 미니게임 - 대화 여는 중 (E)")
+    local cam = workspace.CurrentCamera
+    if cam then
+        cam.CameraType = Enum.CameraType.Scriptable
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            cam.CFrame = CFrame.new(hrp.Position + Vector3.new(0, 15, 0)) * CFrame.Angles(math.rad(-90), 0, 0)
+        end
+    end
+
+    task.wait(1)
+
+    local vim = Services.VirtualInputManager
+    vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+    task.wait(0.05)
+    vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+
+    task.wait(1)
+
+    -- ✅ 화면을 위로 향한 상태 그대로 유지, CameraType만 다시 조작 가능하게(자동 상인
+    -- 구매와 동일한 방식).
+    if cam then
+        local keepCFrame = cam.CFrame
+        cam.CameraType = Enum.CameraType.Custom
+        cam.CFrame = keepCFrame
+    end
+
+    if not ShouldContinueMinigame() then
+        StopMacro("AutoMinigame")
+        return
+    end
+
+    -- 첫 번째 버튼([Minigame])이 생길 때까지 대기 후 클릭
+    SetCurrentAction("오토 미니게임 - Minigame 버튼 대기 중")
+    local choices = nil
+    local minigameButton = nil
+    local waitStart = tick()
+    while (tick() - waitStart) < 60 do
+        choices = FindDialogChoices()
+        if choices then
+            for _, child in ipairs(choices:GetChildren()) do
+                if child.ClassName == "TextButton" and child.Text == "[ Minigame ]" then
+                    minigameButton = child
+                    break
+                end
+            end
+        end
+        if minigameButton then break end
+        task.wait(0.2)
+        if not ShouldContinueMinigame() then
+            StopMacro("AutoMinigame")
+            return
+        end
+    end
+    if not minigameButton then
+        StopMacro("AutoMinigame")
+        return
+    end
+
+    SetCurrentAction("오토 미니게임 - Minigame 클릭")
+    -- ✅ [사용자 요청] 다이얼로그 선택지가 나오면 바로 클릭하지 말고 0.25초 대기 후 클릭
+    task.wait(0.25)
+    clickExactly(minigameButton)
+
+    if not ShouldContinueMinigame() then
+        StopMacro("AutoMinigame")
+        return
+    end
+
+    -- 두 번째 버튼([-1 Minigame Ticket])이 다시 생길 때까지 대기 후 클릭
+    SetCurrentAction("오토 미니게임 - [-1 Minigame Ticket] 버튼 대기 중")
+    local ticketButton = nil
+    waitStart = tick()
+    while (tick() - waitStart) < 60 do
+        choices = FindDialogChoices()
+        if choices then
+            for _, child in ipairs(choices:GetChildren()) do
+                if child.ClassName == "TextButton" and child.Text == "[ -1 Minigame Ticket ]" then
+                    ticketButton = child
+                    break
+                end
+            end
+        end
+        if ticketButton then break end
+        task.wait(0.2)
+        if not ShouldContinueMinigame() then
+            StopMacro("AutoMinigame")
+            return
+        end
+    end
+    if not ticketButton then
+        StopMacro("AutoMinigame")
+        return
+    end
+
+    SetCurrentAction("오토 미니게임 - [-1 Minigame Ticket] 클릭")
+    -- ✅ [사용자 요청] 다이얼로그 선택지가 나오면 바로 클릭하지 말고 0.25초 대기 후 클릭
+    task.wait(0.25)
+    clickExactly(ticketButton)
+
+    task.wait(5)
+
+    -- ===== Watermelon으로 이동 후 E키 1번 =====
+    if not ShouldContinueMinigame() then
+        StopMacro("AutoMinigame")
+        return
+    end
+
+    local watermelon = workspace:FindFirstChild("Watermelon")
+    local movedToWatermelon = false
+    if watermelon then
+        local watermelonPos = watermelon:IsA("BasePart") and watermelon.Position
+            or (watermelon.PrimaryPart and watermelon.PrimaryPart.Position)
+        if watermelonPos then
+            -- ✅ [사용자 요청] "미니게임에서는 재설정 로직이 없게, 실패하면 한 번 더
+            -- 이동을 시도해보고 안되면 포기" - Watermelon도 동일하게 적용한다.
+            movedToWatermelon = MoveToPositionClickStyle(watermelonPos, "Watermelon", ShouldContinueMinigame, "오토 미니게임", true, true)
+            if not movedToWatermelon and ShouldContinueMinigame() then
+                movedToWatermelon = MoveToPositionClickStyle(watermelonPos, "Watermelon", ShouldContinueMinigame, "오토 미니게임", true, true)
+            end
+            if not movedToWatermelon then
+                ClickMinigameGiveUpButton()
+                task.wait(5)
+                StopMacro("AutoMinigame")
+                return
+            end
+        end
+    end
+
+    if ShouldContinueMinigame() then
+        -- ✅ [사용자 요청] Watermelon에서 E키를 누를 때도 화면을 위에서 아래로 내려다보는
+        -- 각도가 되게 한다 (Lime에서 대화를 열 때와 동일한 방식). 카메라 높이는 3스터드.
+        SetCurrentAction("오토 미니게임 - Watermelon에서 화면 직하향 중")
+        local wmCam = workspace.CurrentCamera
+        if wmCam then
+            wmCam.CameraType = Enum.CameraType.Scriptable
+            local wmChar = LocalPlayer.Character
+            local wmHrp = wmChar and wmChar:FindFirstChild("HumanoidRootPart")
+            if wmHrp then
+                -- ✅ [사용자 요청] 카메라 높이를 15 -> 3스터드로 변경
+                wmCam.CFrame = CFrame.new(wmHrp.Position + Vector3.new(0, 3, 0)) * CFrame.Angles(math.rad(-90), 0, 0)
+            end
+        end
+
+        task.wait(1)
+
+        SetCurrentAction("오토 미니게임 - Watermelon에서 E키 누르는 중")
+        vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+        task.wait(0.05)
+        vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+
+        -- ✅ [사용자 요청] "워터멜론 모델이 아예 사라진 시점을 기준으로" - 고정 대기
+        -- 대신, workspace에서 Watermelon 인스턴스 자체가 사라지는 것을 완료 신호로
+        -- 삼는다. "E키를 눌렀는데도 3초 이상 워터멜론이 사라지지 않으면 포기".
+        SetCurrentAction("오토 미니게임 - Watermelon 사라짐 대기 중")
+        local disappearWaitStart = tick()
+        local watermelonGone = false
+        while (tick() - disappearWaitStart) < 3 do
+            if not ShouldContinueMinigame() then
+                if wmCam then
+                    local wmKeepCFrame = wmCam.CFrame
+                    wmCam.CameraType = Enum.CameraType.Custom
+                    wmCam.CFrame = wmKeepCFrame
+                end
+                StopMacro("AutoMinigame")
+                return
+            end
+            if not workspace:FindFirstChild("Watermelon") then
+                watermelonGone = true
+                break
+            end
+            task.wait(0.1)
+        end
+
+        -- ✅ 화면을 위로 향한 상태 그대로 유지, CameraType만 다시 조작 가능하게(자동 상인
+        -- 구매/Lime과 동일한 방식).
+        if wmCam then
+            local wmKeepCFrame = wmCam.CFrame
+            wmCam.CameraType = Enum.CameraType.Custom
+            wmCam.CFrame = wmKeepCFrame
+        end
+
+        -- ✅ [사용자 요청] 3초 이상 워터멜론이 사라지지 않으면 포기 로직 실행
+        if not watermelonGone then
+            ClickMinigameGiveUpButton()
+            task.wait(5)
+            StopMacro("AutoMinigame")
+            return
+        end
+
+        -- ✅ [사용자 요청] "수박이 없어지고 5초 뒤에 끝나야" - 성공적으로 사라진 걸
+        -- 확인한 뒤에도 5초를 더 대기한다.
+        task.wait(5)
+    end
+
+    StopMacro("AutoMinigame")
+end
+
+RegisterSingleAction({
+    name = "AutoMinigame",
+    logName = "오토 미니게임",
+    -- ✅ 시간 기반 쿨타임이 아니라 "Minigame Ticket 2개 이상 보유"라는 순수 조건 기반
+    -- 신호라서, 매크로를 켜는 순간 이미 조건을 만족하고 있어도 정상적으로 실행돼야
+    -- 한다(forceInitialRun 기본값 true 유지).
+    isEnabled = function()
+        return Settings.Sols.autoMinigame and Settings.Sols.masterMacroEnabled
+    end,
+    isSignaled = IsAutoMinigameSignaled,
+    run = RunAutoMinigame
+})
+
+-- =============================
+-- [ 2026 Summer Event - 바다에 있는 아이템 자동 수집 ]
+-- =============================
+-- ✅ [사용자 요청] Workspace 안에 FloatingItem 모델이 있으면(여러 개 가능), Aura
+-- Storage 패널을 열어서 AbyssalHunter 아이템을 찾아 장착(또는 사용)한다.
+local function ShouldContinueSeaItemCollect()
+    return Settings.Sols.autoSeaItemCollect and Settings.Sols.masterMacroEnabled
+end
+
+-- ✅ MainInterface 하위에서 "자신의 하위(자손) 어딘가에 TextLabel이 있고, 그 Text 값이
+-- targetText인" Frame을 찾는다. 요청하신 "하위 폴더에 TextLabel이 있고, 그 TextLabel의
+-- Text 값이 X인 Frame" 조건을 그대로 구현.
+local function FindFrameByDescendantLabelText(root, targetText)
+    for _, frame in ipairs(root:GetChildren()) do
+        if frame:IsA("Frame") then
+            for _, desc in ipairs(frame:GetDescendants()) do
+                if desc:IsA("TextLabel") and desc.Text == targetText then
+                    return frame
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- ✅ 특정 Position(Scale 기준)을 가진 자식 Frame을 찾는 헬퍼. 요청하신 "Position 값이
+-- {x, 0}, {y, 0}인 Frame/ImageButton" 조건을 반복적으로 쓰기 위함.
+local function FindChildByPosition(parent, className, xScale, yScale)
+    if not parent then return nil end
+    for _, child in ipairs(parent:GetChildren()) do
+        if child:IsA(className)
+            and math.abs(child.Position.X.Scale - xScale) < 0.0001
+            and math.abs(child.Position.Y.Scale - yScale) < 0.0001 then
+            return child
+        end
+    end
+    return nil
+end
+
+local function RunAutoSeaItemCollect()
+    if not CanStartMacro("AutoSeaItemCollect") then return end
+    StartMacro("AutoSeaItemCollect")
+    SetCurrentAction("바다 아이템 자동 수집 - 시작")
+
+    -- ✅ [사용자 요청] 신호 감지 직후 재설정을 1번 한다.
+    SetCurrentAction("바다 아이템 자동 수집 - 재설정 중")
+    local oldChar = LocalPlayer.Character
+    local oldHumanoid = oldChar and oldChar:FindFirstChildOfClass("Humanoid")
+    if oldHumanoid then
+        oldHumanoid.Health = 0
+    end
+
+    SetCurrentAction("바다 아이템 자동 수집 - 캐릭터 부활 대기 중")
+    local charWaitDone = false
+    task.spawn(function()
+        pcall(function() LocalPlayer.CharacterAdded:Wait() end)
+        charWaitDone = true
+    end)
+    local charWaitStart = tick()
+    while not charWaitDone and (tick() - charWaitStart) < 30 do
+        if not ShouldContinueSeaItemCollect() then
+            StopMacro("AutoSeaItemCollect")
+            return
+        end
+        task.wait(0.1)
+    end
+
+    task.wait(1)
+
+    if not ShouldContinueSeaItemCollect() then
+        StopMacro("AutoSeaItemCollect")
+        return
+    end
+
+    local mainInterface = LocalPlayer.PlayerGui:FindFirstChild("MainInterface")
+    if not mainInterface then
+        warn("[바다 아이템 자동 수집] MainInterface를 찾지 못함")
+        StopMacro("AutoSeaItemCollect")
+        return
+    end
+
+    -- ===== Aura Storage 패널 찾기 및 열기 =====
+    local auraStorageFrame = FindFrameByDescendantLabelText(mainInterface, "Aura Storage")
+    if not auraStorageFrame then
+        warn("[바다 아이템 자동 수집] Aura Storage 프레임을 찾지 못함")
+        StopMacro("AutoSeaItemCollect")
+        return
+    end
+
+    SetCurrentAction("바다 아이템 자동 수집 - Aura Storage 여는 중")
+    auraStorageFrame.Visible = true
+
+    task.wait(0.5)
+
+    if not ShouldContinueSeaItemCollect() then
+        StopMacro("AutoSeaItemCollect")
+        return
+    end
+
+    -- ===== 정렬/필터 버튼 클릭 =====
+    -- Aura Storage -> [Position {0.995000005,0},{0.0900000036,0}] Frame ->
+    -- [Position {0,0},{0,0}] ImageButton
+    local sortOuterFrame = FindChildByPosition(auraStorageFrame, "Frame", 0.995000005, 0.0900000036)
+    if not sortOuterFrame then
+        warn("[바다 아이템 자동 수집] 정렬 1단계 Frame(0.995000005, 0.0900000036)을 찾지 못함")
+    end
+    local sortButton = sortOuterFrame and FindChildByPosition(sortOuterFrame, "ImageButton", 0, 0)
+    if sortOuterFrame and not sortButton then
+        warn("[바다 아이템 자동 수집] 정렬 버튼 ImageButton(0, 0)을 찾지 못함")
+    end
+    if not sortButton then
+        StopMacro("AutoSeaItemCollect")
+        return
+    end
+
+    SetCurrentAction("바다 아이템 자동 수집 - 정렬 버튼 클릭")
+    clickExactly(sortButton)
+
+    task.wait(0.25)
+
+    if not ShouldContinueSeaItemCollect() then
+        StopMacro("AutoSeaItemCollect")
+        return
+    end
+
+    -- ===== AbyssalHunter 아이템 찾아 스크롤 후 클릭 =====
+    -- ✅ 정확한 계층 구조가 아직 불확실하므로, Aura Storage 프레임 전체의 자손 중에서
+    -- "보이는 ScrollingFrame"을 찾는다(sortOuterFrame 계층에 국한하지 않음).
+    local scrollingFrame = nil
+    for _, child in ipairs(auraStorageFrame:GetDescendants()) do
+        if child:IsA("ScrollingFrame") and child.Visible then
+            scrollingFrame = child
+            break
+        end
+    end
+    if not scrollingFrame then
+        warn("[바다 아이템 자동 수집] 보이는 ScrollingFrame을 찾지 못함")
+        StopMacro("AutoSeaItemCollect")
+        return
+    end
+
+    -- ✅ [치명적 버그 수정] "이름에 AbyssalHunter가 포함된 TextButton을 찾지 못함" -
+    -- 실제 구조를 확인해보니 TextButton의 이름 자체는 랜덤 숫자(예: "0.1937184895715945")
+    -- 이고, "AbyssalHunter"는 그 버튼의 손자(TextButton -> TextLabel -> AbyssalHunter)
+    -- 오브젝트의 이름이었다. 이름이 정확히 "AbyssalHunter"인 자손 오브젝트를 먼저 찾고,
+    -- 그 오브젝트의 조상을 거슬러 올라가며 가장 가까운 TextButton을 찾는 방식으로 수정.
+    local abyssalHunterButton = nil
+    for _, desc in ipairs(scrollingFrame:GetDescendants()) do
+        if desc.Name == "AbyssalHunter" then
+            local ancestor = desc.Parent
+            while ancestor and ancestor ~= scrollingFrame do
+                if ancestor:IsA("TextButton") then
+                    abyssalHunterButton = ancestor
+                    break
+                end
+                ancestor = ancestor.Parent
+            end
+            if abyssalHunterButton then break end
+        end
+    end
+    if not abyssalHunterButton then
+        warn("[바다 아이템 자동 수집] AbyssalHunter를 포함한 TextButton을 찾지 못함")
+        StopMacro("AutoSeaItemCollect")
+        return
+    end
+
+    SetCurrentAction("바다 아이템 자동 수집 - AbyssalHunter 아이템으로 스크롤 중")
+    scrollingFrame.CanvasPosition = Vector2.new(0, abyssalHunterButton.AbsolutePosition.Y - scrollingFrame.AbsolutePosition.Y + scrollingFrame.CanvasPosition.Y)
+
+    task.wait(0.25)
+
+    if not ShouldContinueSeaItemCollect() then
+        StopMacro("AutoSeaItemCollect")
+        return
+    end
+
+    SetCurrentAction("바다 아이템 자동 수집 - AbyssalHunter 아이템 클릭")
+    clickExactly(abyssalHunterButton)
+
+    task.wait(0.25)
+
+    if not ShouldContinueSeaItemCollect() then
+        StopMacro("AutoSeaItemCollect")
+        return
+    end
+
+    -- ===== 확인 버튼 클릭 =====
+    -- Aura Storage -> [Position {0.00499999989,0},{0.0900000036,0}] Frame ->
+    -- [Position {0,0},{0.600000024,0}] Frame -> Frame -> [Position {0.5,0},{0.125,0}] ImageButton
+    local confirmOuterFrame = FindChildByPosition(auraStorageFrame, "Frame", 0.00499999989, 0.0900000036)
+    if not confirmOuterFrame then
+        warn("[바다 아이템 자동 수집] 확인 1단계 Frame(0.00499999989, 0.0900000036)을 찾지 못함")
+    end
+    local confirmMidFrame = confirmOuterFrame and FindChildByPosition(confirmOuterFrame, "Frame", 0, 0.600000024)
+    if confirmOuterFrame and not confirmMidFrame then
+        warn("[바다 아이템 자동 수집] 확인 2단계 Frame(0, 0.600000024)을 찾지 못함")
+    end
+    local confirmInnerFrame = confirmMidFrame and confirmMidFrame:FindFirstChildWhichIsA("Frame")
+    if confirmMidFrame and not confirmInnerFrame then
+        warn("[바다 아이템 자동 수집] 확인 3단계 Frame(임의)을 찾지 못함")
+    end
+    local confirmButton = confirmInnerFrame and FindChildByPosition(confirmInnerFrame, "ImageButton", 0.5, 0.125)
+    if confirmInnerFrame and not confirmButton then
+        warn("[바다 아이템 자동 수집] 확인 버튼 ImageButton(0.5, 0.125)을 찾지 못함")
+    end
+    if not confirmButton then
+        StopMacro("AutoSeaItemCollect")
+        return
+    end
+
+    -- ✅ [사용자 요청] 확인 버튼 하위의 TextLabel.Text가 이미 "Unequip"(이미 장착된
+    -- 상태)이면 누를 필요 없이 건너뛴다. "Equip"(장착 안 된 상태)일 때만 눌러서 장착.
+    local confirmLabel = confirmButton:FindFirstChildWhichIsA("TextLabel", true)
+    if not (confirmLabel and confirmLabel.Text == "Unequip") then
+        SetCurrentAction("바다 아이템 자동 수집 - 확인 버튼 클릭")
+        clickExactly(confirmButton)
+
+        -- ✅ [치명적 버그 수정] "아우라 장착 직후 Click to Move 설정을 만질 때 설정창이
+        -- 안 열림" - 확인 버튼을 클릭한 직후 대기 없이 바로 이동(EnsureClickToMoveMode의
+        -- ESC/Tab 메뉴 조작)으로 넘어가서, 아우라 장착 처리/UI 갱신이 아직 끝나지 않은
+        -- 상태와 ESC/Tab 입력이 겹쳐 게임 설정 메뉴가 제대로 안 열리는 문제가 있었다
+        -- (원래 아우라가 이미 장착된 채로 매크로를 켜면, 이 클릭 자체가 생략되어 문제가
+        -- 재현되지 않았던 것과 정확히 일치). 클릭이 실제로 일어났을 때만 짧게 대기해서
+        -- UI가 안정될 시간을 준다.
+        task.wait(1)
+    end
+
+    -- ✅ [사용자 요청] "중간에 다른 아우라가 장착되면 바다에 빠질 수 있음" - 이 아우라를
+    -- 낀 채로 바다에서 파밍하는 동안(앞으로 이어질 이동/파밍 로직 포함), 확인 버튼의
+    -- 텍스트가 갑자기 "Equip"(장착 해제됨)으로 바뀌면 즉시 다시 눌러서 "Unequip"
+    -- (장착) 상태로 되돌리는 백그라운드 감시를 시작한다.
+    -- ✅ [치명적 버그 수정] "조금이라도 딜레이가 있으면 바로 바다에 빠짐" - 기존엔
+    -- task.wait(0.5)로 0.5초 간격 폴링이었는데, 이러면 최악의 경우 거의 0.5초 동안
+    -- 아우라가 해제된 채로 방치될 수 있어 그 사이 바다에 빠질 위험이 있었다.
+    -- RunService.Heartbeat(매 프레임마다 실행, 보통 1/60초 이하 간격)로 바꿔서 감지
+    -- 지연을 사실상 없앤다.
+    getgenv()._SeaItemAuraConfirmButton = confirmButton
+    getgenv()._SeaItemAuraWatchActive = true
+    if not getgenv()._SeaItemAuraWatchStarted then
+        getgenv()._SeaItemAuraWatchStarted = true
+        task.spawn(function()
+            while true do
+                Services.RunService.Heartbeat:Wait()
+                -- ✅ 토글이 꺼지면(매크로 자체가 꺼지면) 감시도 함께 멈춘다.
+                if not (Settings.Sols.autoSeaItemCollect and Settings.Sols.masterMacroEnabled) then
+                    continue
+                end
+                if not getgenv()._SeaItemAuraWatchActive then continue end
+                local ok, err = pcall(function()
+                    local btn = getgenv()._SeaItemAuraConfirmButton
+                    if not (btn and btn.Parent) then return end
+                    local label = btn:FindFirstChildWhichIsA("TextLabel", true)
+                    if label and label.Text == "Equip" then
+                        SetCurrentAction("바다 아이템 자동 수집 - 아우라 재장착 중")
+                        clickExactly(btn)
+                    end
+                end)
+                if not ok then
+                    warn("[바다 아이템 자동 수집] 아우라 감시 오류: " .. tostring(err))
+                end
+            end
+        end)
+    end
+
+    -- ===== 아우라를 낀 상태로 FloatingItem들을 순회하며 수집 =====
+    -- ✅ [사용자 요청] "수박 로직처럼 FloatingItem이 없어지는 것 감지. 하지만 얘는
+    -- 별다른 대기가 없음" - 매번 workspace에서 FloatingItem 하나를 찾아 이동 후 E키를
+    -- 누르고, 그 특정 인스턴스가 사라지는지 즉시 확인한다(고정 대기 없이 폴링만).
+    while ShouldContinueSeaItemCollect() do
+        local floatingItem = workspace:FindFirstChild("FloatingItem")
+        if not floatingItem then
+            break -- 더 이상 FloatingItem이 없으면 순회 종료
+        end
+
+        local itemPos = floatingItem:IsA("BasePart") and floatingItem.Position
+            or (floatingItem.PrimaryPart and floatingItem.PrimaryPart.Position)
+        if not itemPos then
+            break
+        end
+
+        -- ✅ [사용자 요청] "미니게임 맵에서 진행하는 게 아니므로 이동 방식은 기본값
+        -- (다른 기능들이 사용하는 방식)으로" - skipReset 없이 기본 동작(실패 시 캐릭터
+        -- 재설정 후 함수 내부에서 최대 3회 자동 재시도)을 그대로 사용한다. 이름이 전부
+        -- 같은(FloatingItem) 여러 인스턴스가 있을 수 있으므로 skipCache=true만 유지.
+        local movedToItem = MoveToPositionClickStyle(itemPos, "FloatingItem", ShouldContinueSeaItemCollect, "바다 아이템 자동 수집", true)
+        if not movedToItem then
+            break -- 이동 실패 시 이 FloatingItem은 포기하고 순회를 종료(별도 포기 로직 없음)
+        end
+
+        if not ShouldContinueSeaItemCollect() then break end
+
+        -- ✅ [사용자 요청] 바다 아이템 수집할 때도 화면을 위에서 아래로 내려다보는
+        -- 각도가 되게 한다 (다른 기능들과 동일한 기본값: 15스터드).
+        SetCurrentAction("바다 아이템 자동 수집 - 화면 직하향 중")
+        local seaCam = workspace.CurrentCamera
+        if seaCam then
+            seaCam.CameraType = Enum.CameraType.Scriptable
+            local seaChar = LocalPlayer.Character
+            local seaHrp = seaChar and seaChar:FindFirstChild("HumanoidRootPart")
+            if seaHrp then
+                seaCam.CFrame = CFrame.new(seaHrp.Position + Vector3.new(0, 15, 0)) * CFrame.Angles(math.rad(-90), 0, 0)
+            end
+        end
+
+        task.wait(1)
+
+        SetCurrentAction("바다 아이템 자동 수집 - FloatingItem에서 E키 누르는 중")
+        Services.VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+        task.wait(0.05)
+        Services.VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+
+        task.wait(1)
+
+        -- ✅ 화면을 위로 향한 상태 그대로 유지, CameraType만 다시 조작 가능하게(다른
+        -- 곳들과 동일한 방식).
+        if seaCam then
+            local seaKeepCFrame = seaCam.CFrame
+            seaCam.CameraType = Enum.CameraType.Custom
+            seaCam.CFrame = seaKeepCFrame
+        end
+
+        -- ✅ 이 FloatingItem 인스턴스가 사라질 때까지 폴링(고정 대기 없음)
+        while ShouldContinueSeaItemCollect() and floatingItem.Parent do
+            task.wait(0.1)
+        end
+    end
+
+    -- ===== 종료: Aura Storage 닫기 -> 재설정 -> 캐릭터 부활 대기 -> 0.5초 대기 =====
+    getgenv()._SeaItemAuraWatchActive = false
+
+    SetCurrentAction("바다 아이템 자동 수집 - Aura Storage 닫는 중")
+    if auraStorageFrame then
+        auraStorageFrame.Visible = false
+    end
+
+    SetCurrentAction("바다 아이템 자동 수집 - 종료 재설정 중")
+    local endChar = LocalPlayer.Character
+    local endHumanoid = endChar and endChar:FindFirstChildOfClass("Humanoid")
+    if endHumanoid then
+        endHumanoid.Health = 0
+    end
+
+    SetCurrentAction("바다 아이템 자동 수집 - 종료 캐릭터 부활 대기 중")
+    local endCharWaitDone = false
+    task.spawn(function()
+        pcall(function() LocalPlayer.CharacterAdded:Wait() end)
+        endCharWaitDone = true
+    end)
+    local endCharWaitStart = tick()
+    while not endCharWaitDone and (tick() - endCharWaitStart) < 30 do
+        task.wait(0.1)
+    end
+
+    task.wait(0.5)
+
+    StopMacro("AutoSeaItemCollect")
+end
+
+RegisterSingleAction({
+    name = "AutoSeaItemCollect",
+    logName = "바다 아이템 자동 수집",
+    -- ✅ 시간 기반 쿨타임이 아니라 "FloatingItem 존재 여부"라는 순수 조건 기반 신호라서,
+    -- 매크로를 켜는 순간 이미 조건을 만족하고 있어도 정상적으로 실행돼야 한다.
+    tickInterval = 1,
+    isEnabled = function()
+        return Settings.Sols.autoSeaItemCollect and Settings.Sols.masterMacroEnabled
+    end,
+    isSignaled = IsAutoSeaItemCollectSignaled,
+    run = RunAutoSeaItemCollect
+})
+
 
 -- ✅ [사용자 요청] 바이옴별로 어떤 포션을 어떤 순서(우선순위)로, 얼마나 사용할지를
 -- 테이블로 관리한다. 새 바이옴을 추가하려면 이 테이블에 새 키를 추가하면 되고, 특정
@@ -4566,116 +5719,13 @@ local function performRareBiomePopSequence(biomeName)
     char:WaitForChild("HumanoidRootPart")
     task.wait(0.5)
 
-    -- 2. 인벤토리 열기
-    local mainInterface = LocalPlayer.PlayerGui:FindFirstChild("MainInterface")
-    local inventory = mainInterface and mainInterface:FindFirstChild("Inventory")
-    if not inventory then
-        Settings.Emergency = false; StopMacro("Emergency"); return
-    end
-
-    if not inventory.Visible then
-        local sideButtons = mainInterface:FindFirstChild("SideButtons")
-        if sideButtons then
-            for _, btn in pairs(sideButtons:GetChildren()) do
-                if btn.Name == "TextButton" and btn:FindFirstChild("Usage") and btn.Usage.Text == "Inventory" then
-                    clickExactly(btn)
-                    task.wait(0.5)
-                    break
-                end
-            end
-        end
-    end
-    if not inventory.Visible then
-        Settings.Emergency = false; StopMacro("Emergency"); return
-    end
-    -- ✅ [사용자 요청] 인벤토리 대기 시간이 체감될 만큼 길었음. 0.5 -> 0.3으로 단축.
-    task.wait(0.3)
-
-    -- ItemsTab 클릭
-    local itemsTab = inventory:FindFirstChild("Items") and inventory.Items:FindFirstChild("ItemsTab")
-    if itemsTab then clickExactly(itemsTab) end
-    task.wait(0.3)
-
-    -- ✅ [사용자 요청] 카테고리 버튼(QuickCategory) 클릭 방식 제거 - 아이템이 늘어나면
-    -- 그 카테고리 안에서도 원하는 아이템을 못 찾을 위험이 있었음. 이제 useSpecificItemByName이
-    -- 포션 자동 제작과 동일한 방식(정확한 좌표 계산 스크롤)으로 전체 목록에서 아이템을
-    -- 찾으므로, 카테고리 필터가 불필요하다.
-
-    -- 아이템 정렬 2초 대기
-    task.wait(2)
-
-    -- 2-1. 아이템 종류별 우선순위 파악 및 사용
-    -- ✅ [치명적 버그 수정] "이름이 들어가있는 다른 아이템까지 사용한다" - hasItem/getAmount가
-    -- 부분 문자열 매칭(string.find)을 써서, 예를 들어 "Warp Potion"을 확인할 때 "Super
-    -- Warp Potion" 같은 다른 아이템도 있다고 착각해 잘못된 재료 판단을 할 수 있었음.
-    -- 정확 일치(exact match)로 강화한다.
-    local function hasItem(itemName)
-        local scrollingFrame = inventory:FindFirstChild("Items") and inventory.Items:FindFirstChild("ItemGrid") and
-            inventory.Items.ItemGrid:FindFirstChild("ItemGridScrollingFrame")
-        if not scrollingFrame then return false end
-        return getgenv()._FindInventoryItemByName(scrollingFrame, itemName) ~= nil
-    end
-
-    local function getAmount(itemName)
-        local scrollingFrame = inventory:FindFirstChild("Items") and inventory.Items:FindFirstChild("ItemGrid") and
-            inventory.Items.ItemGrid:FindFirstChild("ItemGridScrollingFrame")
-        if not scrollingFrame then return 0 end
-        local item = getgenv()._FindInventoryItemByName(scrollingFrame, itemName)
-        if item then
-            local btn = item:FindFirstChild("Button")
-            if btn and btn:FindFirstChild("ItemAmount") then
-                local txt = btn.ItemAmount.Text
-                local num = txt:match("x(%d+)")
-                if num then return tonumber(num) end
-            end
-            return 1 -- fallback if it exists but no xNum
-        end
-        return 0
-    end
-
-    -- ✅ [사용자 요청] 바이옴별 포션 목록(RareBiomePotionTable)을 우선순위 순서대로
-    -- 순회하며 사용한다. 새 바이옴/포션/우선순위는 위쪽 테이블만 수정하면 되고, 이
-    -- 루프 자체는 건드릴 필요가 없다.
+    -- ✅ [사용자 요청] "여러 아이템을 사용할 때는 열고-쓰고-쓰고-닫고 방식" - 공통 함수
+    -- OpenInventoryAndUseItems로 대체 (기존 동작과 완전히 동일: ItemsTab 클릭, 2초
+    -- 정렬 대기, 우선순위 트리/독립 목록 규칙, enabled 토글까지 모두 그대로 반영됨).
+    -- 인벤토리 닫기까지 이 함수 안에서 전부 처리하므로, 여기서 별도로 닫을 필요가 없다.
     local potionList = getgenv()._RareBiomePotionTable[biomeName]
     if potionList then
-        for _, entry in ipairs(potionList) do
-            -- ✅ [치명적 버그 수정] "Cyberspace에서 워프 10개를 마시고 타이달까지 마심" -
-            -- CYBERSPACE는 "위에서부터 딱 하나만 실행됨(서로 배타적)"인 우선순위 트리(각
-            -- 항목에 condition이 있음)인데, 이 루프가 break 없이 모든 항목을 계속
-            -- 순회했다. 각 condition은 getAmount(...)로 인벤토리 개수를 그때그때 실시간
-            -- 으로 다시 계산하는데, 앞 항목이 실행되면서 실제로 아이템을 소모해버리면
-            -- (예: 워프 포션 10개 -> 0개), 원래는 배타적으로 설계된 뒤쪽 조건(예: "워프
-            -- 포션이 10개 미만이면...")이 그 변화된 값을 보고 새로 참이 되어버려, 여러
-            -- 항목이 연쇄적으로 겹쳐 실행됐다.
-            -- GLITCHED/DREAMSPACE는 반대로 condition 없이 여러 개별 아이템을 "순서대로
-            -- 가진 만큼 전부" 쓰는 목적이라, 여기서 멈추면 안 된다. condition이 있는
-            -- 항목(=배타적 우선순위 트리)만 실행 후 즉시 멈추고, condition이 없는
-            -- 항목(=순차 독립 목록)은 계속 순회하도록 구분한다.
-            if entry.enabled ~= false then
-                local shouldUse
-                if entry.condition then
-                    shouldUse = entry.condition(hasItem, getAmount)
-                else
-                    shouldUse = hasItem(entry.name)
-                end
-
-                if shouldUse then
-                    local amountToUse = entry.amount
-                    if type(amountToUse) == "function" then
-                        amountToUse = amountToUse(hasItem, getAmount)
-                    end
-                    useSpecificItemByNameWithAmount(entry.name, amountToUse)
-                    if entry.condition then
-                        break
-                    end
-                end
-            end
-        end
-    end
-
-    task.wait(1)
-    if inventory and inventory.Visible then
-        inventory.Visible = false
+        OpenInventoryAndUseItems(potionList, nil, "레어 바이옴 자동 팝핑", 1)
     end
 
     Settings.Emergency = false
@@ -6273,44 +7323,15 @@ local function updateAutoFishState()
 
                             -- ! - 1
                             SetCurrentAction("낚시 - Place1에서 낚싯대 던지는 중")
-                            local cam = workspace.CurrentCamera
-                            local originalCamCFrame = nil
-                            local originalCamType = nil
-
-                            if cam then
-                                originalCamType = cam.CameraType
-                                originalCamCFrame = cam.CFrame
-                                cam.CameraType = Enum.CameraType.Scriptable
-                                local p1 = workspace:FindFirstChild("ScriptParts") and
-                                    workspace.ScriptParts:FindFirstChild("Place1")
-                                if p1 then
-                                    cam.CFrame = CFrame.new(p1.Position) * CFrame.Angles(math.rad(-90), 0, 0)
-                                else
-                                    cam.CFrame = CFrame.new(55, 99, -279) * CFrame.Angles(math.rad(-90), 0, 0)
-                                end
-                            end
-
-                            task.wait(1)
-
-                            local viewport = workspace.CurrentCamera.ViewportSize
-                            local centerX = math.floor(viewport.X / 2)
-                            local centerY = math.floor(viewport.Y / 2)
-
-                            showPremiumIndicator(centerX, centerY)
-                            vim:SendMouseButtonEvent(centerX, centerY, 1, true, game, 0)
-                            task.wait(0.05)
-                            vim:SendMouseButtonEvent(centerX, centerY, 1, false, game, 0)
-                            lastActivityTime = tick() -- [ACT] Phase1 cast
-
-                            task.wait(0.1)
-
-                            if cam and originalCamCFrame and originalCamType then
-                                cam.CFrame = originalCamCFrame
-                                cam.CameraType = originalCamType
-                            end
-
                             local p1 = workspace:FindFirstChild("ScriptParts") and
                                 workspace.ScriptParts:FindFirstChild("Place1")
+                            local p1 = workspace:FindFirstChild("ScriptParts") and
+                                workspace.ScriptParts:FindFirstChild("Place1")
+                            local place1TargetPos = p1 and p1.Position or Vector3.new(55, 99, -279)
+
+                            CameraLookDownAndClick(place1TargetPos)
+                            lastActivityTime = tick() -- [ACT] Phase1 cast
+
                             local touched = false
 
                             local function checkTouched()
@@ -6676,45 +7697,14 @@ local function updateAutoFishState()
                                     task.wait(0.5)
                                     continue
                                 end
-                                cam = workspace.CurrentCamera
-                                originalCamCFrame = nil
-                                originalCamType = nil
-
                                 SetCurrentAction("낚시 - Place2에서 낚싯대 던지는 중")
-                                if cam then
-                                    originalCamType = cam.CameraType
-                                    originalCamCFrame = cam.CFrame
-                                    cam.CameraType = Enum.CameraType.Scriptable
-                                    local p2 = workspace:FindFirstChild("ScriptParts") and
-                                        workspace.ScriptParts:FindFirstChild("Place2")
-                                    if p2 then
-                                        cam.CFrame = CFrame.new(p2.Position) * CFrame.Angles(math.rad(-90), 0, 0)
-                                    else
-                                        cam.CFrame = CFrame.new(109, 107, -296) * CFrame.Angles(math.rad(-90), 0, 0)
-                                    end
-                                end
-
-                                task.wait(1)
-
-                                local viewport2 = workspace.CurrentCamera.ViewportSize
-                                local centerX2 = math.floor(viewport2.X / 2)
-                                local centerY2 = math.floor(viewport2.Y / 2)
-
-                                showPremiumIndicator(centerX2, centerY2)
-                                vim:SendMouseButtonEvent(centerX2, centerY2, 1, true, game, 0)
-                                task.wait(0.05)
-                                vim:SendMouseButtonEvent(centerX2, centerY2, 1, false, game, 0)
-                                lastActivityTime = tick() -- [ACT] Phase2 cast
-
-                                task.wait(0.1)
-
-                                if cam and originalCamCFrame and originalCamType then
-                                    cam.CFrame = originalCamCFrame
-                                    cam.CameraType = originalCamType
-                                end
-
                                 local p2 = workspace:FindFirstChild("ScriptParts") and
                                     workspace.ScriptParts:FindFirstChild("Place2")
+                                local place2TargetPos = p2 and p2.Position or Vector3.new(109, 107, -296)
+
+                                CameraLookDownAndClick(place2TargetPos)
+                                lastActivityTime = tick() -- [ACT] Phase2 cast
+
                                 local touched2 = false
 
                                 local function checkTouched2()
@@ -7430,6 +8420,27 @@ FeatureTab.Toggle({
     end
 })
 
+-- ✅ [사용자 요청] "2026 Summer Event" - FeatureTab(기능 설정) 맨 아래에 새 라벨과
+-- 토글 2개(오토 미니게임 / 바다에 있는 아이템 자동 수집)를 추가한다.
+-- ✅ [사용자 요청] 바다 아이템 자동 수집이 오토 미니게임보다 더 중요하므로 위로 배치.
+FeatureTab.Label({ Text = "2026 Summer Event" })
+
+FeatureTab.Toggle({
+    Text = "바다에 있는 아이템 자동 수집",
+    Enabled = Settings.Sols.autoSeaItemCollect,
+    Callback = function(v)
+        Settings.Sols.autoSeaItemCollect = v
+    end
+})
+
+FeatureTab.Toggle({
+    Text = "오토 미니게임",
+    Enabled = Settings.Sols.autoMinigame,
+    Callback = function(v)
+        Settings.Sols.autoMinigame = v
+    end
+})
+
 -- =============================
 -- [ 탭2-2: 기타 설정 - 메모리 매치 이동 / 오토 아이템 사용 부가 토글 ]
 -- =============================
@@ -7891,230 +8902,24 @@ local function RunAutoMemoryMatchLogic()
         return nil
     end
 
-    local function ensureClickToMoveMode()
-        -- ✅ [사용자 요청] 매크로 중단 시 즉시 멈추도록 토글 체크 추가
-        if not checkToggles() then return false end
-
-        local coreGui = game:GetService("CoreGui")
-        local vim = Services.VirtualInputManager
-
-        local isTargetPos = false
-        local selector = nil
-
-        local success, result = pcall(function()
-            local basePage = coreGui.RobloxGui.SettingsClippingShield.SettingsShield.MenuContainer.Page
-                .PageViewClipper.PageView.PageViewInnerFrame.Page
-            selector = basePage["Movement ModeFrame"].Selector
-            return selector.Selection3
-        end)
-
-        if success and result and result.Position == UDim2.new(0, 32, 0, 0) then
-            return true
-        end
-
-
-        -- 메뉴 열기 (ESC -> Tab)
-        vim:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
-        task.wait(1.5)
-        vim:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
-
-        vim:SendKeyEvent(true, Enum.KeyCode.Tab, false, game)
-        task.wait(1.5)
-        vim:SendKeyEvent(false, Enum.KeyCode.Tab, false, game)
-
-        -- ✅ [사용자 요청] 메뉴를 연 직후에도 토글 체크 - 꺼졌으면 메뉴 닫고 즉시 종료
-        if not checkToggles() then
-            vim:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
-            task.wait(1)
-            vim:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
-            return false
-        end
-
-        pcall(function()
-            local basePage = coreGui.RobloxGui.SettingsClippingShield.SettingsShield.MenuContainer.Page
-                .PageViewClipper.PageView.PageViewInnerFrame.Page
-            selector = basePage["Movement ModeFrame"].Selector
-        end)
-
-        local hoverSuccess = false
-        if selector then
-            for i = 1, 50 do
-                if not checkToggles() then break end
-                vim:SendKeyEvent(true, Enum.KeyCode.Down, false, game)
-                task.wait(0.35)
-                vim:SendKeyEvent(false, Enum.KeyCode.Down, false, game)
-                if selector.GuiState == Enum.GuiState.Hover then
-                    hoverSuccess = true
-                    break
-                end
-            end
-
-            if not hoverSuccess and checkToggles() then
-                for i = 1, 50 do
-                    if not checkToggles() then break end
-                    vim:SendKeyEvent(true, Enum.KeyCode.Up, false, game)
-                    task.wait(0.35)
-                    vim:SendKeyEvent(false, Enum.KeyCode.Up, false, game)
-                    if selector.GuiState == Enum.GuiState.Hover then
-                        hoverSuccess = true
-                        break
-                    end
-                end
-            end
-        end
-
-        if hoverSuccess then
-            local targetReached = false
-            -- ✅ [버그 수정] 무한 루프 방지용 넉넉한 리미트 (최대 30회 시도, 약 30초)
-            local rightAttempts = 0
-            while checkToggles() and rightAttempts < 30 do
-                rightAttempts = rightAttempts + 1
-                local s3 = nil
-                pcall(function() s3 = selector.Selection3 end)
-                if s3 and s3.Position == UDim2.new(0, 32, 0, 0) then
-                    targetReached = true
-                    break
-                end
-
-                vim:SendKeyEvent(true, Enum.KeyCode.Right, false, game)
-                task.wait(1)
-                vim:SendKeyEvent(false, Enum.KeyCode.Right, false, game)
-            end
-
-            if targetReached then
-                task.wait(1)
-                vim:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
-                task.wait(1.5)
-                vim:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
-                return true
-            end
-        end
-
-        vim:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
-        task.wait(1)
-        vim:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
-        return false
-    end
-
+    -- ✅ [사용자 요청] "메모리 매치는 아직 구버전 이동 방식을 씀" - 예전엔 최대 재시도
+    -- 10회, 정지 판정 시 스페이스바 없이 바로 실패 처리하는 자체 로직을 썼다. 요청하신
+    -- 새 규칙(3초 멈춤 -> 스페이스바 -> 다시 3초 멈춤 -> 그때 실패, 최대 재시도 3회)이
+    -- 반영된 공통 함수 MoveToPositionClickStyle로 완전히 교체한다.
     local function moveToPlace3AutoFishStyle()
         -- ✅ [사용자 요청] 이동 시작 전 1초 대기
         task.wait(1)
-        -- ✅ [사용자 요청] 매크로 중단 시 그 즉시 멈추도록 토글 체크 추가
-        if not checkToggles() then return end
-
-        ensureClickToMoveMode()
         if not checkToggles() then return end
 
         local scriptParts = workspace:FindFirstChild("ScriptParts")
         local p3 = scriptParts and scriptParts:FindFirstChild("Place3")
         if not p3 then
-            p3 = Instance.new("Part")
-            p3.Name = "Place3"
-            p3.Position = Vector3.new(134.22, 92.00, -386.61)
-            p3.Anchored = true
-            p3.CanCollide = false
-            p3.Transparency = 1
-            p3.Parent = scriptParts or workspace
+            local place3Position = Vector3.new(134.22, 92.00, -386.61)
+            MoveToPositionClickStyle(place3Position, "Place3", checkToggles, "메모리 매치")
+            return
         end
 
-        -- ✅ [치명적 버그 수정] 낚시 기능(Phase1/Phase2 캐스팅 이동)과 동일한 방식 적용:
-        -- 이동이 실제로 성공했는지(도착했는지) 감지하고, 실패했으면 성공한 것으로 오판하고
-        -- 그냥 넘어가지 않고 캐릭터를 리셋한 뒤 처음부터 다시 이동을 시도한다.
-        -- (기존엔 "3초간 멈춰있으면 도착한 것"으로만 판단해서, 중간에 막혀서 멈춘 경우에도
-        --  무조건 성공 처리하고 다음 단계로 진행해버리는 문제가 있었음)
-        -- ✅ [버그 수정] 무한 루프 방지용 넉넉한 리미트 (최대 10회 시도)
-        local place3Attempts = 0
-        while checkToggles() and place3Attempts < 10 do
-            place3Attempts = place3Attempts + 1
-            SetCurrentAction("메모리 매치 - Place3으로 이동 중 (시도 " .. place3Attempts .. "/10)")
-            local cam = workspace.CurrentCamera
-            local originalCamCFrame = nil
-            local originalCamType = nil
-
-            if cam then
-                originalCamType = cam.CameraType
-                originalCamCFrame = cam.CFrame
-                cam.CameraType = Enum.CameraType.Scriptable
-                cam.CFrame = CFrame.new(p3.Position) * CFrame.Angles(math.rad(-90), 0, 0)
-            end
-
-            task.wait(1)
-
-            -- ✅ [사용자 요청] 카메라를 이미 조작했으니, 꺼졌으면 클릭하지 말고 카메라부터 원복 후 종료
-            if not checkToggles() then
-                if cam and originalCamCFrame and originalCamType then
-                    cam.CFrame = originalCamCFrame
-                    cam.CameraType = originalCamType
-                end
-                return
-            end
-
-            local viewport = workspace.CurrentCamera.ViewportSize
-            local centerX = math.floor(viewport.X / 2)
-            local centerY = math.floor(viewport.Y / 2)
-
-            showPremiumIndicator(centerX, centerY)
-            Services.VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 1, true, game, 0)
-            task.wait(0.05)
-            Services.VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 1, false, game, 0)
-
-            task.wait(0.1)
-
-            if cam and originalCamCFrame and originalCamType then
-                cam.CFrame = originalCamCFrame
-                cam.CameraType = originalCamType
-            end
-
-            -- 도착 확인 (낚시의 checkTouched 방식과 동일)
-            local function checkTouchedPlace3()
-                local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if hrp and p3 and (hrp.Position - p3.Position).Magnitude < 10 then
-                    return true
-                end
-                return false
-            end
-
-            local touched = checkTouchedPlace3()
-
-            if not touched then
-                local isStoppedTime = 0
-                while isStoppedTime < 3 and checkToggles() do
-                    task.wait(0.1)
-                    if checkTouchedPlace3() then
-                        touched = true
-                        break
-                    end
-                    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                    if hrp and hrp.Velocity.Magnitude < 1 then
-                        isStoppedTime = isStoppedTime + 0.1
-                    else
-                        isStoppedTime = 0
-                    end
-                end
-
-                if not touched then
-                    -- 낚시처럼 한 번 더 재확인
-                    touched = checkTouchedPlace3()
-                end
-            end
-
-            if touched then
-                -- ✅ [사용자 요청] 이동 완료 후 1초 대기
-                task.wait(1)
-                return
-            end
-
-            -- ✅ [버그 수정] 이동 실패! 낚시와 동일하게 캐릭터를 강제 리셋하고 처음부터 재시도.
-            local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
-            if hum then
-                hum.Health = 0
-            end
-            task.wait(5)
-            -- 반복문 처음으로 돌아가서 이동을 처음부터 재시도
-        end
-
-        if place3Attempts >= 10 then
-        end
+        MoveToPositionClickStyle(p3.Position, "Place3", checkToggles, "메모리 매치")
     end
 
     local function executeSolaraAdClick()
@@ -8217,11 +9022,35 @@ local function RunAutoMemoryMatchLogic()
             moveToPlace3AutoFishStyle()
             if not checkToggles() then break end
 
+            -- ✅ [사용자 요청] 메모리 매치를 할 때도 화면을 위에서 아래로 내려다보는
+            -- 각도가 되게 한다 (상인 자동 구매/오토 미니게임과 동일한 방식).
+            SetCurrentAction("메모리 매치 - 화면 직하향 중 (광고 루프)")
+            local mmCam2 = workspace.CurrentCamera
+            if mmCam2 then
+                mmCam2.CameraType = Enum.CameraType.Scriptable
+                local mmChar2 = LocalPlayer.Character
+                local mmHrp2 = mmChar2 and mmChar2:FindFirstChild("HumanoidRootPart")
+                if mmHrp2 then
+                    mmCam2.CFrame = CFrame.new(mmHrp2.Position + Vector3.new(0, 15, 0)) * CFrame.Angles(math.rad(-90), 0, 0)
+                end
+            end
+
+            task.wait(1)
+
             -- E 키 누르기
             SetCurrentAction("메모리 매치 - E키 입력 중")
             Services.VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
             task.wait(0.1)
             Services.VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+
+            task.wait(1)
+
+            -- ✅ 화면을 위로 향한 상태 그대로 유지, CameraType만 다시 조작 가능하게.
+            if mmCam2 then
+                local mmKeepCFrame2 = mmCam2.CFrame
+                mmCam2.CameraType = Enum.CameraType.Custom
+                mmCam2.CFrame = mmKeepCFrame2
+            end
 
             -- ✅ [사용자 요청] E키 누른 후 0.1초마다 계속 폴링하지 않고,
             -- 먼저 7초를 통째로 대기한 다음, 그 시점에 딱 한 번만 Visible 여부를 체크한다.
@@ -8293,11 +9122,36 @@ local function RunAutoMemoryMatchLogic()
         moveToPlace3AutoFishStyle()
         if not checkToggles() then return end
 
+        -- ✅ [사용자 요청] 메모리 매치를 할 때도 화면을 위에서 아래로 내려다보는 각도가
+        -- 되게 한다 (상인 자동 구매/오토 미니게임과 동일한 방식).
+        SetCurrentAction("메모리 매치 - 화면 직하향 중")
+        local mmCam = workspace.CurrentCamera
+        if mmCam then
+            mmCam.CameraType = Enum.CameraType.Scriptable
+            local mmChar = LocalPlayer.Character
+            local mmHrp = mmChar and mmChar:FindFirstChild("HumanoidRootPart")
+            if mmHrp then
+                mmCam.CFrame = CFrame.new(mmHrp.Position + Vector3.new(0, 15, 0)) * CFrame.Angles(math.rad(-90), 0, 0)
+            end
+        end
+
+        task.wait(1)
+
         -- E키 한번 누르기
         SetCurrentAction("메모리 매치 - E키 입력 중")
         Services.VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
         task.wait(0.1)
         Services.VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+
+        task.wait(1)
+
+        -- ✅ 화면을 위로 향한 상태 그대로 유지, CameraType만 다시 조작 가능하게(다른
+        -- 곳들과 동일한 방식).
+        if mmCam then
+            local mmKeepCFrame = mmCam.CFrame
+            mmCam.CameraType = Enum.CameraType.Custom
+            mmCam.CFrame = mmKeepCFrame
+        end
 
         -- 3.5초 대기
         task.wait(3.5)
@@ -8778,11 +9632,33 @@ local function RunAutoMemoryMatchLogic()
         if not checkToggles() then return end
         task.wait(0.5)
 
+        -- ✅ [사용자 요청] 메모리 매치를 할 때도 화면을 위에서 아래로 내려다보는 각도가
+        -- 되게 한다 (상인 자동 구매/오토 미니게임과 동일한 방식).
+        SetCurrentAction("메모리 매치 - 종료 화면 직하향 중")
+        local mmCam3 = workspace.CurrentCamera
+        if mmCam3 then
+            mmCam3.CameraType = Enum.CameraType.Scriptable
+            local mmChar3 = LocalPlayer.Character
+            local mmHrp3 = mmChar3 and mmChar3:FindFirstChild("HumanoidRootPart")
+            if mmHrp3 then
+                mmCam3.CFrame = CFrame.new(mmHrp3.Position + Vector3.new(0, 15, 0)) * CFrame.Angles(math.rad(-90), 0, 0)
+            end
+        end
+
+        task.wait(1)
+
         SetCurrentAction("메모리 매치 - 종료 E키 입력 중")
         Services.VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
         task.wait(0.1)
         Services.VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
         task.wait(0.5)
+
+        -- ✅ 화면을 위로 향한 상태 그대로 유지, CameraType만 다시 조작 가능하게.
+        if mmCam3 then
+            local mmKeepCFrame3 = mmCam3.CFrame
+            mmCam3.CameraType = Enum.CameraType.Custom
+            mmCam3.CFrame = mmKeepCFrame3
+        end
 
         -- ✅ [치명적 버그 수정] 기존엔 E키 누른 뒤 0.5초 딱 한 번만 대기하고 바로
         -- innerFrame.Visible을 확인해서, 게임 쪽 UI가 그 짧은 시간 안에 아직 갱신이
