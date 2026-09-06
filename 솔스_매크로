@@ -6,7 +6,7 @@
 -- 예: FATAL_ERROR_CODE = "Cannot found Username"
 --     -> 화면/콘솔에 `Fatal error. Code : "Cannot found Username"` 이 표시되고 종료
 local SHOW_FATAL_ERROR = true
-local FATAL_ERROR_CODE = "Cannot found Players.RN_Gelidness"
+local FATAL_ERROR_CODE = "Unknown Error"
 
 if SHOW_FATAL_ERROR then
     local message = string.format('Fatal error. Code : "%s"', FATAL_ERROR_CODE)
